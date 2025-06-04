@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Pipeline Inspection Data Visualization
 
 This is a Streamlit application for visualizing pipeline inspection data. The original code has been refactored into a modular structure for better organization and maintainability.
@@ -46,3 +47,6 @@ The application processes raw CSV data into two main tables:
 ## Notes
 
 This code reorganization maintains all original functionality while improving maintainability. No functionality has been changed - only the organization of the code into separate files.
+=======
+# Fitness-For-Services
+>>>>>>> 2a5f3b9a1b8d5833b152163627342a03f49d85cc
