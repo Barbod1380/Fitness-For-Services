@@ -448,6 +448,16 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                         st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
                         st.dataframe(summary_table, use_container_width=True, hide_index=True)
                         st.markdown('</div>', unsafe_allow_html=True)
+                        st.warning("""
+                            ⚠️ **Important Assumptions**:
+                            - Growth rates are assumed to be LINEAR (constant over time)
+                            - Does not account for:
+                            - Accelerating corrosion
+                            - Environmental changes
+                            - Cathodic protection effectiveness
+                            - Coating degradation
+                        """)
+        
                         
                         # Create sub-tabs for different visualizations
                         remaining_life_subtabs = st.tabs([

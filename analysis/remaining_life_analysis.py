@@ -148,7 +148,7 @@ def calculate_remaining_life_single_defect(defect: pd.Series, growth_rate_pct_pe
         # Calculate time to reach critical threshold
         depth_difference = critical_threshold_pct - current_depth_pct
         remaining_life_years = depth_difference / growth_rate_pct_per_year
-        
+
         # Determine status based on remaining life
         if remaining_life_years <= 2:
             status = 'HIGH_RISK'

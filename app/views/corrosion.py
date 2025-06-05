@@ -1,6 +1,8 @@
 """
 Corrosion assessment view for the Pipeline Analysis application.
 """
+
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,7 +14,7 @@ from app.ui_components import create_metrics_row
 from app.services.state_manager import get_state
 
 
-def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa):
+def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.39):
     """
     Calculate remaining strength and failure pressure using the
     Original ASME B31G Level-1 method (2012 edition), with defect depth given as a percentage.
@@ -24,6 +26,7 @@ def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_th
     - pipe_diameter_mm: Outside diameter of pipe (D) in millimeters.
     - wall_thickness_mm: Nominal wall thickness (t) in millimeters.
     - smys_mpa: Specified Minimum Yield Strength (SMYS) in MPa.
+    - safety_factor: Safety factor to apply (default: 1.39 for gas pipelines)
 
     Returns:
     - dict containing:
@@ -34,6 +37,7 @@ def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_th
         • remaining_strength_pct: (1 - d/t)×100 (0 if invalid)
         • folias_factor_M: Folias factor M (None if not applicable or invalid)
         • flaw_type_applied: "Short Flaw" or "Long Flaw" or "N/A"
+        • safety_factor_used: The safety factor that was applied
         • note: Explanation if invalid or which formulation was used
     """
 
@@ -118,29 +122,27 @@ def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_th
         M_calculated = math.sqrt(1.0 + 0.8 * z) # Calculated for reporting, not used in this Pf formula.
         failure_pressure_mpa = P_o_mpa * (1.0 - d_t)
 
-    # 11. Apply a safety factor to compute "safe pressure"
-    # Using SF = 1.39 for gas pipelines (common for B31G Level 1, aligns with design factors)
-    # or 1.25 for liquid. Let's make it an explicit choice or parameter in a real tool.
-    # For this example, we'll stick to the user's previous 1.25.
-    safety_factor = 1.25 # This should ideally be an input or configurable
+    # 11. Apply the user-specified or default safety factor
     safe_pressure_mpa = failure_pressure_mpa / safety_factor
 
     # 12. Compute remaining strength as a percentage of original (based on remaining ligament)
     remaining_strength_pct = (1.0 - d_t) * 100.0
 
-    # 13. Return the results
+    # 13. Return the results with safety factor included
     return {
         "method": "B31G Original Level-1",
-        "safe": True, # If we reach here, it passed initial checks
+        "safe": True,
         "failure_pressure_mpa": failure_pressure_mpa,
         "safe_pressure_mpa": safe_pressure_mpa,
         "remaining_strength_pct": remaining_strength_pct,
         "folias_factor_M": M_calculated,
         "flaw_type_applied": flaw_type_note,
-        "note": f"Calculation based on {flaw_type_note} criteria. z={z:.2f}, d/t={d_t:.3f}"
+        "safety_factor_used": safety_factor,  # Add this
+        "note": f"Calculation based on {flaw_type_note} criteria. z={z:.2f}, d/t={d_t:.3f}. Safety Factor: {safety_factor}"
     }
 
-def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa):
+
+def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.39):
     """
     Calculate remaining strength and failure pressure using the Modified B31G
     Level-1 method (often referred to as the 0.85dL method).
@@ -151,6 +153,7 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
     - pipe_diameter_mm: Outside diameter of pipe (D) in millimeters.
     - wall_thickness_mm: Nominal wall thickness (t) in millimeters.
     - smys_mpa: Specified Minimum Yield Strength (SMYS) in MPa.
+    - safety_factor: Safety factor to apply (default: 1.39 for gas pipelines)
 
     Returns:
     - dict containing:
@@ -247,10 +250,7 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
     # Pf = (2 * Sf * t) / D
     failure_pressure_mpa = (2.0 * failure_stress_mpa * wall_thickness_mm) / pipe_diameter_mm
     
-    # Safe Operating Pressure (P_safe)
-    # Safety factor can vary (e.g., 1.39 for gas Class 1, 1.25 for liquid)
-    # Using 1.39 as a common example for Modified B31G application.
-    safety_factor = 1.39 # This should ideally be an input or configurable based on code/operator requirements.
+    # Safe Operating Pressure (P_safe) with user-specified safety factor
     safe_pressure_mpa = failure_pressure_mpa / safety_factor
 
     # Remaining Strength Factor (RSF) as a percentage
@@ -269,8 +269,17 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
         "note": f"Calculation successful. z={z:.2f}, d/t={d_t:.3f}, A/A0_ratio={A_A0_ratio:.3f}"
     }
 
-def calculate_rstreng(defect_depth_pct, defect_length_mm, defect_width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa):
+
+
+def calculate_effective_area_method(defect_depth_pct, defect_length_mm, defect_width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.5):
     """
+    Calculate remaining strength using an Effective Area method.
+    
+    NOTE: This is NOT true RSTRENG analysis. True RSTRENG requires detailed
+    river-bottom profile data. This method uses a simplified effective area
+    approach that may be conservative or non-conservative depending on the
+    actual defect profile.
+
     Calculate remaining strength using a simplified RSTRENG method.
     This is a simplified implementation as the actual method requires detailed river-bottom profile.
     
@@ -371,7 +380,6 @@ def calculate_rstreng(defect_depth_pct, defect_length_mm, defect_width_mm, pipe_
     failure_pressure_mpa = (2.0 * failure_stress_mpa * wall_thickness_mm) / pipe_diameter_mm
     
     # Apply safety factor
-    safety_factor = 1.5  # Common for RSTRENG
     safe_pressure_mpa = failure_pressure_mpa / safety_factor
     
     # Calculate remaining strength
@@ -390,9 +398,9 @@ def calculate_rstreng(defect_depth_pct, defect_length_mm, defect_width_mm, pipe_
 
 
 
-def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa):
+def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, missing_wt_handling='error'):
     """
-    Compute B31G, Modified B31G, and RSTRENG metrics for all defects in the dataframe.
+    Compute B31G, Modified B31G, and Effective Area metrics for all defects in the dataframe.
     Wall thickness is extracted from joints_df based on each defect's joint number.
     
     Parameters:
@@ -400,6 +408,8 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     - joints_df: DataFrame containing joint information with wall thickness
     - pipe_diameter_mm: Outside diameter of pipe in millimeters
     - smys_mpa: Specified Minimum Yield Strength in MPa
+    - safety_factor: Safety factor to apply to all calculations
+    - missing_wt_handling: How to handle missing wall thickness ('error', 'skip', or 'user_default')
     
     Returns:
     - DataFrame with additional columns for corrosion assessment metrics
@@ -414,8 +424,11 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     else:
         raise ValueError("joints_df must contain 'joint number' and 'wt nom [mm]' columns")
     
+    # Track missing wall thickness cases
+    missing_wt_defects = []
+    
     # Initialize new columns for each method
-    methods = ['b31g', 'modified_b31g', 'rstreng']
+    methods = ['b31g', 'modified_b31g', 'effective_area']  # Renamed from rstreng
     
     for method in methods:
         enhanced_df[f'{method}_safe'] = True
@@ -460,10 +473,21 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         # Get wall thickness for this defect's joint
         wall_thickness_mm = wt_lookup.get(joint_number)
         if wall_thickness_mm is None or pd.isna(wall_thickness_mm):
-            for method in methods:
-                enhanced_df.loc[idx, f'{method}_safe'] = False
-                enhanced_df.loc[idx, f'{method}_notes'] = f"Wall thickness not found for joint {joint_number}"
-            continue
+            missing_wt_defects.append({
+                'index': idx,
+                'joint_number': joint_number,
+                'log_dist': row.get('log dist. [m]', 'Unknown')
+            })
+            
+            if missing_wt_handling == 'error':
+                # Don't process this defect, mark as unsafe
+                for method in methods:
+                    enhanced_df.loc[idx, f'{method}_safe'] = False
+                    enhanced_df.loc[idx, f'{method}_notes'] = f"CRITICAL: Wall thickness not found for joint {joint_number}"
+                continue
+            elif missing_wt_handling == 'skip':
+                # Skip this defect entirely
+                continue
         
         # Store the wall thickness used
         enhanced_df.loc[idx, 'wall_thickness_used_mm'] = wall_thickness_mm
@@ -477,7 +501,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         
         # Calculate B31G using existing function
         try:
-            b31g_result = calculate_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa)
+            b31g_result = calculate_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
             enhanced_df.loc[idx, 'b31g_safe'] = b31g_result['safe']
             enhanced_df.loc[idx, 'b31g_failure_pressure_mpa'] = b31g_result['failure_pressure_mpa']
             enhanced_df.loc[idx, 'b31g_safe_pressure_mpa'] = b31g_result['safe_pressure_mpa']
@@ -491,7 +515,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         
         # Calculate Modified B31G using existing function
         try:
-            mod_b31g_result = calculate_modified_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa)
+            mod_b31g_result = calculate_modified_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
             enhanced_df.loc[idx, 'modified_b31g_safe'] = mod_b31g_result['safe']
             enhanced_df.loc[idx, 'modified_b31g_failure_pressure_mpa'] = mod_b31g_result['failure_pressure_mpa']
             enhanced_df.loc[idx, 'modified_b31g_safe_pressure_mpa'] = mod_b31g_result['safe_pressure_mpa']
@@ -505,7 +529,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         
         # Calculate RSTRENG using existing function
         try:
-            rstreng_result = calculate_rstreng(depth_pct, length_mm, width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa)
+            rstreng_result = calculate_effective_area_method(depth_pct, length_mm, width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
             enhanced_df.loc[idx, 'rstreng_safe'] = rstreng_result['safe']
             enhanced_df.loc[idx, 'rstreng_failure_pressure_mpa'] = rstreng_result['failure_pressure_mpa']
             enhanced_df.loc[idx, 'rstreng_safe_pressure_mpa'] = rstreng_result['safe_pressure_mpa']
@@ -517,7 +541,8 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
             enhanced_df.loc[idx, 'rstreng_safe'] = False
             enhanced_df.loc[idx, 'rstreng_notes'] = f"Calculation error: {str(e)}"
     
-    return enhanced_df
+    return enhanced_df, missing_wt_defects
+
 
 def get_wall_thickness_statistics(joints_df):
     """
@@ -545,6 +570,7 @@ def get_wall_thickness_statistics(joints_df):
         "std": wt_values.std(),
         "unique_values": sorted(wt_values.unique())
     }
+
 
 def create_assessment_summary_stats(enhanced_df):
     """
@@ -774,7 +800,7 @@ def calculate_intact_pipe_values(pipe_diameter_mm, wall_thickness_mm, smys_mpa):
         for method_name, calc_func in [
             ('b31g', calculate_b31g),
             ('modified_b31g', calculate_modified_b31g),
-            ('rstreng', calculate_rstreng)
+            ('rstreng', calculate_effective_area_method)
         ]:
             if method_name == 'rstreng':
                 # RSTRENG needs width parameter, use a small nominal value
@@ -811,29 +837,39 @@ def calculate_intact_pipe_values(pipe_diameter_mm, wall_thickness_mm, smys_mpa):
     
     return intact_values
 
-def aggregate_assessment_results_by_joint(enhanced_df, joints_df, pipe_diameter_mm=None, smys_mpa=None):
+
+
+def aggregate_assessment_results_by_joint(enhanced_df, joints_df, pipe_diameter_mm=None, smys_mpa=None, safety_factor=1.39):
     """
     Enhanced aggregation that includes wall thickness data for visualization.
+    NEVER uses silent defaults for critical parameters.
     
     Parameters:
     - enhanced_df: DataFrame with computed corrosion metrics
     - joints_df: DataFrame with joint information
     - pipe_diameter_mm: Pipe diameter in mm (needed for intact pipe calculations)
     - smys_mpa: SMYS in MPa (needed for intact pipe calculations)
+    - safety_factor: Safety factor used in calculations
     
     Returns:
     - DataFrame with joint-level aggregated assessment results including wall thickness
     """
     # Focus only on the 3 core metrics
-    methods = ['b31g', 'modified_b31g', 'rstreng']
+    methods = ['b31g', 'modified_b31g', 'effective_area']
     metrics = ['failure_pressure_mpa', 'safe_pressure_mpa', 'remaining_strength_pct']
     
     # Start with joints dataframe (include wall thickness)
     if 'wt nom [mm]' in joints_df.columns:
         joint_summary = joints_df[['joint number', 'log dist. [m]', 'joint length [m]', 'wt nom [mm]']].copy()
     else:
-        joint_summary = joints_df[['joint number', 'log dist. [m]', 'joint length [m]']].copy()
-        joint_summary['wt nom [mm]'] = 10.0  # Default fallback
+        # This is a critical error - we cannot proceed without wall thickness
+        raise ValueError("CRITICAL: joints_df must contain 'wt nom [mm]' column for corrosion assessment")
+    
+    # Check for any missing wall thickness values
+    missing_wt_joints = joint_summary[joint_summary['wt nom [mm]'].isna()]
+    if not missing_wt_joints.empty:
+        raise ValueError(f"CRITICAL: {len(missing_wt_joints)} joints have missing wall thickness values. "
+                        f"Joint numbers: {missing_wt_joints['joint number'].tolist()}")
     
     # Calculate intact pipe values if parameters provided
     intact_values = None
@@ -927,7 +963,7 @@ def aggregate_assessment_results_by_joint(enhanced_df, joints_df, pipe_diameter_
 
 
 def render_corrosion_assessment_view():
-    """Display the corrosion assessment view with B31G, Modified B31G, and RSTRENG calculations plus visualizations."""
+    """Display the corrosion assessment view with B31G, Modified B31G, and Effective Area calculations plus visualizations."""
     st.markdown('<h2 class="section-header">Corrosion Assessment</h2>', unsafe_allow_html=True)
     
     # Check if datasets are available
@@ -1017,51 +1053,152 @@ def render_corrosion_assessment_view():
     st.markdown('<div class="card-container" style="margin-top:20px;">', unsafe_allow_html=True)
     st.markdown("<div class='section-header'>Pipeline Parameters</div>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+   
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         pipe_diameter_m = st.number_input(
-            "Pipe Diameter (m)",
+            "Pipe Outside Diameter (m)",
             min_value=0.1,
             max_value=3.0,
             value=pipe_diameter_stored,
             step=0.1,
             format="%.2f",
             key="pipe_diameter_corrosion",
-            help="Outer diameter of the pipeline"
+            help="Enter the OUTSIDE diameter (OD) of the pipeline in meters"
         )
+
+        # Add unit conversion display
+        st.caption(f"= {pipe_diameter_m * 1000:.0f} mm = {pipe_diameter_m * 39.37:.1f} inches")
     
     with col2:
-        smys_mpa = st.number_input(
-            "SMYS (MPa)",
-            min_value=200.0,
-            max_value=800.0,
-            value=358.0,  # Common value for API 5L X52
-            step=1.0,
-            format="%.0f",
-            key="smys_corrosion",
-            help="Specified Minimum Yield Strength"
+        # Add pipe grade selector
+        pipe_grade = st.selectbox(
+            "Pipe Grade",
+            options=["API 5L X42", "API 5L X52", "API 5L X60", "API 5L X65", "API 5L X70", "Custom"],
+            index=1,
+            key="pipe_grade_corrosion"
         )
-    
-    st.info("ℹ️ **Wall thickness is automatically extracted from the joints data for each defect based on its joint number.**")
-    
+        
+        grade_to_smys = {
+            "API 5L X42": 290,
+            "API 5L X52": 358,
+            "API 5L X60": 413,
+            "API 5L X65": 448,
+            "API 5L X70": 482
+        }
+        
+        if pipe_grade != "Custom":
+            smys_mpa = grade_to_smys[pipe_grade]
+            st.caption(f"SMYS: {smys_mpa} MPa ({smys_mpa * 0.145:.0f} psi)")
+        else:
+            smys_mpa = st.number_input(
+                "Custom SMYS (MPa)",
+                min_value=200.0,
+                max_value=800.0,
+                value=358.0,
+                step=1.0,
+                format="%.0f",
+                key="smys_custom"
+            )
+
+    with col3:
+        # Safety factor selection
+        safety_factor_type = st.selectbox(
+            "Safety Factor Standard",
+            options=["Gas Pipeline - Class 1 (1.39)", "Liquid Pipeline (1.25)", "Custom"],
+            key="safety_factor_type",
+            help="Select based on your pipeline type and regulatory requirements"
+        )
+        
+        if safety_factor_type == "Gas Pipeline - Class 1 (1.39)":
+            safety_factor = 1.39
+            st.caption("Per ASME B31G for gas pipelines")
+        elif safety_factor_type == "Liquid Pipeline (1.25)":
+            safety_factor = 1.25
+            st.caption("Common for liquid pipelines")
+        else:
+            safety_factor = st.number_input(
+                "Custom Safety Factor",
+                min_value=1.0,
+                max_value=2.0,
+                value=1.39,
+                step=0.01,
+                format="%.2f",
+                key="safety_factor_custom"
+            )
+
+
+
+
     # Convert diameter to mm for calculations
     pipe_diameter_mm = pipe_diameter_m * 1000
     
-    st.markdown('</div>', unsafe_allow_html=True)  # Close parameters container
+    st.markdown('</div>', unsafe_allow_html=True) 
     
     # Assessment button and results
     st.markdown('<div class="card-container" style="margin-top:20px;">', unsafe_allow_html=True)
+ 
+    # Add option for handling missing wall thickness
+    with st.expander("Advanced Options"):
+        missing_wt_action = st.radio(
+            "If wall thickness is missing for any joint:",
+            options=[
+                "Stop and show error (Recommended)",
+                "Skip affected defects",
+                "Use manual default value"
+            ],
+            index=0,
+            key="missing_wt_action"
+        )
+        
+        default_wt = None
+        if missing_wt_action == "Use manual default value":
+            st.error("""
+            ⚠️ **CRITICAL WARNING**: Using a default wall thickness for missing values can lead to 
+            dangerous miscalculations. Only use this option if you are certain the default value 
+            is conservative for ALL affected joints.
+            """)
+            default_wt = st.number_input(
+                "Default Wall Thickness (mm) - USE WITH EXTREME CAUTION",
+                min_value=1.0,
+                max_value=50.0,
+                value=10.0,
+                step=0.1,
+                format="%.1f",
+                key="default_wt"
+            )
     
-    # FIX 2: Always show the assessment button, but also show results if they exist
     if st.button("Perform Corrosion Assessment", key="perform_assessment", use_container_width=True):
-        with st.spinner("Computing B31G, Modified B31G, and RSTRENG metrics using joint-specific wall thickness..."):
+    # Add specific warning for Effective Area method
+        with st.spinner("Computing B31G, Modified B31G, and Effective Area metrics..."):
             try:
+                # Map the missing_wt_action to parameter
+                if missing_wt_action == "Stop and show error (Recommended)":
+                    missing_wt_handling = 'error'
+                elif missing_wt_action == "Skip affected defects":
+                    missing_wt_handling = 'skip'
+                else:
+                    missing_wt_handling = 'user_default'
+                
                 # Compute the enhanced dataframe with corrosion metrics
-                enhanced_df = compute_corrosion_metrics_for_dataframe(
-                    defects_df, joints_df, pipe_diameter_mm, smys_mpa
+                enhanced_df, missing_wt_defects = compute_corrosion_metrics_for_dataframe(
+                    defects_df, joints_df, pipe_diameter_mm, smys_mpa, 
+                    safety_factor, missing_wt_handling
                 )
                 
+                # Handle missing wall thickness cases
+                if missing_wt_defects:
+                    st.error(f"""
+                    ⚠️ **CRITICAL: {len(missing_wt_defects)} defects have missing wall thickness data**
+                    
+                    Affected joints: {', '.join([str(d['joint_number']) for d in missing_wt_defects[:10]])}
+                    {'...' if len(missing_wt_defects) > 10 else ''}
+                    """)
+                    
+                    if missing_wt_handling == 'user_default' and default_wt:
+                        st.warning(f"Using default wall thickness of {default_wt} mm for these defects")
+
                 # Aggregate results by joint for visualization
                 joint_summary = aggregate_assessment_results_by_joint(
                     enhanced_df, joints_df, pipe_diameter_mm, smys_mpa
@@ -1078,8 +1215,7 @@ def render_corrosion_assessment_view():
                 
             except Exception as e:
                 st.error(f"Error during corrosion assessment: {str(e)}")
-                st.info("Please check your input parameters and ensure the selected dataset has valid defect dimensions and joint data.")
-    
+
     st.markdown('</div>', unsafe_allow_html=True)  # Close assessment button container
     
     # FIX 2: Always show results if they exist (persistent UI)
@@ -1267,25 +1403,15 @@ def render_corrosion_assessment_view():
             if 'pressure' in viz_settings['metric']:
                 pressure_type = "Failure" if 'failure' in viz_settings['metric'] else "Safe Operating"
                 st.info(f"""
-                **Interpretation Guide - {pressure_type} Pressure:**
-                - 🔵 **Darker blue joints**: Higher pressure capacity (better condition)
-                - 🔷 **Lighter blue joints**: Lower pressure capacity (more critical condition)  
+                **Interpretation Guide - {pressure_type} Pressure:** 
                 - Higher values indicate the joint can withstand more pressure before failure
                 - Hover over joints to see exact pressure values and defect counts
                 """)
             else:  # remaining strength
                 st.info("""
                 **Interpretation Guide - Remaining Strength:**
-                - 🟢 **Darker green joints**: Higher remaining strength (better condition)
-                - 🟢 **Lighter green joints**: Lower remaining strength (more degraded condition)
                 - Values close to 100% indicate minimal structural degradation
                 - Hover over joints to see exact strength percentages and defect counts
                 """)
         
         st.markdown('</div>', unsafe_allow_html=True)  # Close visualization container
-    
-    # Show message if no assessment has been performed yet
-    elif not hasattr(st.session_state, 'enhanced_defects_df'):
-        st.markdown('<div class="card-container" style="margin-top:20px;">', unsafe_allow_html=True)
-        st.info("👆 Click **'Perform Corrosion Assessment'** above to begin analysis and unlock interactive visualization features.")
-        st.markdown('</div>', unsafe_allow_html=True)
