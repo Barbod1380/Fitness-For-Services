@@ -1,9 +1,11 @@
+# pipeline_viz.py
+
 """
 Functions for creating pipeline visualizations.
 """
 import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
+
 
 def create_unwrapped_pipeline_visualization(defects_df, joints_df, pipe_diameter=1.0):
     """
@@ -18,13 +20,13 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df, pipe_diameter
     Returns:
     - Plotly figure object
     """
-    # Performance optimization - use Scattergl instead of Scatter for large datasets
+    # Decide whether to use WebGL-based Scatter for large datasets
     use_webgl = defects_df.shape[0] > 1000
-    scatter_type = go.Scattergl if use_webgl else go.Scatter
-    
-    # Simplify customdata to reduce memory usage
-    if 'component / anomaly identification' in defects_df.columns:
-        # Simplified custom data with just the essentials
+    scatter_class = go.Scattergl if use_webgl else go.Scatter
+
+    # Build a simplified customdata array (joint number, [component], depth)
+    has_component = 'component / anomaly identification' in defects_df.columns
+    if has_component:
         custom_data = np.stack([
             defects_df["joint number"].astype(str),
             defects_df["component / anomaly identification"],
@@ -35,74 +37,59 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df, pipe_diameter
             defects_df["joint number"].astype(str),
             defects_df["depth [%]"].fillna(0),
         ], axis=-1)
-    
-    # Create figure with a single trace using depth for color
+
+    # Extract x/y values once
+    x_vals = defects_df["log dist. [m]"]
+    y_vals = defects_df["clock_float"]
+
+    # Determine marker properties based on presence of depth data
+    if "depth [%]" in defects_df.columns:
+        marker_props = dict(
+            size=5,
+            color=defects_df["depth [%]"],
+            colorscale="Turbo",
+            cmin=0,
+            cmax=defects_df["depth [%]"].max(),
+            colorbar=dict(title="Depth (%)", thickness=15, len=0.6),
+            opacity=0.7,
+        )
+    else:
+        marker_props = dict(size=5, color="blue", opacity=0.7)
+
+    # Build the figure and add a single trace for all defects
     fig = go.Figure()
-    
-    # Simplified hover template
     hover_template = (
         "<b>Distance:</b> %{x:.2f} m<br>"
         "<b>Depth:</b> %{customdata[2]:.1f}%<br>"
         "<b>Joint:</b> %{customdata[0]}<extra></extra>"
     )
-    
-    # Create a single trace for all defects, colored by depth
-    if "depth [%]" in defects_df.columns:
-        fig.add_trace(scatter_type(
-            x=defects_df["log dist. [m]"],
-            y=defects_df["clock_float"],
+    fig.add_trace(
+        scatter_class(
+            x=x_vals,
+            y=y_vals,
             mode="markers",
-            marker=dict(
-                size=5,  # Smaller markers for better performance
-                color=defects_df["depth [%]"],
-                colorscale="Turbo",
-                cmin=0,
-                cmax=defects_df["depth [%]"].max(),
-                colorbar=dict(
-                    title="Depth (%)",
-                    thickness=15,
-                    len=0.6,
-                ),
-                opacity=0.7,  # Slight transparency for better visibility when overlapping
-            ),
+            marker=marker_props,
             customdata=custom_data,
             hovertemplate=hover_template,
-            name="Defects"
-        ))
-    else:
-        # Fallback if no depth data
-        fig.add_trace(scatter_type(
-            x=defects_df["log dist. [m]"],
-            y=defects_df["clock_float"],
-            mode="markers",
-            marker=dict(
-                size=5,
-                color="blue",
-                opacity=0.7,
-            ),
-            customdata=custom_data,
-            hovertemplate=hover_template,
-            name="Defects"
-        ))
-    
-    # Simplified joint markers - just add vertical lines instead of annotations
-    for _, row in joints_df.iterrows():
-        x0 = row["log dist. [m]"]
-        joint_num = row["joint number"]
-    
-    # Add a simplified clock position grid (fewer lines)
+            name="Defects",
+        )
+    )
+
+    # Add a simplified clock-position grid (horizontal lines at 3,6,9,12)
+    min_dist = x_vals.min() - 1
+    max_dist = x_vals.max() + 1
     for hour in [3, 6, 9, 12]:
         fig.add_shape(
             type="line",
-            x0=defects_df["log dist. [m]"].min() - 1,
-            x1=defects_df["log dist. [m]"].max() + 1,
+            x0=min_dist,
+            x1=max_dist,
             y0=hour,
             y1=hour,
             line=dict(color="lightgray", width=1, dash="dot"),
-            layer="below"
+            layer="below",
         )
-    
-    # Simplified layout
+
+    # Final layout adjustments
     fig.update_layout(
         title="Pipeline Defect Map",
         xaxis=dict(
@@ -122,9 +109,11 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df, pipe_diameter
         height=600,
         plot_bgcolor="white",
         hovermode="closest",
+        updatemenus=[],  # remove any interactive buttons
+        sliders=[],
     )
-    
-    # Static color key instead of interactive buttons
+
+    # Static color key annotation
     fig.add_annotation(
         text="Color indicates defect depth (%)",
         x=0.01,
@@ -133,13 +122,7 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df, pipe_diameter
         yref="paper",
         showarrow=False,
         font=dict(size=10, color="gray"),
-        align="left"
+        align="left",
     )
-    
-    # Remove buttons and interactive elements
-    fig.update_layout(
-        updatemenus=[],  # No updatemenus
-        sliders=[]      # No sliders
-    )
-    
+
     return fig
