@@ -1,9 +1,31 @@
 """
-Core functions for processing pipeline inspection data.
+## Purpose:
+    Processes the standardized pipeline data into two DataFrames: one for joints, one for defects.
+
+## Key Steps:
+    - Replace empty strings with NaN for easier missing data handling.
+    - Convert numeric columns to appropriate types (with error coercion).
+    - Sort by log distance to ensure correct order for forward-filling.
+    - Extract joints_df:
+        1. All rows with a non-null joint number, selecting key joint columns.
+        2. Deduplicates by joint number.
+
+    - Forward-fill joint number in the main DataFrame to associate defects with their joints.
+    - Extract defects_df:
+        1. All rows with both length and width present.
+
+    - Selects relevant defect columns.
+    - Standardizes surface location using a utility function.
+    - Return both DataFrames.
+
+If standardize_surface_location can fail or has edge cases, wrap in a try/except or validate its output.
 """
+
+
 import pandas as pd
 import numpy as np
 from utils.format_utils import standardize_surface_location
+
 
 def process_pipeline_data(df):
     """

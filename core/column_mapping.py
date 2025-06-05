@@ -1,8 +1,43 @@
 """
-Functions and constants for mapping columns from CSV files to standard formats.
+## Purpose:
+    Handles mapping of variable CSV column names to a standard schema, using known mappings, variants, and fuzzy matching.
+
+## Key Components:
+    - STANDARD_COLUMNS: Canonical column names expected by the app.
+    - COLUMN_VARIANTS: Lists of alternative names for each standard column.
+    - KNOWN_MAPPINGS: Hardcoded direct mappings from known alternative column names to standard columns.
+    - REQUIRED_COLUMNS: Subset of columns that must be present for processing.
+
+## Functions:
+    - suggest_column_mapping(df)
+        What it does:
+            For each standard column, tries to find the best-matching column in the uploaded file using:
+                1. Exact match
+                2. Known mapping
+                3. Variant match
+                4. Fuzzy string matching (using fuzzywuzzy)
+
+        Returns:
+            A dict mapping standard column names to the best-matching file column or None.
+
+    - apply_column_mapping(df, mapping)
+        What it does:
+            Creates a new DataFrame with columns renamed to the standard names, using the provided mapping.
+
+        Returns:
+            DataFrame with standardized column names.
+
+    - get_missing_required_columns(mapping)
+        What it does:
+            Checks which required columns are missing from the mapping.
+
+        Returns:
+            List of required columns not present in the mapping.
 """
-import pandas as pd
-from fuzzywuzzy import process  # For fuzzy string matching
+
+
+from fuzzywuzzy import process  
+
 
 # Define standard columns from the first format
 STANDARD_COLUMNS = [
@@ -20,6 +55,7 @@ STANDARD_COLUMNS = [
     'surface location'
 ]
 
+
 # Define common variants for each standard column
 COLUMN_VARIANTS = {
     'log dist. [m]': ['log distance', 'distance', 'chainage', 'position'],
@@ -36,6 +72,7 @@ COLUMN_VARIANTS = {
     'surface location': ['internal', 'external', 'location', 'orientation']
 }
 
+
 # Known exact mappings from format 2 to format 1 (standard)
 KNOWN_MAPPINGS = {
     'event': 'component / anomaly identification',
@@ -47,6 +84,7 @@ KNOWN_MAPPINGS = {
     'ERF_AS2885': 'ERF B31G',
     'internal': 'surface location'
 }
+
 
 # Required columns for processing (subset of standard columns)
 REQUIRED_COLUMNS = [
@@ -62,6 +100,7 @@ REQUIRED_COLUMNS = [
     'width [mm]',
     'surface location'
 ]
+
 
 def suggest_column_mapping(df):
     """
@@ -106,6 +145,7 @@ def suggest_column_mapping(df):
                 
     return mapping
 
+
 def apply_column_mapping(df, mapping):
     """
     Apply the confirmed mapping to rename columns.
@@ -126,6 +166,7 @@ def apply_column_mapping(df, mapping):
             renamed_df[std_col] = df[file_col]
     
     return renamed_df
+
 
 def get_missing_required_columns(mapping):
     """

@@ -710,7 +710,6 @@ def render_comparison_view():
                         new_year=int(later_year),
                         distance_tolerance=tolerance,
                         clock_tolerance_minutes=clock_tolerance,
-                        correct_negative_growth=False  # Don't correct yet
                     )
                     
                     # Store the comparison results in session state for other tabs
