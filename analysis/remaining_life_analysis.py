@@ -1,12 +1,13 @@
 """
 Functions for calculating remaining life of pipeline defects based on growth rates.
 """
+
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict
+import streamlit as st
 
-def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.DataFrame, 
-                        joints_df: pd.DataFrame) -> pd.DataFrame:
+def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.DataFrame) -> pd.DataFrame:
     """
     Find defects similar to the target defect based on type, depth, and location.
     
@@ -51,8 +52,8 @@ def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.Dat
     
     return similar_defects
 
-def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matches_df: pd.DataFrame, 
-                                       joints_df: pd.DataFrame, min_similar_defects: int = 3) -> Dict:
+
+def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matches_df: pd.DataFrame, joints_df: pd.DataFrame, min_similar_defects: int = 3) -> Dict:
     """
     Estimate growth rate for a new defect based on similar historical defects.
     
@@ -65,13 +66,14 @@ def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matche
     Returns:
     - Dictionary with estimated growth rates and confidence information
     """
+
     # Find similar defects
-    similar_defects = find_similar_defects(new_defect, historical_matches_df, joints_df)
+    similar_defects = find_similar_defects(new_defect, historical_matches_df)
     
     if len(similar_defects) < min_similar_defects:
         # Not enough similar defects - use conservative industry defaults
         return {
-            'estimated_depth_growth_rate_pct_per_year': 2.0,  # Conservative default
+            'estimated_depth_growth_rate_pct_per_year': 2.0,
             'estimated_length_growth_rate_mm_per_year': 5.0,
             'estimated_width_growth_rate_mm_per_year': 3.0,
             'confidence_level': 'LOW',
@@ -105,8 +107,7 @@ def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matche
     
     return result
 
-def calculate_remaining_life_single_defect(defect: pd.Series, wall_thickness_mm: float, 
-                                         growth_rate_pct_per_year: float) -> Dict:
+def calculate_remaining_life_single_defect(defect: pd.Series, growth_rate_pct_per_year: float) -> Dict:
     """
     Calculate remaining life for a single defect until it reaches 80% wall thickness.
     
@@ -136,7 +137,7 @@ def calculate_remaining_life_single_defect(defect: pd.Series, wall_thickness_mm:
         # Check for zero or negative growth rate
         if growth_rate_pct_per_year <= 0:
             return {
-                'remaining_life_years': float('inf'),
+                'remaining_life_years': float(100),
                 'current_depth_pct': current_depth_pct,
                 'critical_threshold_pct': critical_threshold_pct,
                 'growth_rate_pct_per_year': growth_rate_pct_per_year,
@@ -175,6 +176,7 @@ def calculate_remaining_life_single_defect(defect: pd.Series, wall_thickness_mm:
             'note': f'Calculation error: {str(e)}'
         }
 
+
 def calculate_remaining_life_analysis(comparison_results: Dict, joints_df: pd.DataFrame) -> Dict:
     """
     Perform remaining life analysis for all defects in the comparison results.
@@ -212,12 +214,15 @@ def calculate_remaining_life_analysis(comparison_results: Dict, joints_df: pd.Da
     
     # Analyze matched defects (have measured growth rates)
     for idx, defect in matched_defects.iterrows():
-        wall_thickness = wt_lookup.get(defect.get('joint number'), 10.0)  # Default 10mm if not found
+        wall_thickness = wt_lookup.get(defect.get('joint number')) 
+        if wall_thickness is None:
+            wall_thickness = 10.0  # Default value
+            st.warning(f"Wall thickness for joint {defect.get('joint number')} not found. Using default value of {wall_thickness} mm.", width = "stretch")
         
         # Use measured growth rate
         growth_rate = defect.get('growth_rate_pct_per_year', 0)
         
-        remaining_life = calculate_remaining_life_single_defect(defect, wall_thickness, growth_rate)
+        remaining_life = calculate_remaining_life_single_defect(defect, growth_rate)
         remaining_life.update({
             'defect_id': defect.get('new_defect_id', idx),
             'log_dist': defect.get('log_dist', 0),
@@ -237,7 +242,7 @@ def calculate_remaining_life_analysis(comparison_results: Dict, joints_df: pd.Da
         growth_estimation = estimate_growth_rate_for_new_defect(defect, matched_defects, joints_df)
         estimated_growth_rate = growth_estimation['estimated_depth_growth_rate_pct_per_year']
         
-        remaining_life = calculate_remaining_life_single_defect(defect, wall_thickness, estimated_growth_rate)
+        remaining_life = calculate_remaining_life_single_defect(defect, estimated_growth_rate)
         remaining_life.update({
             'defect_id': defect.get('defect_id', idx),
             'log_dist': defect.get('log dist. [m]', 0),
