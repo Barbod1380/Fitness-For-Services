@@ -18,7 +18,7 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
     
     # Create visualization tabs
     viz_tabs = st.tabs([
-        "New vs Common", "New Defect Types", "Negative Growth Correction", "Growth Rate Analysis"
+        "New vs Common", "New Defect Types", "Negative Growth Correction", "Growth Rate Analysis", "Remaining Life Analysis"
     ])
     
     with viz_tabs[0]:
@@ -402,6 +402,206 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                             st.plotly_chart(growth_hist_fig, use_container_width=True, config={'displayModeBar': False})
                         except Exception as e:
                             st.warning(f"Could not generate histogram: {str(e)}. Data is available but visualization failed.")
+
+    # Remaining Life Analysis tab
+    with viz_tabs[4]:
+        st.subheader("Remaining Life Analysis")
+        
+        # Import remaining life functions
+        try:
+            from analysis.remaining_life_analysis import calculate_remaining_life_analysis
+            from visualization.remaining_life_viz import (
+                create_remaining_life_pipeline_visualization,
+                create_remaining_life_histogram,
+                create_remaining_life_summary_table,
+                create_remaining_life_risk_matrix
+            )
+        except ImportError as e:
+            st.error(f"Could not import remaining life analysis modules: {str(e)}")
+            st.info("Please ensure the remaining life analysis files are properly installed.")
+            return
+        
+        # Check if we have the required data for remaining life analysis
+        if not comparison_results.get('has_depth_data', False):
+            st.warning("**Remaining life analysis requires depth data**")
+            st.info("Please ensure both datasets have depth measurements to enable remaining life predictions.")
+        else:
+            # Get joints data for wall thickness lookup
+            earlier_joints = st.session_state.datasets[earlier_year]['joints_df']
+            later_joints = st.session_state.datasets[later_year]['joints_df']
+            
+            # Use later joints for wall thickness (most recent data)
+            joints_for_analysis = later_joints
+            
+            # Perform remaining life analysis
+            with st.spinner("Calculating remaining life for all defects..."):
+                try:
+                    remaining_life_results = calculate_remaining_life_analysis(
+                        comparison_results, 
+                        joints_for_analysis
+                    )
+                    
+                    if remaining_life_results.get('analysis_possible', False):
+                        # Display summary statistics
+                        st.markdown("#### Analysis Summary")
+                        summary_table = create_remaining_life_summary_table(remaining_life_results)
+                        st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
+                        st.dataframe(summary_table, use_container_width=True, hide_index=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        # Create sub-tabs for different visualizations
+                        remaining_life_subtabs = st.tabs([
+                            "Pipeline Overview", "Risk Matrix", "Distribution", "Detailed Results"
+                        ])
+                        
+                        with remaining_life_subtabs[0]:
+                            st.markdown("#### Pipeline Remaining Life Overview")
+                            st.info("""
+                            **Color Legend:**
+                            - 🔴 **Critical**: Already at 80% depth or above
+                            - 🟠 **High Risk**: <2 years remaining
+                            - 🟡 **Medium Risk**: 2-10 years remaining  
+                            - 🟢 **Low Risk**: >10 years remaining
+                            - 🔵 **Stable**: Zero/negative growth (>100 years)
+                            """)
+                            
+                            pipeline_viz = create_remaining_life_pipeline_visualization(remaining_life_results)
+                            st.plotly_chart(pipeline_viz, use_container_width=True, config={'displayModeBar': True})
+                        
+                        with remaining_life_subtabs[1]:
+                            st.markdown("#### Risk Matrix")
+                            st.info("This matrix shows the relationship between current defect depth and predicted remaining life.")
+                            
+                            risk_matrix = create_remaining_life_risk_matrix(remaining_life_results)
+                            st.plotly_chart(risk_matrix, use_container_width=True, config={'displayModeBar': True})
+                        
+                        with remaining_life_subtabs[2]:
+                            st.markdown("#### Remaining Life Distribution")
+                            st.info("Distribution of predicted remaining life across all defects. Red/orange lines show risk thresholds.")
+                            
+                            histogram = create_remaining_life_histogram(remaining_life_results)
+                            st.plotly_chart(histogram, use_container_width=True, config={'displayModeBar': True})
+                        
+                        with remaining_life_subtabs[3]:
+                            st.markdown("#### Detailed Results")
+                            
+                            # Show results for matched defects (measured growth)
+                            matched_results = remaining_life_results['matched_defects_analysis']
+                            if matched_results:
+                                st.markdown("##### Defects with Measured Growth Rates")
+                                matched_df = pd.DataFrame(matched_results)
+                                
+                                # Select key columns for display
+                                display_cols = [
+                                    'log_dist', 'defect_type', 'current_depth_pct', 
+                                    'growth_rate_pct_per_year', 'remaining_life_years', 'status'
+                                ]
+                                available_cols = [col for col in display_cols if col in matched_df.columns]
+                                
+                                # Format the display
+                                display_matched = matched_df[available_cols].copy()
+                                if 'remaining_life_years' in display_matched.columns:
+                                    display_matched['remaining_life_years'] = display_matched['remaining_life_years'].apply(
+                                        lambda x: f"{x:.1f}" if np.isfinite(x) else "Stable"
+                                    )
+                                
+                                st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
+                                st.dataframe(display_matched, use_container_width=True, hide_index=True)
+                                st.markdown('</div>', unsafe_allow_html=True)
+                            
+                            # Show results for new defects (estimated growth)
+                            new_results = remaining_life_results['new_defects_analysis']
+                            if new_results:
+                                st.markdown("##### New Defects with Estimated Growth Rates")
+                                new_df = pd.DataFrame(new_results)
+                                
+                                # Select key columns for display
+                                display_cols = [
+                                    'log_dist', 'defect_type', 'current_depth_pct', 
+                                    'growth_rate_pct_per_year', 'remaining_life_years', 'status',
+                                    'estimation_confidence', 'similar_defects_count'
+                                ]
+                                available_cols = [col for col in display_cols if col in new_df.columns]
+                                
+                                # Format the display
+                                display_new = new_df[available_cols].copy()
+                                if 'remaining_life_years' in display_new.columns:
+                                    display_new['remaining_life_years'] = display_new['remaining_life_years'].apply(
+                                        lambda x: f"{x:.1f}" if np.isfinite(x) else "Stable"
+                                    )
+                                
+                                st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
+                                st.dataframe(display_new, use_container_width=True, hide_index=True)
+                                st.markdown('</div>', unsafe_allow_html=True)
+                                
+                                # Show estimation details
+                                st.markdown("##### Growth Rate Estimation Details")
+                                st.info("""
+                                **Estimation Method**: Statistical inference from similar defects
+                                
+                                **Similarity Criteria**:
+                                - Same defect type (exact match)
+                                - Depth within ±10% of current defect
+                                - Joint location within ±5 joints
+                                
+                                **Confidence Levels**:
+                                - **HIGH**: Based on ≥10 similar defects
+                                - **MEDIUM**: Based on 5-9 similar defects  
+                                - **LOW**: Based on 3-4 similar defects or industry defaults
+                                """)
+                    else:
+                        st.error("Remaining life analysis could not be performed.")
+                        if 'error' in remaining_life_results:
+                            st.error(f"Error: {remaining_life_results['error']}")
+                            
+                except Exception as e:
+                    st.error(f"Error during remaining life analysis: {str(e)}")
+                    st.info("Please check that your data has the required columns and format.")
+                    
+        # Add methodology explanation
+        with st.expander("📖 Methodology & Assumptions", expanded=False):
+            st.markdown("""
+            ### Remaining Life Analysis Methodology
+            
+            #### **Objective**
+            Predict when defects will reach the critical threshold of 80% wall thickness depth (B31G limit).
+            
+            #### **Growth Rate Sources**
+            1. **Matched Defects**: Use measured growth rates from multi-year comparison
+            2. **New Defects**: Estimate growth rates using statistical inference from similar defects
+            
+            #### **Similarity Criteria for New Defects**
+            - **Defect Type**: Exact match (e.g., external corrosion, pitting)
+            - **Current Depth**: Within ±10% of target defect's depth
+            - **Location**: Within ±5 joints of target defect
+            
+            #### **Calculation Formula**
+            ```
+            Remaining Life = (80% - Current Depth%) / Growth Rate (%/year)
+            ```
+            
+            #### **Risk Categories**
+            - **🔴 Critical**: Already ≥80% depth
+            - **🟠 High Risk**: <2 years remaining  
+            - **🟡 Medium Risk**: 2-10 years remaining
+            - **🟢 Low Risk**: >10 years remaining
+            - **🔵 Stable**: Zero/negative growth
+            
+            #### **Limitations & Assumptions**
+            - Assumes **linear growth** (constant rate over time)
+            - Uses **80% depth** as failure criterion (industry standard)
+            - **Conservative estimates** for new defects with limited data
+            - Does not account for **environmental changes** or **mitigation measures**
+            - Growth rates based on **historical data** may not reflect future conditions
+            
+            #### **Recommendations**
+            - Use results for **prioritization** and **planning** purposes
+            - **Validate estimates** with additional inspections
+            - Consider **environmental factors** and **operational changes**
+            - **Update analysis** regularly with new inspection data
+            """)
+
+    
 
 def render_comparison_view():
     """Display the multi-year comparison view with analysis across different years."""

@@ -12,3 +12,10 @@ from .growth_analysis import (
     create_growth_summary_table,
     create_highest_growth_table
 )
+
+from .remaining_life_analysis import (
+    find_similar_defects,
+    estimate_growth_rate_for_new_defect,
+    calculate_remaining_life_single_defect,
+    calculate_remaining_life_analysis
+)
