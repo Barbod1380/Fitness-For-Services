@@ -402,7 +402,6 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                             st.plotly_chart(growth_hist_fig, use_container_width=True, config={'displayModeBar': False})
                         except Exception as e:
                             st.warning(f"Could not generate histogram: {str(e)}. Data is available but visualization failed.")
-
     # Remaining Life Analysis tab
     with viz_tabs[4]:
         st.subheader("Remaining Life Analysis")
@@ -410,6 +409,8 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
         # Import remaining life functions
         try:
             from analysis.remaining_life_analysis import calculate_remaining_life_analysis
+            # Import the new enhanced function
+            from analysis.remaining_life_analysis import enhanced_calculate_remaining_life_analysis
             from visualization.remaining_life_viz import (
                 create_remaining_life_pipeline_visualization,
                 create_remaining_life_histogram,
@@ -433,140 +434,344 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             # Use later joints for wall thickness (most recent data)
             joints_for_analysis = later_joints
             
-            # Perform remaining life analysis
-            with st.spinner("Calculating remaining life for all defects..."):
+            # === NEW: Operating Pressure and Pipeline Parameters Input ===
+            st.markdown("#### Pipeline Parameters for Pressure-Based Analysis")
+            
+            # Create three columns for parameters
+            param_col1, param_col2, param_col3 = st.columns(3)
+            
+            with param_col1:
+                operating_pressure_mpa = st.number_input(
+                    "Operating Pressure (MPa)",
+                    min_value=0.1,
+                    max_value=20.0,
+                    value=5.0,
+                    step=0.1,
+                    format="%.1f",
+                    key="operating_pressure_remaining_life",
+                    help="Current operating pressure of the pipeline"
+                )
+                st.caption(f"= {operating_pressure_mpa * 145.038:.0f} psi")
+            
+            with param_col2:
+                pipe_diameter_m = st.number_input(
+                    "Pipe Diameter (m)",
+                    min_value=0.1,
+                    max_value=3.0,
+                    value=1.0,
+                    step=0.1,
+                    format="%.2f",
+                    key="pipe_diameter_remaining_life",
+                    help="Outside diameter of the pipeline"
+                )
+                st.caption(f"= {pipe_diameter_m * 1000:.0f} mm")
+            
+            with param_col3:
+                # Pipe grade selector
+                pipe_grade = st.selectbox(
+                    "Pipe Grade",
+                    options=["API 5L X42", "API 5L X52", "API 5L X60", "API 5L X65", "API 5L X70", "Custom"],
+                    index=1,
+                    key="pipe_grade_remaining_life"
+                )
+                
+                grade_to_smys = {
+                    "API 5L X42": 290,
+                    "API 5L X52": 358,
+                    "API 5L X60": 413,
+                    "API 5L X65": 448,
+                    "API 5L X70": 482
+                }
+                
+                if pipe_grade != "Custom":
+                    smys_mpa = grade_to_smys[pipe_grade]
+                    st.caption(f"SMYS: {smys_mpa} MPa")
+                else:
+                    smys_mpa = st.number_input(
+                        "Custom SMYS (MPa)",
+                        min_value=200.0,
+                        max_value=800.0,
+                        value=358.0,
+                        step=1.0,
+                        format="%.0f",
+                        key="smys_custom_remaining_life"
+                    )
+            
+            # Convert diameter to mm for calculations
+            pipe_diameter_mm = pipe_diameter_m * 1000
+            
+            # Perform enhanced remaining life analysis
+            with st.spinner("Calculating enhanced remaining life for all defects..."):
                 try:
-                    remaining_life_results = calculate_remaining_life_analysis(
+                    enhanced_remaining_life_results = enhanced_calculate_remaining_life_analysis(
                         comparison_results, 
-                        joints_for_analysis
+                        joints_for_analysis,
+                        operating_pressure_mpa,
+                        pipe_diameter_mm,
+                        smys_mpa
                     )
                     
-                    if remaining_life_results.get('analysis_possible', False):
-                        # Display summary statistics
-                        st.markdown("#### Analysis Summary")
-                        summary_table = create_remaining_life_summary_table(remaining_life_results)
-                        st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
-                        st.dataframe(summary_table, use_container_width=True, hide_index=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        st.warning("""
-                            ⚠️ **Important Assumptions**:
-                            - Growth rates are assumed to be LINEAR (constant over time)
-                            - Does not account for:
-                            - Accelerating corrosion
-                            - Environmental changes
-                            - Cathodic protection effectiveness
-                            - Coating degradation
-                        """)
-        
+                    if enhanced_remaining_life_results.get('analysis_possible', False):
+                        # Display enhanced summary statistics
+                        st.markdown("#### Enhanced Analysis Summary")
                         
-                        # Create sub-tabs for different visualizations
-                        remaining_life_subtabs = st.tabs([
-                            "Pipeline Overview", "Risk Matrix", "Distribution", "Detailed Results"
+                        # Create enhanced summary table
+                        summary_stats = enhanced_remaining_life_results.get('summary_statistics', {})
+                        
+                        # Display key metrics
+                        summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+                        
+                        with summary_col1:
+                            st.metric("Total Defects", summary_stats.get('total_defects_analyzed', 0))
+                        with summary_col2:
+                            st.metric("Measured Growth", summary_stats.get('defects_with_measured_growth', 0))
+                        with summary_col3:
+                            st.metric("Estimated Growth", summary_stats.get('defects_with_estimated_growth', 0))
+                        with summary_col4:
+                            st.metric("Operating Pressure", f"{operating_pressure_mpa:.1f} MPa")
+                        
+                        # Warning about assumptions
+                        st.warning("""
+                            ⚠️ **Enhanced Analysis Assumptions**:
+                            - **Depth-based**: Failure at 80% wall thickness depth
+                            - **Pressure-based**: Failure when operating pressure ≥ failure pressure
+                            - **Growth rates**: Linear (constant over time)
+                            - **Negative growth**: Replaced with average of similar defects
+                            - **Assessment methods**: B31G, Modified B31G, and RSTRENG calculated yearly
+                        """)
+                        
+                        # Create enhanced sub-tabs for different visualizations and results
+                        enhanced_subtabs = st.tabs([
+                            "Summary Comparison", "Detailed Results", "Pipeline Overview"
                         ])
                         
-                        with remaining_life_subtabs[0]:
-                            st.markdown("#### Pipeline Remaining Life Overview")
+                        with enhanced_subtabs[0]:
+                            st.markdown("#### Failure Criteria Comparison")
                             st.info("""
-                            **Color Legend:**
-                            - 🔴 **Critical**: Already at 80% depth or above
-                            - 🟠 **High Risk**: <2 years remaining
-                            - 🟡 **Medium Risk**: 2-10 years remaining  
-                            - 🟢 **Low Risk**: >10 years remaining
-                            - 🔵 **Stable**: Zero/negative growth (>100 years)
+                            **Failure Criteria:**
+                            - 🟦 **Depth-based**: Time until defect reaches 80% wall thickness
+                            - 🟥 **B31G Pressure**: Time until operating pressure ≥ B31G failure pressure  
+                            - 🟨 **Modified B31G Pressure**: Time until operating pressure ≥ Modified B31G failure pressure
+                            - 🟩 **RSTRENG Pressure**: Time until operating pressure ≥ RSTRENG failure pressure
                             """)
                             
-                            pipeline_viz = create_remaining_life_pipeline_visualization(remaining_life_results)
-                            st.plotly_chart(pipeline_viz, use_container_width=True, config={'displayModeBar': True})
-                        
-                        with remaining_life_subtabs[1]:
-                            st.markdown("#### Risk Matrix")
-                            st.info("This matrix shows the relationship between current defect depth and predicted remaining life.")
+                            # Create comparison summary table
+                            methods = ['depth_based', 'b31g_pressure', 'modified_b31g_pressure', 'rstreng_pressure']
+                            method_names = {
+                                'depth_based': 'Depth-Based (80%)',
+                                'b31g_pressure': 'B31G Pressure-Based', 
+                                'modified_b31g_pressure': 'Modified B31G Pressure-Based',
+                                'rstreng_pressure': 'RSTRENG Pressure-Based'
+                            }
                             
-                            risk_matrix = create_remaining_life_risk_matrix(remaining_life_results)
-                            st.plotly_chart(risk_matrix, use_container_width=True, config={'displayModeBar': True})
-                        
-                        with remaining_life_subtabs[2]:
-                            st.markdown("#### Remaining Life Distribution")
-                            st.info("Distribution of predicted remaining life across all defects. Red/orange lines show risk thresholds.")
+                            comparison_rows = []
+                            for method in methods:
+                                avg_life = summary_stats.get(f'{method}_avg_remaining_life', np.nan)
+                                min_life = summary_stats.get(f'{method}_min_remaining_life', np.nan)
+                                status_dist = summary_stats.get(f'{method}_status_distribution', {})
+                                
+                                critical_count = status_dist.get('CRITICAL', 0) + status_dist.get('ERROR', 0)
+                                high_risk_count = status_dist.get('HIGH_RISK', 0)
+                                
+                                comparison_rows.append({
+                                    'Failure Criterion': method_names[method],
+                                    'Avg Life (years)': f"{avg_life:.1f}" if not np.isnan(avg_life) else "N/A",
+                                    'Min Life (years)': f"{min_life:.1f}" if not np.isnan(min_life) else "N/A", 
+                                    'Critical/Error': critical_count,
+                                    'High Risk': high_risk_count
+                                })
                             
-                            histogram = create_remaining_life_histogram(remaining_life_results)
-                            st.plotly_chart(histogram, use_container_width=True, config={'displayModeBar': True})
+                            comparison_df = pd.DataFrame(comparison_rows)
+                            st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
+                            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                            st.markdown('</div>', unsafe_allow_html=True)
                         
-                        with remaining_life_subtabs[3]:
-                            st.markdown("#### Detailed Results")
+                        with enhanced_subtabs[1]:
+                            st.markdown("#### Detailed Results by Defect")
                             
                             # Show results for matched defects (measured growth)
-                            matched_results = remaining_life_results['matched_defects_analysis']
+                            matched_results = enhanced_remaining_life_results['matched_defects_analysis']
                             if matched_results:
                                 st.markdown("##### Defects with Measured Growth Rates")
                                 matched_df = pd.DataFrame(matched_results)
                                 
                                 # Select key columns for display
                                 display_cols = [
-                                    'log_dist', 'defect_type', 'current_depth_pct', 
-                                    'growth_rate_pct_per_year', 'remaining_life_years', 'status'
+                                    'log_dist', 'defect_type', 'joint_number',
+                                    'depth_based_remaining_life', 'depth_based_status',
+                                    'b31g_pressure_remaining_life', 'b31g_pressure_status',
+                                    'modified_b31g_pressure_remaining_life', 'modified_b31g_pressure_status', 
+                                    'rstreng_pressure_remaining_life', 'rstreng_pressure_status'
                                 ]
                                 available_cols = [col for col in display_cols if col in matched_df.columns]
                                 
                                 # Format the display
                                 display_matched = matched_df[available_cols].copy()
-                                if 'remaining_life_years' in display_matched.columns:
-                                    display_matched['remaining_life_years'] = display_matched['remaining_life_years'].apply(
-                                        lambda x: f"{x:.1f}" if np.isfinite(x) else "Stable"
+                                
+                                # Format remaining life columns
+                                life_cols = [col for col in display_matched.columns if 'remaining_life' in col]
+                                for col in life_cols:
+                                    display_matched[col] = display_matched[col].apply(
+                                        lambda x: f"{x:.1f}" if np.isfinite(x) else ("∞" if x == float('inf') else "Error")
                                     )
+                                
+                                # Rename columns for better display
+                                column_rename = {
+                                    'log_dist': 'Location (m)',
+                                    'defect_type': 'Type',
+                                    'joint_number': 'Joint',
+                                    'depth_based_remaining_life': 'Depth Life (yrs)',
+                                    'depth_based_status': 'Depth Status',
+                                    'b31g_pressure_remaining_life': 'B31G Life (yrs)',
+                                    'b31g_pressure_status': 'B31G Status',
+                                    'modified_b31g_pressure_remaining_life': 'Mod-B31G Life (yrs)',
+                                    'modified_b31g_pressure_status': 'Mod-B31G Status',
+                                    'rstreng_pressure_remaining_life': 'RSTRENG Life (yrs)',
+                                    'rstreng_pressure_status': 'RSTRENG Status'
+                                }
+                                display_matched = display_matched.rename(columns=column_rename)
                                 
                                 st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
                                 st.dataframe(display_matched, use_container_width=True, hide_index=True)
                                 st.markdown('</div>', unsafe_allow_html=True)
                             
                             # Show results for new defects (estimated growth)
-                            new_results = remaining_life_results['new_defects_analysis']
+                            new_results = enhanced_remaining_life_results['new_defects_analysis']
                             if new_results:
                                 st.markdown("##### New Defects with Estimated Growth Rates")
                                 new_df = pd.DataFrame(new_results)
                                 
-                                # Select key columns for display
+                                # Same column processing as above
                                 display_cols = [
-                                    'log_dist', 'defect_type', 'current_depth_pct', 
-                                    'growth_rate_pct_per_year', 'remaining_life_years', 'status',
-                                    'estimation_confidence', 'similar_defects_count'
+                                    'log_dist', 'defect_type', 'joint_number', 'estimation_confidence',
+                                    'depth_based_remaining_life', 'depth_based_status',
+                                    'b31g_pressure_remaining_life', 'b31g_pressure_status',
+                                    'modified_b31g_pressure_remaining_life', 'modified_b31g_pressure_status',
+                                    'rstreng_pressure_remaining_life', 'rstreng_pressure_status'
                                 ]
                                 available_cols = [col for col in display_cols if col in new_df.columns]
                                 
-                                # Format the display
                                 display_new = new_df[available_cols].copy()
-                                if 'remaining_life_years' in display_new.columns:
-                                    display_new['remaining_life_years'] = display_new['remaining_life_years'].apply(
-                                        lambda x: f"{x:.1f}" if np.isfinite(x) else "Stable"
+                                
+                                # Format remaining life columns
+                                life_cols = [col for col in display_new.columns if 'remaining_life' in col]
+                                for col in life_cols:
+                                    display_new[col] = display_new[col].apply(
+                                        lambda x: f"{x:.1f}" if np.isfinite(x) else ("∞" if x == float('inf') else "Error")
                                     )
+                                
+                                # Rename columns
+                                column_rename = {
+                                    'log_dist': 'Location (m)',
+                                    'defect_type': 'Type', 
+                                    'joint_number': 'Joint',
+                                    'estimation_confidence': 'Confidence',
+                                    'depth_based_remaining_life': 'Depth Life (yrs)',
+                                    'depth_based_status': 'Depth Status',
+                                    'b31g_pressure_remaining_life': 'B31G Life (yrs)',
+                                    'b31g_pressure_status': 'B31G Status',
+                                    'modified_b31g_pressure_remaining_life': 'Mod-B31G Life (yrs)',
+                                    'modified_b31g_pressure_status': 'Mod-B31G Status',
+                                    'rstreng_pressure_remaining_life': 'RSTRENG Life (yrs)', 
+                                    'rstreng_pressure_status': 'RSTRENG Status'
+                                }
+                                display_new = display_new.rename(columns=column_rename)
                                 
                                 st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
                                 st.dataframe(display_new, use_container_width=True, hide_index=True)
                                 st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        with enhanced_subtabs[2]:
+                            st.markdown("#### Pipeline Overview")
+                            st.info("Enhanced pipeline visualization showing depth-based remaining life (80% criterion)")
+                            
+                            try:
+                                # Create a simple enhanced pipeline visualization
+                                all_analyses = (enhanced_remaining_life_results['matched_defects_analysis'] + 
+                                            enhanced_remaining_life_results['new_defects_analysis'])
                                 
-                                # Show estimation details
-                                st.markdown("##### Growth Rate Estimation Details")
-                                st.info("""
-                                **Estimation Method**: Statistical inference from similar defects
-                                
-                                **Similarity Criteria**:
-                                - Same defect type (exact match)
-                                - Depth within ±10% of current defect
-                                - Joint location within ±5 joints
-                                
-                                **Confidence Levels**:
-                                - **HIGH**: Based on ≥10 similar defects
-                                - **MEDIUM**: Based on 5-9 similar defects  
-                                - **LOW**: Based on 3-4 similar defects or industry defaults
-                                """)
+                                if all_analyses:
+                                    df = pd.DataFrame(all_analyses)
+                                    
+                                    # Create color mapping based on depth-based status
+                                    df_simp = df[df['depth_based_remaining_life'] < 100]
+
+                                    # Add pressure-based comparison option
+                                    st.markdown("##### Compare with Pressure-Based Analysis")
+                                    
+                                    pressure_method = st.selectbox(
+                                        "Select pressure-based method to compare:",
+                                        options=["b31g_pressure", "modified_b31g_pressure", "rstreng_pressure"],
+                                        format_func=lambda x: {
+                                            "b31g_pressure": "B31G Pressure-Based",
+                                            "modified_b31g_pressure": "Modified B31G Pressure-Based", 
+                                            "rstreng_pressure": "RSTRENG Pressure-Based"
+                                        }[x],
+                                        key="pressure_method_comparison"
+                                    )
+                                    
+                                    # Create comparison figure
+                                    fig_compare = go.Figure()
+                                    
+                                    # Add depth-based data
+                                    fig_compare.add_trace(go.Scatter(
+                                        x=df_simp['log_dist'],
+                                        y=df_simp['depth_based_remaining_life'].replace([np.inf], 100),  # Cap infinite at 100
+                                        mode='markers',
+                                        marker=dict(size=8, color='blue', opacity=0.7),
+                                        name='Depth-Based (80%)',
+                                        hovertemplate="<b>Location:</b> %{x:.2f}m<br><b>Depth Life:</b> %{y:.1f} years<extra></extra>"
+                                    ))
+                                    
+                                    # Add pressure-based data
+                                    pressure_col = f"{pressure_method}_remaining_life"
+                                    pressure_status_col = f"{pressure_method}_status"
+                                    
+                                    if pressure_col in df_simp.columns:
+                                        pressure_data = df_simp[pressure_col].replace([np.inf], 100)  # Cap infinite at 100
+                                        
+                                        fig_compare.add_trace(go.Scatter(
+                                            x=df_simp['log_dist'],
+                                            y=pressure_data,
+                                            mode='markers',
+                                            marker=dict(size=8, color='red', opacity=0.7),
+                                            name=pressure_method.replace('_', ' ').title(),
+                                            hovertemplate="<b>Location:</b> %{x:.2f}m<br><b>Pressure Life:</b> %{y:.1f} years<extra></extra>"
+                                        ))
+                                    
+                                    fig_compare.update_layout(
+                                        title=f"Comparison: Depth-Based vs {pressure_method.replace('_', ' ').title()} Analysis",
+                                        xaxis_title="Distance Along Pipeline (m)",
+                                        yaxis_title="Remaining Life (Years, capped at 100)",
+                                        height=500,
+                                        hovermode='closest'
+                                    )
+                                    
+                                    st.plotly_chart(fig_compare, use_container_width=True, config={'displayModeBar': True})
+                                    
+                                    st.caption("Note: Infinite remaining life values are capped at 100 years for visualization.")
+                                else:
+                                    st.info("No data available for pipeline visualization")
+                                    
+                            except Exception as e:
+                                st.error(f"Error creating pipeline visualization: {str(e)}")
+                                st.info("Trying to display available data structure for debugging...")
+                                if 'enhanced_remaining_life_results' in locals():
+                                    all_analyses = (enhanced_remaining_life_results.get('matched_defects_analysis', []) + 
+                                                enhanced_remaining_life_results.get('new_defects_analysis', []))
+                                    if all_analyses:
+                                        st.write("Available columns in analysis results:")
+                                        st.write(list(all_analyses[0].keys()))
+
                     else:
-                        st.error("Remaining life analysis could not be performed.")
-                        if 'error' in remaining_life_results:
-                            st.error(f"Error: {remaining_life_results['error']}")
+                        st.error("Enhanced remaining life analysis could not be performed.")
+                        if 'error' in enhanced_remaining_life_results:
+                            st.error(f"Error: {enhanced_remaining_life_results['error']}")
                             
                 except Exception as e:
-                    st.error(f"Error during remaining life analysis: {str(e)}")
+                    st.error(f"Error during enhanced remaining life analysis: {str(e)}")
                     st.info("Please check that your data has the required columns and format.")
+    
                     
         # Add methodology explanation
         with st.expander("📖 Methodology & Assumptions", expanded=False):
