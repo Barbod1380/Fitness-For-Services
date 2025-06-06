@@ -1,7 +1,3 @@
-"""
-Functions for calculating remaining life of pipeline defects based on growth rates.
-"""
-
 import pandas as pd
 import numpy as np
 from typing import Dict
