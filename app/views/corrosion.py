@@ -686,7 +686,11 @@ def create_joint_assessment_visualization(joint_summary, method='b31g', metric='
     method_name = {'b31g': 'B31G Original', 'modified_b31g': 'Modified B31G', 'rstreng': 'RSTRENG'}[method]
     
     if 'pressure' in metric:
-        colorscale = 'Blues'
+        colorscale = [
+            [0.0, 'red'],      # low values → red
+            [0.5, 'yellow'],   # mid values → yellow
+            [1.0, 'green']     # high values → green
+        ]
         if 'failure' in metric:
             metric_label = 'Failure Pressure'
             unit = 'MPa'
@@ -694,7 +698,11 @@ def create_joint_assessment_visualization(joint_summary, method='b31g', metric='
             metric_label = 'Safe Operating Pressure'
             unit = 'MPa'
     else:  # remaining strength
-        colorscale = 'Greens'
+        colorscale = [
+            [0.0, 'red'],      # low values → red
+            [0.5, 'yellow'],   # mid values → yellow
+            [1.0, 'green']     # high values → green
+        ]
         metric_label = 'Remaining Strength'
         unit = '%'
     
@@ -1090,7 +1098,7 @@ def render_corrosion_assessment_view():
         
         if pipe_grade != "Custom":
             smys_mpa = grade_to_smys[pipe_grade]
-            st.caption(f"SMYS: {smys_mpa} MPa ({smys_mpa * 0.145:.0f} psi)")
+            st.caption(f"SMYS: {smys_mpa} MPa ({smys_mpa * 145.038:.0f} psi)")
         else:
             smys_mpa = st.number_input(
                 "Custom SMYS (MPa)",
@@ -1127,8 +1135,6 @@ def render_corrosion_assessment_view():
                 format="%.2f",
                 key="safety_factor_custom"
             )
-
-
 
 
     # Convert diameter to mm for calculations

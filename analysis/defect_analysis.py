@@ -2,10 +2,8 @@
 Functions for analyzing pipeline defect dimensions and statistics.
 """
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 def create_dimension_distribution_plots(defects_df, dimension_columns=None):
     """
@@ -110,7 +108,7 @@ def create_combined_dimensions_plot(defects_df):
             y='width [mm]',
             color='depth [%]',
             size='area [mm²]',
-            hover_name='component / anomaly identification' if 'component / anomaly identification' in valid_data.columns else None,
+            hover_name='component / anomaly identification',
             color_continuous_scale=px.colors.sequential.Viridis,
             title="Defect Dimensions Relationship",
             labels={
@@ -120,6 +118,7 @@ def create_combined_dimensions_plot(defects_df):
                 'area [mm²]': 'Area (mm²)'
             }
         )
+
     else:
         fig = px.scatter(
             valid_data,
@@ -135,16 +134,37 @@ def create_combined_dimensions_plot(defects_df):
             }
         )    
 
+    # Add buttons to control marker size
     fig.update_layout(
-        height=500,
-        xaxis=dict(
-            title="Defect Length (mm)",
-            tickfont=dict(size=14)
-        ),
-        yaxis=dict(
-            title="Defect Width (mm)", 
-            tickfont=dict(size=14)
-        )
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="left",
+                buttons=list([
+                    dict(
+                        args=[{"marker.size": valid_data['area [mm²]'] * 1}],
+                        label="Small",
+                        method="restyle"
+                    ),
+                    dict(
+                        args=[{"marker.size": valid_data['area [mm²]'] * 2}],
+                        label="Medium",
+                        method="restyle"
+                    ),
+                    dict(
+                        args=[{"marker.size": valid_data['area [mm²]'] * 4}],
+                        label="Large",
+                        method="restyle"
+                    )
+                ]),
+                pad={"r": 10, "t": 10},
+                showactive=True,
+                x=0.11,
+                xanchor="left",
+                y=1.1,
+                yanchor="top"
+            ),
+        ]
     )
     
     # Add explanation for bubble size and color
