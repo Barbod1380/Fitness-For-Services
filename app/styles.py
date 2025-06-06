@@ -4,346 +4,418 @@ def load_css():
     """Apply custom CSS styling to the app."""
     css = """
     <style>
-    /* Main container styling */
-    .main {
-        background-color: #f5f7fa;
+    /*---------------------------------------------
+      1) Import Google Font: "Inter"
+    ---------------------------------------------*/
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /*---------------------------------------------
+      2) Root Variables (colors, spacing, shadows)
+    ---------------------------------------------*/
+    :root {
+        --font-family-base: 'Inter', sans-serif;
+        --primary-color: #1E5288;       /* deep blue */
+        --secondary-color: #3A8B94;     /* teal-ish */
+        --accent-color: #27AE60;        /* green */
+        --warning-color: #E67E22;       /* orange */
+        --danger-color: #922B21;        /* dark red */
+        --bg-light: #F5F7FA;            /* very light gray */
+        --bg-white: #FFFFFF;
+        --text-color: #2C3E50;          /* dark charcoal */
+        --subtext-color: #5D6D7E;       /* muted slate */
+        --border-color: #E0E0E0;        /* light gray border */
+        --shadow-light: rgba(0, 0, 0, 0.05);
+        --shadow-medium: rgba(0, 0, 0, 0.1);
+        --shadow-strong: rgba(0, 0, 0, 0.15);
+        --radius-base: 8px;
+        --spacing-unit: 1rem;
     }
     
-    /* Custom title and header styling */
-    .custom-title {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: #1E5288;
-        margin-bottom: 0.5rem;
-        padding-bottom: 0.5rem;
-        text-align: center;
-        border-bottom: 2px solid #3A8B94;
-    }
-    
-    .custom-subtitle {
-        font-size: 1.2rem;
-        color: #5D6D7E;
-        margin-bottom: 2rem;
-        text-align: center;
-    }
-    
-    /* Card-like container styling */
-    .card-container {
-        background-color: white;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
-        border-top: 4px solid #3A8B94;
-    }
-    
-    /* Data visualization container */
-    .viz-container {
-        background-color: white;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
-    }
-    
-    /* Section headers */
-    .section-header {
-        font-size: 1.3rem;
-        font-weight: 600;
-        color: #1E5288;
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid #e0e0e0;
-    }
-    
-    /* Info boxes */
-    .info-box {
-        background-color: #E4EBF5;
-        border-left: 4px solid #3A8B94;
-        padding: 12px 15px;
-        border-radius: 0 5px 5px 0;
-        margin-bottom: 15px;
-    }
-    
-    .warning-box {
-        background-color: #FFF3E0;
-        border-left: 4px solid #E67E22;
-        padding: 12px 15px;
-        border-radius: 0 5px 5px 0;
-        margin-bottom: 15px;
-    }
-    
-    .success-box {
-        background-color: #E8F5E9;
-        border-left: 4px solid #27AE60;
-        padding: 12px 15px;
-        border-radius: 0 5px 5px 0;
-        margin-bottom: 15px;
-    }
-    
-    .critical-box {
-        background-color: #FFEBEE;
-        border-left: 4px solid #922B21;
-        padding: 12px 15px;
-        border-radius: 0 5px 5px 0;
-        margin-bottom: 15px;
-    }
-    
-    /* Data table styling */
-    .styled-table {
-        border-collapse: collapse;
-        margin: 25px 0;
-        font-size: 0.9em;
-        font-family: sans-serif;
-        min-width: 400px;
-        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
-        border-radius: 8px;
-        overflow: hidden;
-    }
-    
-    .styled-table thead tr {
-        background-color: #1E5288;
-        color: #ffffff;
-        text-align: left;
-    }
-    
-    .styled-table th,
-    .styled-table td {
-        padding: 12px 15px;
-    }
-    
-    .styled-table tbody tr {
-        border-bottom: 1px solid #dddddd;
+    html, body, [class*="css"]  {
+        font-family: var(--font-family-base) !important;
+        color: var(--text-color) !important;
+        background-color: var(--bg-light) !important;
     }
 
-    .styled-table tbody tr:nth-of-type(even) {
-        background-color: #f3f8fa;
+    /*---------------------------------------------
+      3) Scrollbar Customization (Webkit-based)
+    ---------------------------------------------*/
+    ::-webkit-scrollbar {
+        width: 8px;
     }
-    
-    /* Row hover effect */
+    ::-webkit-scrollbar-track {
+        background: var(--bg-light);
+    }
+    ::-webkit-scrollbar-thumb {
+        background-color: var(--border-color);
+        border-radius: var(--radius-base);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--secondary-color);
+    }
+
+    /*---------------------------------------------
+      4) Main Container and Sidebar
+    ---------------------------------------------*/
+    .main {
+        background-color: var(--bg-light);
+    }
+    .sidebar .sidebar-content {
+        background-color: var(--primary-color);
+        padding-top: var(--spacing-unit);
+    }
+    .sidebar .sidebar-content .css-1lcbmhc { /* collapse the default padding */
+        padding-top: 0px;
+    }
+
+    /* Sidebar text & inputs */
+    .sidebar .streamlit-expanderHeader {
+        color: var(--bg-white) !important;
+        background-color: var(--secondary-color) !important;
+        font-weight: 500 !important;
+    }
+    .sidebar .st-bf {
+        background-color: var(--bg-white) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--radius-base) !important;
+        padding: 8px 12px !important;
+        margin-bottom: 0.75rem !important;
+    }
+    .sidebar .stSelectbox [data-baseweb="select"] {
+        background-color: var(--bg-white) !important;
+        border-radius: var(--radius-base) !important;
+    }
+    .sidebar .stFileUploader [data-testid="stFileUploaderDropzone"] {
+        border: 2px dashed var(--accent-color) !important;
+        background-color: var(--bg-white) !important;
+        padding: 0.75rem !important;
+        border-radius: var(--radius-base) !important;
+    }
+    .sidebar .stButton>button {
+        background-color: var(--accent-color) !important;
+        color: var(--bg-white) !important;
+        border-radius: var(--radius-base) !important;
+        padding: 0.6rem 1.2rem !important;
+        font-weight: 500 !important;
+        border: none !important;
+    }
+    .sidebar .stButton>button:hover {
+        background-color: darken(var(--accent-color), 10%) !important;
+        transition: background-color 0.2s ease-in-out;
+    }
+
+    /*---------------------------------------------
+      5) Typography (Titles, Headers, Captions)
+    ---------------------------------------------*/
+    .custom-title {
+        font-size: 2.5rem !important;
+        font-weight: 700 !important;
+        color: var(--primary-color) !important;
+        text-align: center !important;
+        margin-bottom: 0.75rem !important;
+        border-bottom: 2px solid var(--secondary-color) !important;
+        padding-bottom: 0.5rem !important;
+    }
+
+    .custom-subtitle {
+        font-size: 1.2rem !important;
+        color: var(--subtext-color) !important;
+        margin-bottom: 2rem !important;
+        text-align: center !important;
+    }
+
+    .section-header {
+        font-size: 1.3rem !important;
+        font-weight: 600 !important;
+        color: var(--primary-color) !important;
+        margin-bottom: 1rem !important;
+        padding-bottom: 0.5rem !important;
+        border-bottom: 1px solid var(--border-color) !important;
+    }
+
+    /*---------------------------------------------
+      6) Card‐Like Containers & Elevation
+    ---------------------------------------------*/
+    .card-container,
+    .viz-container,
+    .dataframe-container,
+    .grid-item {
+        background-color: var(--bg-white);
+        border-radius: var(--radius-base);
+        padding: calc(var(--spacing-unit) * 1.25);
+        margin-bottom: calc(var(--spacing-unit) * 1.25);
+        box-shadow: 0 2px 8px var(--shadow-light);
+        border-top: 4px solid var(--secondary-color);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card-container:hover,
+    .viz-container:hover,
+    .grid-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px var(--shadow-medium);
+    }
+
+    /*---------------------------------------------
+      7) Buttons (Primary, Secondary)
+    ---------------------------------------------*/
+    .custom-button {
+        background-color: var(--secondary-color);
+        color: var(--bg-white);
+        padding: 0.75rem 1.5rem;
+        border-radius: var(--radius-base);
+        font-weight: 500;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.2s ease, box-shadow 0.2s ease;
+        text-align: center;
+        margin: 0.5rem 0;
+        display: inline-block;
+    }
+    .custom-button:hover {
+        background-color: var(--primary-color);
+        box-shadow: 0 4px 12px var(--shadow-light);
+    }
+
+    .secondary-button {
+        background-color: var(--bg-white);
+        color: var(--primary-color);
+        border: 1px solid var(--primary-color);
+        padding: 0.65rem 1.35rem;
+        border-radius: var(--radius-base);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+        margin: 0.5rem 0;
+        display: inline-block;
+    }
+    .secondary-button:hover {
+        background-color: var(--bg-light);
+    }
+
+    /*---------------------------------------------
+      8) Info/Warning/Success Boxes
+    ---------------------------------------------*/
+    .info-box {
+        background-color: #E4EBF5;
+        border-left: 4px solid var(--secondary-color);
+        padding: 0.75rem 1rem;
+        border-radius: 0  var(--radius-base) var(--radius-base) 0;
+        margin-bottom: 1rem;
+    }
+    .warning-box {
+        background-color: #FFF3E0;
+        border-left: 4px solid var(--warning-color);
+        padding: 0.75rem 1rem;
+        border-radius: 0  var(--radius-base) var(--radius-base) 0;
+        margin-bottom: 1rem;
+    }
+    .success-box {
+        background-color: #E8F5E9;
+        border-left: 4px solid var(--accent-color);
+        padding: 0.75rem 1rem;
+        border-radius: 0  var(--radius-base) var(--radius-base) 0;
+        margin-bottom: 1rem;
+    }
+    .critical-box {
+        background-color: #FFEBEE;
+        border-left: 4px solid var(--danger-color);
+        padding: 0.75rem 1rem;
+        border-radius: 0  var(--radius-base) var(--radius-base) 0;
+        margin-bottom: 1rem;
+    }
+
+    /*---------------------------------------------
+      9) Custom Metric Cards
+    ---------------------------------------------*/
+    .custom-metric {
+        background-color: var(--bg-white);
+        border-radius: var(--radius-base);
+        padding: 1rem;
+        text-align: center;
+        box-shadow: 0 2px 8px var(--shadow-light);
+        transition: transform 0.2s ease;
+    }
+    .custom-metric:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px var(--shadow-light);
+    }
+    .metric-value {
+        font-size: 1.75rem !important;
+        font-weight: 600 !important;
+        color: var(--primary-color) !important;
+    }
+    .metric-label {
+        font-size: 0.875rem !important;
+        color: var(--subtext-color) !important;
+        margin-top: 0.25rem !important;
+    }
+
+    /*---------------------------------------------
+      10) Styled Tables (DataFrames)
+    ---------------------------------------------*/
+    .styled-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+        font-size: 0.9rem;
+        font-family: var(--font-family-base);
+        min-width: 400px;
+        box-shadow: 0 0 20px var(--shadow-light);
+        border-radius: var(--radius-base);
+        overflow: hidden;
+    }
+    .styled-table thead tr {
+        background-color: var(--primary-color);
+        color: var(--bg-white);
+        text-align: left;
+    }
+    .styled-table th,
+    .styled-table td {
+        padding: 0.75rem 1rem;
+    }
+    .styled-table tbody tr {
+        border-bottom: 1px solid var(--border-color);
+    }
+    .styled-table tbody tr:nth-of-type(even) {
+        background-color: #F3F8FA;
+    }
     .styled-table tbody tr:hover {
         background-color: #E4EBF5;
     }
 
-    /* Sidebar specific styling */
-    .sidebar .sidebar-content {
-        background-color: #2C3E50;
-    }
-    
-    /* Button styling */
-    .custom-button {
-        background-color: #3A8B94;
-        color: white;
-        padding: 10px 18px;
-        border-radius: 5px;
-        text-align: center;
-        cursor: pointer;
-        transition: all 0.3s;
-        border: none;
-        margin: 5px 0;
-        font-weight: 500;
-    }
-    
-    .custom-button:hover {
-        background-color: #1E5288;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
-    
-    .secondary-button {
-        background-color: #F5F7FA;
-        color: #1E5288;
-        border: 1px solid #1E5288;
-        padding: 9px 18px;
-        border-radius: 5px;
-        text-align: center;
-        cursor: pointer;
-        transition: all 0.3s;
-        margin: 5px 0;
-        font-weight: 500;
-    }
-    
-    .secondary-button:hover {
-        background-color: #E4EBF5;
-    }
-    
-    /* Custom metric styling */
-    .custom-metric {
-        background-color: white;
-        border-radius: 8px;
-        padding: 18px;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        transition: transform 0.2s;
-    }
-    
-    .custom-metric:hover {
-        transform: translateY(-2px);
-    }
-    
-    .metric-value {
-        font-size: 28px;
-        font-weight: bold;
-        color: #1E5288;
-    }
-    
-    .metric-label {
-        font-size: 14px;
-        color: #5D6D7E;
-        margin-top: 5px;
-    }
-    
-    /* Tab styling - override Streamlit's default */
+    /*---------------------------------------------
+      11) Tabs (override Streamlit default)
+    ---------------------------------------------*/
     .stTabs [data-baseweb="tab-list"] {
-        gap: 2px;
+        gap: 4px;
     }
-
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
+        height: 48px;
         background-color: #f1f1f1;
-        border-radius: 4px 4px 0 0;
-        padding-left: 20px;
-        padding-right: 20px;
+        border-radius: var(--radius-base) var(--radius-base) 0 0;
+        padding: 0 1rem;
+        font-weight: 500;
+        color: var(--text-color);
+        transition: background-color 0.2s ease;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: var(--primary-color);
+        color: var(--bg-white);
     }
 
-    .stTabs [aria-selected="true"] {
-        background-color: #1E5288;
-        color: white;
-    }
-    
-    /* Progress bar step indicator */
+    /*---------------------------------------------
+      12) Progress Step Indicator
+    ---------------------------------------------*/
     .step-progress {
         display: flex;
         justify-content: space-between;
-        margin-bottom: 30px;
+        align-items: center;
+        margin-bottom: 2rem;
         position: relative;
     }
-    
-    .step-progress:before {
+    .step-progress::before {
         content: '';
         position: absolute;
         top: 50%;
         left: 0;
         right: 0;
         height: 2px;
-        background: #e0e0e0;
+        background: var(--border-color);
         transform: translateY(-50%);
         z-index: 1;
     }
-    
     .step {
         width: 32px;
         height: 32px;
-        background-color: white;
-        border: 2px solid #e0e0e0;
+        background-color: var(--bg-white);
+        border: 2px solid var(--border-color);
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: bold;
+        font-weight: 600;
+        color: var(--subtext-color);
         z-index: 2;
         position: relative;
+        transition: background-color 0.2s, border-color 0.2s, color 0.2s;
     }
-    
     .step.active {
-        background-color: #3A8B94;
-        border-color: #3A8B94;
-        color: white;
+        background-color: var(--secondary-color);
+        border-color: var(--secondary-color);
+        color: var(--bg-white);
     }
-    
     .step.completed {
-        background-color: #27AE60;
-        border-color: #27AE60;
-        color: white;
+        background-color: var(--accent-color);
+        border-color: var(--accent-color);
+        color: var(--bg-white);
     }
-    
     .step-label {
         position: absolute;
-        top: 38px;
-        font-size: 12px;
+        top: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 0.75rem;
         width: 100px;
         text-align: center;
-        left: -35px;
-    }
-    
-    /* Logo styling */
-    .logo-container {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 20px;
-    }
-    
-    .logo {
-        width: 80px;
-        height: 80px;
-    }
-    
-    /* Footer styling */
-    .footer {
-        text-align: center;
-        color: #5D6D7E;
-        font-size: 12px;
-        margin-top: 30px;
-        padding-top: 10px;
-        border-top: 1px solid #e0e0e0;
+        color: var(--subtext-color);
     }
 
-    /* Custom badges for pipe status */
+    /*---------------------------------------------
+      13) Status Badges
+    ---------------------------------------------*/
     .status-badge {
         display: inline-block;
-        padding: 4px 12px;
+        padding: 0.25rem 0.75rem;
         border-radius: 12px;
-        font-size: 12px;
+        font-size: 0.75rem;
         font-weight: 600;
         letter-spacing: 0.3px;
+        text-align: center;
+        margin-right: 0.25rem;
     }
-
     .status-badge.pass {
         background-color: #E8F5E9;
-        color: #27AE60;
-        border: 1px solid #27AE60;
+        color: var(--accent-color);
+        border: 1px solid var(--accent-color);
     }
-
     .status-badge.caution {
         background-color: #FFF3E0;
-        color: #E67E22;
-        border: 1px solid #E67E22;
+        color: var(--warning-color);
+        border: 1px solid var(--warning-color);
     }
-
     .status-badge.fail {
         background-color: #FFEBEE;
-        color: #922B21;
-        border: 1px solid #922B21;
+        color: var(--danger-color);
+        border: 1px solid var(--danger-color);
     }
-    
-    /* Tooltip styles */
+
+    /*---------------------------------------------
+      14) Tooltips
+    ---------------------------------------------*/
     .tooltip {
         position: relative;
         display: inline-block;
-        border-bottom: 1px dotted #ccc;
         cursor: help;
     }
-
     .tooltip .tooltip-text {
         visibility: hidden;
         width: 220px;
-        background-color: #34495E;
-        color: #fff;
+        background-color: var(--text-color);
+        color: var(--bg-white);
         text-align: center;
-        border-radius: 6px;
-        padding: 8px 10px;
+        border-radius: var(--radius-base);
+        padding: 0.5rem;
         position: absolute;
-        z-index: 1;
+        z-index: 10;
         bottom: 125%;
         left: 50%;
-        margin-left: -110px;
+        transform: translateX(-50%);
         opacity: 0;
-        transition: opacity 0.3s;
-        font-size: 12px;
+        transition: opacity 0.3s ease;
+        font-size: 0.75rem;
         line-height: 1.4;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        box-shadow: 0 2px 8px var(--shadow-light);
     }
-    
     .tooltip .tooltip-text::after {
         content: "";
         position: absolute;
@@ -352,113 +424,116 @@ def load_css():
         margin-left: -5px;
         border-width: 5px;
         border-style: solid;
-        border-color: #34495E transparent transparent transparent;
+        border-color: var(--text-color) transparent transparent transparent;
     }
-
     .tooltip:hover .tooltip-text {
         visibility: visible;
         opacity: 1;
     }
 
-    /* Data visualization enhancements */
+    /*---------------------------------------------
+      15) Chart Titles & Descriptions
+    ---------------------------------------------*/
     .chart-title {
-        font-size: 16px;
-        font-weight: 600;
-        color: #1E5288;
-        margin-bottom: 10px;
-        text-align: center;
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        color: var(--primary-color) !important;
+        margin-bottom: 0.5rem !important;
+        text-align: center !important;
     }
-    
     .chart-description {
-        font-size: 13px;
-        color: #5D6D7E;
-        text-align: center;
-        margin-bottom: 15px;
+        font-size: 0.875rem !important;
+        color: var(--subtext-color) !important;
+        text-align: center !important;
+        margin-bottom: 1rem !important;
     }
-    
-    /* Make dataframes prettier */
-    .dataframe-container {
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        margin: 10px 0;
-    }
-    
-    /* Specific for pipe defect analysis */
-    .defect-metrics-container {
-        display: flex;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 15px;
-        margin: 20px 0;
-    }
-    
-    .defect-metric {
-        background-color: white;
-        border-radius: 8px;
-        padding: 15px;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        flex: 1;
-        min-width: 150px;
-        border-bottom: 3px solid #3A8B94;
-    }
-    
-    .defect-metric.critical {
-        border-bottom-color: #922B21;
-    }
-    
-    .defect-metric.warning {
-        border-bottom-color: #E67E22;
-    }
-    
-    .defect-metric.good {
-        border-bottom-color: #27AE60;
-    }
-    
-    /* Grid layout for dashboards */
+
+    /*---------------------------------------------
+      16) Grid / Dashboard Layouts
+    ---------------------------------------------*/
     .grid-container {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 20px;
-        margin: 20px 0;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        margin: 1.25rem 0;
     }
-    
     .grid-item {
-        background-color: white;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        background-color: var(--bg-white);
+        border-radius: var(--radius-base);
+        padding: 1rem;
+        box-shadow: 0 2px 8px var(--shadow-light);
+        transition: transform 0.2s, box-shadow 0.2s;
     }
-    
-    /* Special styling for the pipe integrity score */
+    .grid-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px var(--shadow-medium);
+    }
+
+    /*---------------------------------------------
+      17) Defect Metrics Container
+    ---------------------------------------------*/
+    .defect-metrics-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin: 1.25rem 0;
+    }
+    .defect-metric {
+        background-color: var(--bg-white);
+        border-radius: var(--radius-base);
+        padding: 1rem;
+        text-align: center;
+        box-shadow: 0 2px 8px var(--shadow-light);
+        flex: 1 1 150px;
+        border-bottom: 4px solid var(--secondary-color);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .defect-metric:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px var(--shadow-medium);
+    }
+    .defect-metric.critical {
+        border-bottom-color: var(--danger-color);
+    }
+    .defect-metric.warning {
+        border-bottom-color: var(--warning-color);
+    }
+    .defect-metric.good {
+        border-bottom-color: var(--accent-color);
+    }
+
+    /*---------------------------------------------
+      18) Integrity Score
+    ---------------------------------------------*/
     .integrity-score-container {
         text-align: center;
-        padding: 20px;
+        padding: 1.25rem 0;
         position: relative;
     }
-    
     .integrity-score {
-        font-size: 48px;
-        font-weight: bold;
-        color: #1E5288;
-        margin: 10px 0;
+        font-size: 3rem !important;
+        font-weight: 700 !important;
+        color: var(--primary-color) !important;
+        margin: 0.5rem 0 !important;
     }
-    
     .integrity-label {
-        font-size: 16px;
-        color: #5D6D7E;
-        margin-bottom: 5px;
+        font-size: 1rem !important;
+        color: var(--subtext-color) !important;
+        margin-bottom: 0.25rem !important;
     }
-    
-    /* Responsive adjustments */
+
+    /*---------------------------------------------
+      19) Responsive Breakpoints
+    ---------------------------------------------*/
     @media (max-width: 768px) {
         .grid-container {
             grid-template-columns: 1fr;
         }
-        
         .defect-metrics-container {
             flex-direction: column;
+        }
+        .step-label {
+            display: none;  /* hide step labels on small screens */
         }
     }
     </style>

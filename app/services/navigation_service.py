@@ -31,11 +31,6 @@ PAGE_STRUCTURE = {
         'title': 'Corrosion Assessment',
         'requires_data': True,
         'icon': '🔩'
-    },
-    'settings': {
-        'title': 'Settings',
-        'requires_data': False,
-        'icon': '⚙️'
     }
 }
 
@@ -73,8 +68,7 @@ def get_navigation_items():
     # Check if we have datasets
     datasets = get_state('datasets', {})
     has_data = len(datasets) > 0
-    has_multiple_datasets = len(datasets) >= 2
-    
+
     # Build navigation items
     nav_items = []
     for page_id, page_info in PAGE_STRUCTURE.items():

@@ -35,6 +35,7 @@ def create_sidebar(session_state):
         # Display navigation items
         nav_items = get_navigation_items()
         for item in nav_items:
+    
             # Create a clickable navigation item if available
             if item['available']:
                 if st.sidebar.button(
