@@ -172,113 +172,6 @@ def calculate_remaining_life_single_defect(defect: pd.Series, growth_rate_pct_pe
             'note': f'Calculation error: {str(e)}'
         }
 
-
-def calculate_remaining_life_analysis(comparison_results: Dict, joints_df: pd.DataFrame) -> Dict:
-    """
-    Perform remaining life analysis for all defects in the comparison results.
-    
-    Parameters:
-    - comparison_results: Results dictionary from compare_defects function
-    - joints_df: DataFrame with joint information including wall thickness
-    
-    Returns:
-    - Dictionary with remaining life analysis results
-    """
-    if not comparison_results.get('has_depth_data', False):
-        return {
-            'error': 'No depth data available for remaining life analysis',
-            'analysis_possible': False
-        }
-    
-    # Get matched defects (have growth history)
-    matched_defects = comparison_results['matches_df'].copy()
-    
-    # Get new defects (no growth history)
-    new_defects = comparison_results['new_defects'].copy()
-    
-    # Create wall thickness lookup
-    wt_lookup = {}
-    if 'wt nom [mm]' in joints_df.columns:
-        wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
-    
-    results = {
-        'matched_defects_analysis': [],
-        'new_defects_analysis': [],
-        'summary_statistics': {},
-        'analysis_possible': True
-    }
-    
-    # Analyze matched defects (have measured growth rates)
-    for idx, defect in matched_defects.iterrows():
-        wall_thickness = wt_lookup.get(defect.get('joint number')) 
-        if wall_thickness is None:
-            wall_thickness = 10.0  # Default value
-            st.warning(f"Wall thickness for joint {defect.get('joint number')} not found. Using default value of {wall_thickness} mm.", width = "stretch")
-        
-        # Use measured growth rate
-        growth_rate = defect.get('growth_rate_pct_per_year', 0)
-        
-        remaining_life = calculate_remaining_life_single_defect(defect, growth_rate)
-        remaining_life.update({
-            'defect_id': defect.get('new_defect_id', idx),
-            'log_dist': defect.get('log_dist', 0),
-            'defect_type': defect.get('defect_type', 'Unknown'),
-            'joint_number': defect.get('joint number', 0),
-            'growth_rate_source': 'MEASURED',
-            'wall_thickness_mm': wall_thickness
-        })
-        
-        results['matched_defects_analysis'].append(remaining_life)
-    
-    # Analyze new defects (estimate growth rates)
-    for idx, defect in new_defects.iterrows():
-        wall_thickness = wt_lookup.get(defect.get('joint number'), 10.0)
-        
-        # Estimate growth rate based on similar defects
-        growth_estimation = estimate_growth_rate_for_new_defect(defect, matched_defects, joints_df)
-        estimated_growth_rate = growth_estimation['estimated_depth_growth_rate_pct_per_year']
-        
-        remaining_life = calculate_remaining_life_single_defect(defect, estimated_growth_rate)
-        remaining_life.update({
-            'defect_id': defect.get('defect_id', idx),
-            'log_dist': defect.get('log dist. [m]', 0),
-            'defect_type': defect.get('component / anomaly identification', 'Unknown'),
-            'joint_number': defect.get('joint number', 0),
-            'growth_rate_source': 'ESTIMATED',
-            'wall_thickness_mm': wall_thickness,
-            'estimation_confidence': growth_estimation['confidence_level'],
-            'similar_defects_count': growth_estimation['similar_defects_count'],
-            'estimation_method': growth_estimation['estimation_method']
-        })
-        
-        results['new_defects_analysis'].append(remaining_life)
-    
-    # Calculate summary statistics
-    all_analyses = results['matched_defects_analysis'] + results['new_defects_analysis']
-    
-    if all_analyses:
-        # Filter out infinite and NaN values for statistics
-        finite_lives = [a['remaining_life_years'] for a in all_analyses 
-                       if np.isfinite(a['remaining_life_years'])]
-        
-        # Count by risk status
-        status_counts = {}
-        for analysis in all_analyses:
-            status = analysis['status']
-            status_counts[status] = status_counts.get(status, 0) + 1
-        
-        results['summary_statistics'] = {
-            'total_defects_analyzed': len(all_analyses),
-            'defects_with_measured_growth': len(results['matched_defects_analysis']),
-            'defects_with_estimated_growth': len(results['new_defects_analysis']),
-            'average_remaining_life_years': np.mean(finite_lives) if finite_lives else float('nan'),
-            'median_remaining_life_years': np.median(finite_lives) if finite_lives else float('nan'),
-            'min_remaining_life_years': np.min(finite_lives) if finite_lives else float('nan'),
-            'status_distribution': status_counts
-        }
-    
-    return results
-
 def calculate_average_growth_rates_for_similar_defects(defect: pd.Series, historical_matches_df: pd.DataFrame) -> Dict:
     """
     Calculate average growth rates for similar defects, replacing negative growth with positive averages.
@@ -327,6 +220,7 @@ def calculate_average_growth_rates_for_similar_defects(defect: pd.Series, histor
     
     result['note'] = f'Based on {len(similar_defects)} similar defects'
     return result
+
 
 def calculate_iterative_failure_pressure(initial_depth_pct: float, initial_length_mm: float, 
                                         initial_width_mm: float, depth_growth_rate: float,
@@ -558,6 +452,22 @@ def enhanced_calculate_remaining_life_analysis(comparison_results: Dict, joints_
     wt_lookup = {}
     if 'wt nom [mm]' in joints_df.columns:
         wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
+        
+        # Validate no missing values
+        missing_wt = joints_df[joints_df['wt nom [mm]'].isna()]
+        if not missing_wt.empty:
+            return {
+                'error': f'Missing wall thickness for {len(missing_wt)} joints. Cannot calculate remaining life.',
+                'analysis_possible': False
+            }
+
+    # In the loop analyzing defects (around line 310-330):
+    for idx, defect in matched_defects.iterrows():
+        wall_thickness = wt_lookup.get(defect.get('joint number'))
+        if wall_thickness is None:
+            # Don't use a default - skip or error
+            st.error(f"CRITICAL: Wall thickness missing for joint {defect.get('joint number')}. Skipping remaining life calculation for this defect.")
+            continue  # Skip this defect
     
     results = {
         'matched_defects_analysis': [],

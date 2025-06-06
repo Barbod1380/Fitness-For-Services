@@ -406,21 +406,7 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
     with viz_tabs[4]:
         st.subheader("Remaining Life Analysis")
         
-        # Import remaining life functions
-        try:
-            from analysis.remaining_life_analysis import calculate_remaining_life_analysis
-            # Import the new enhanced function
-            from analysis.remaining_life_analysis import enhanced_calculate_remaining_life_analysis
-            from visualization.remaining_life_viz import (
-                create_remaining_life_pipeline_visualization,
-                create_remaining_life_histogram,
-                create_remaining_life_summary_table,
-                create_remaining_life_risk_matrix
-            )
-        except ImportError as e:
-            st.error(f"Could not import remaining life analysis modules: {str(e)}")
-            st.info("Please ensure the remaining life analysis files are properly installed.")
-            return
+        from analysis.remaining_life_analysis import enhanced_calculate_remaining_life_analysis
         
         # Check if we have the required data for remaining life analysis
         if not comparison_results.get('has_depth_data', False):

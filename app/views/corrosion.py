@@ -409,7 +409,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     - pipe_diameter_mm: Outside diameter of pipe in millimeters
     - smys_mpa: Specified Minimum Yield Strength in MPa
     - safety_factor: Safety factor to apply to all calculations
-    - missing_wt_handling: How to handle missing wall thickness ('error', 'skip', or 'user_default')
+    - missing_wt_handling: How to handle missing wall thickness ('error', 'skip')
     
     Returns:
     - DataFrame with additional columns for corrosion assessment metrics
@@ -424,6 +424,19 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     else:
         raise ValueError("joints_df must contain 'joint number' and 'wt nom [mm]' columns")
     
+    if not wt_lookup:
+        raise ValueError("No wall thickness data found in joints_df. Cannot proceed with corrosion assessment.")
+    
+    # Check for any missing wall thickness values in joints_df
+    missing_wt_joints = joints_df[joints_df['wt nom [mm]'].isna()]
+    if not missing_wt_joints.empty:
+        missing_joint_numbers = missing_wt_joints['joint number'].tolist()
+        raise ValueError(
+            f"CRITICAL: {len(missing_wt_joints)} joints have missing wall thickness values. "
+            f"Joint numbers: {missing_joint_numbers[:10]}{'...' if len(missing_joint_numbers) > 10 else ''}. "
+            f"Please update your joints data with wall thickness values for ALL joints before proceeding."
+        )
+
     # Track missing wall thickness cases
     missing_wt_defects = []
     
@@ -480,11 +493,12 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
             })
             
             if missing_wt_handling == 'error':
-                # Don't process this defect, mark as unsafe
-                for method in methods:
-                    enhanced_df.loc[idx, f'{method}_safe'] = False
-                    enhanced_df.loc[idx, f'{method}_notes'] = f"CRITICAL: Wall thickness not found for joint {joint_number}"
-                continue
+                # Don't just mark as unsafe - raise an exception to stop processing
+                raise ValueError(
+                    f"CRITICAL: Wall thickness not found for joint {joint_number} "
+                    f"(defect at {row.get('log dist. [m]', 'Unknown')}m). "
+                    f"Cannot perform safe corrosion assessment without wall thickness data."
+                )
             elif missing_wt_handling == 'skip':
                 # Skip this defect entirely
                 continue
@@ -1151,12 +1165,12 @@ def render_corrosion_assessment_view():
             "If wall thickness is missing for any joint:",
             options=[
                 "Stop and show error (Recommended)",
-                "Skip affected defects",
-                "Use manual default value"
+                "Skip affected defects"
             ],
             index=0,
             key="missing_wt_action"
         )
+    
         
         default_wt = None
         if missing_wt_action == "Use manual default value":
@@ -1176,16 +1190,13 @@ def render_corrosion_assessment_view():
             )
     
     if st.button("Perform Corrosion Assessment", key="perform_assessment", use_container_width=True):
-    # Add specific warning for Effective Area method
         with st.spinner("Computing B31G, Modified B31G, and Effective Area metrics..."):
             try:
                 # Map the missing_wt_action to parameter
                 if missing_wt_action == "Stop and show error (Recommended)":
                     missing_wt_handling = 'error'
-                elif missing_wt_action == "Skip affected defects":
+                else:  # "Skip affected defects"
                     missing_wt_handling = 'skip'
-                else:
-                    missing_wt_handling = 'user_default'
                 
                 # Compute the enhanced dataframe with corrosion metrics
                 enhanced_df, missing_wt_defects = compute_corrosion_metrics_for_dataframe(
@@ -1194,16 +1205,16 @@ def render_corrosion_assessment_view():
                 )
                 
                 # Handle missing wall thickness cases
-                if missing_wt_defects:
-                    st.error(f"""
-                    ⚠️ **CRITICAL: {len(missing_wt_defects)} defects have missing wall thickness data**
+                if missing_wt_defects and missing_wt_handling == 'skip':
+                    st.warning(f"""
+                    ⚠️ **WARNING: {len(missing_wt_defects)} defects were SKIPPED due to missing wall thickness data**
                     
                     Affected joints: {', '.join([str(d['joint_number']) for d in missing_wt_defects[:10]])}
                     {'...' if len(missing_wt_defects) > 10 else ''}
-                    """)
                     
-                    if missing_wt_handling == 'user_default' and default_wt:
-                        st.warning(f"Using default wall thickness of {default_wt} mm for these defects")
+                    These defects were NOT assessed for safety. To include them, update your joints data 
+                    with wall thickness values for these joints.
+                    """)
 
                 # Aggregate results by joint for visualization
                 joint_summary = aggregate_assessment_results_by_joint(
