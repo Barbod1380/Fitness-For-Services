@@ -240,7 +240,7 @@ def calculate_iterative_failure_pressure(initial_depth_pct: float, initial_lengt
     Returns:
     - Dictionary with failure pressures over time for each method
     """
-    from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_effective_area_method
+    from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_simplified_effective_area_method
     
     years = list(range(0, max_years + 1))
     results = {
@@ -288,7 +288,7 @@ def calculate_iterative_failure_pressure(initial_depth_pct: float, initial_lengt
             results['modified_b31g_failure_pressure'].append(0)
             
         try:
-            rstreng_result = calculate_effective_area_method(current_depth, current_length, current_width,
+            rstreng_result = calculate_simplified_effective_area_method(current_depth, current_length, current_width,
                                                            pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
             results['rstreng_failure_pressure'].append(
                 rstreng_result['failure_pressure_mpa'] if rstreng_result['safe'] else 0

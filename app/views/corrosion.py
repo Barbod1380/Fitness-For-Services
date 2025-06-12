@@ -271,14 +271,16 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
 
 
 
-def calculate_effective_area_method(defect_depth_pct, defect_length_mm, defect_width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.5):
+def calculate_simplified_effective_area_method(defect_depth_pct, defect_length_mm, defect_width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.5):
     """
-    Calculate remaining strength using an Effective Area method.
+    Calculate remaining strength using a SIMPLIFIED effective area method.
     
-    NOTE: This is NOT true RSTRENG analysis. True RSTRENG requires detailed
-    river-bottom profile data. This method uses a simplified effective area
-    approach that may be conservative or non-conservative depending on the
-    actual defect profile.
+    ⚠️ WARNING: This is NOT true RSTRENG analysis. True RSTRENG requires 
+    detailed river-bottom profile data from inline inspection tools.
+    This simplified method should only be used for preliminary assessments.
+    
+    For critical assessments, use proper RSTRENG software with detailed 
+    corrosion profiles.
 
     Calculate remaining strength using a simplified RSTRENG method.
     This is a simplified implementation as the actual method requires detailed river-bottom profile.
@@ -543,7 +545,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         
         # Calculate RSTRENG using existing function
         try:
-            rstreng_result = calculate_effective_area_method(depth_pct, length_mm, width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
+            rstreng_result = calculate_simplified_effective_area_method(depth_pct, length_mm, width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
             enhanced_df.loc[idx, 'rstreng_safe'] = rstreng_result['safe']
             enhanced_df.loc[idx, 'rstreng_failure_pressure_mpa'] = rstreng_result['failure_pressure_mpa']
             enhanced_df.loc[idx, 'rstreng_safe_pressure_mpa'] = rstreng_result['safe_pressure_mpa']
@@ -822,7 +824,7 @@ def calculate_intact_pipe_values(pipe_diameter_mm, wall_thickness_mm, smys_mpa):
         for method_name, calc_func in [
             ('b31g', calculate_b31g),
             ('modified_b31g', calculate_modified_b31g),
-            ('rstreng', calculate_effective_area_method)
+            ('rstreng', calculate_simplified_effective_area_method)
         ]:
             if method_name == 'rstreng':
                 # RSTRENG needs width parameter, use a small nominal value

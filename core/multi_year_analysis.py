@@ -8,15 +8,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def compare_defects(
-    old_defects_df,
-    new_defects_df,
-    old_joints_df=None,
-    new_joints_df=None,
-    old_year=None,
-    new_year=None,
-    distance_tolerance=0.1,
-    clock_tolerance_minutes=20,
+def compare_defects(old_defects_df, new_defects_df, old_joints_df=None, new_joints_df=None, old_year=None, new_year=None, distance_tolerance=0.1, clock_tolerance_minutes=20,
 ):
     """
     Compare defects between two pipeline inspection years to track defect evolution.

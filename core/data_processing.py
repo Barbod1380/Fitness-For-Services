@@ -1,10 +1,5 @@
-# data_processing.py
-
-
 import pandas as pd
 import numpy as np
-from utils.format_utils import standardize_surface_location
-
 
 def process_pipeline_data(df):
     """
@@ -18,76 +13,84 @@ def process_pipeline_data(df):
     Returns:
     - joints_df: pandas.DataFrame with joint information
     - defects_df: pandas.DataFrame with defect information
-    """
-    # Make a copy to avoid modifying the original
-    df_copy = df.copy()
+    """    
 
-    # 1. Replace empty strings with NaN for proper handling
-    df_copy = df_copy.replace(r'^\s*$', np.nan, regex=True)
+    # Use view instead of copy for initial processing
+    df_view = df.copy()     
 
-    # 2. Convert numeric columns to appropriate types
+    # Replace empty strings efficiently
+    string_cols = df_view.select_dtypes(include=['object']).columns
+    for col in string_cols:
+        df_view[col] = df_view[col].replace(r'^\s*$', np.nan, regex=True)
+    
+    # === Batch numeric conversion ===
     numeric_columns = [
-        "joint number",
-        "joint length [m]",
-        "wt nom [mm]",
-        "up weld dist. [m]",
-        "depth [%]",
-        "length [mm]",
-        "width [mm]",
+        "joint number", "joint length [m]", "wt nom [mm]", 
+        "up weld dist. [m]", "depth [%]", "length [mm]", "width [mm]"
     ]
-    for col in numeric_columns:
-        if col in df_copy.columns:
-            df_copy[col] = pd.to_numeric(df_copy[col], errors="coerce")
-
-    # 3. Sort by log distance to ensure proper order for forward-fill
-    if "log dist. [m]" in df_copy.columns:
-        df_copy = df_copy.sort_values("log dist. [m]").reset_index(drop=True)
-
-    # 4. Create joints_df with only the specified columns
-    if {"log dist. [m]", "joint number", "joint length [m]", "wt nom [mm]"}.issubset(df_copy.columns):
-        joints_df = df_copy.loc[
-            df_copy["joint number"].notna(),
-            ["log dist. [m]", "joint number", "joint length [m]", "wt nom [mm]"],
-        ].copy()
+    
+    # Convert multiple columns at once
+    existing_numeric_cols = [col for col in numeric_columns if col in df_view.columns]
+    if existing_numeric_cols:
+        df_view[existing_numeric_cols] = df_view[existing_numeric_cols].apply(pd.to_numeric, errors = 'coerce')
+    
+    # === Efficient sorting ===
+    if "log dist. [m]" in df_view.columns:
+        df_view.sort_values("log dist. [m]", inplace = True)
+        df_view.reset_index(drop = True, inplace = True)
+    
+    # === Optimized joints DataFrame creation ===
+    joint_columns = ["log dist. [m]", "joint number", "joint length [m]", "wt nom [mm]"]
+    existing_joint_cols = [col for col in joint_columns if col in df_view.columns]
+    
+    if existing_joint_cols and "joint number" in df_view.columns:
+        # Use boolean indexing for efficiency
+        has_joint_num = df_view["joint number"].notna()
+        joints_df = df_view.loc[has_joint_num, existing_joint_cols].copy()
+        
+        # Remove duplicates efficiently
+        joints_df.drop_duplicates(subset=["joint number"], inplace=True)
+        joints_df.reset_index(drop=True, inplace=True)
     else:
-        joints_df = pd.DataFrame(
-            columns=["log dist. [m]", "joint number", "joint length [m]", "wt nom [mm]"]
-        )
-
-    # 5. Drop duplicate joint numbers if any
-    joints_df = joints_df.drop_duplicates(subset=["joint number"]).reset_index(drop=True)
-
-    # 6. Forward-fill joint number to associate defects with joints
-    if "joint number" in df_copy.columns:
-        df_copy["joint number"] = df_copy["joint number"].ffill()
-
-    # 7. Create defects_df - records with both length and width values
-    if {"length [mm]", "width [mm]"}.issubset(df_copy.columns):
-        defects_df = df_copy[
-            df_copy["length [mm]"].notna() & df_copy["width [mm]"].notna()
-        ].copy()
+        joints_df = pd.DataFrame(columns=joint_columns)
+    
+    # === Efficient forward fill ===
+    if "joint number" in df_view.columns:
+        df_view["joint number"].df_view["joint number"].ffill(inplace=True)
+    
+    # === Optimized defects DataFrame creation ===
+    length_width_cols = ["length [mm]", "width [mm]"]
+    has_dimensions = all(col in df_view.columns for col in length_width_cols)
+    
+    if has_dimensions:
+        # Boolean indexing for defects
+        has_both_dims = (df_view["length [mm]"].notna() & df_view["width [mm]"].notna())
+        
+        defect_columns = [
+            "log dist. [m]", "component / anomaly identification", "joint number",
+            "up weld dist. [m]", "clock", "depth [%]", "length [mm]", "width [mm]", "surface location"
+        ]
+        existing_defect_cols = [col for col in defect_columns if col in df_view.columns]
+        
+        defects_df = df_view.loc[has_both_dims, existing_defect_cols].copy()
+        defects_df.reset_index(drop=True, inplace=True)
     else:
-        defects_df = pd.DataFrame(columns=[])
-
-    # Select only the specified columns (if they exist)
-    defect_columns = [
-        "log dist. [m]",
-        "component / anomaly identification",
-        "joint number",
-        "up weld dist. [m]",
-        "clock",
-        "depth [%]",
-        "length [mm]",
-        "width [mm]",
-        "surface location",
-    ]
-    available_columns = [col for col in defect_columns if col in df_copy.columns]
-    defects_df = defects_df[available_columns].reset_index(drop=True)
-
-    # Standardize surface location if the column exists
+        defects_df = pd.DataFrame()
+    
+    # === Vectorized surface location standardization ===
     if "surface location" in defects_df.columns:
-        defects_df["surface location"] = defects_df["surface location"].apply(
-            standardize_surface_location
+        # Use map for efficient categorical conversion
+        surface_mapping = {
+            'INT': 'INT', 'I': 'INT', 'INTERNAL': 'INT', 'YES': 'INT', 'INTERNE': 'INT',
+            'NON-INT': 'NON-INT', 'E': 'NON-INT', 'EXTERNAL': 'NON-INT', 
+            'NO': 'NON-INT', 'NON INT': 'NON-INT', 'EXTERNE': 'NON-INT'
+        }
+        
+        defects_df['surface location'] = (
+            defects_df['surface location']
+            .str.strip().str.upper()
+            .map(surface_mapping)
+            .fillna(defects_df['surface location'])
         )
-
+    
     return joints_df, defects_df
