@@ -27,6 +27,11 @@ PAGE_STRUCTURE = {
         'min_datasets': 2,
         'icon': '📈'
     },
+    'clustering': {  # NEW: Add clustering page
+        'title': 'Defect Clustering',
+        'requires_data': True,
+        'icon': '🎯'
+    },
     'corrosion_assessment': { 
         'title': 'Corrosion Assessment',
         'requires_data': True,

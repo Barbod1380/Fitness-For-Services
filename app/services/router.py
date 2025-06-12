@@ -30,7 +30,9 @@ def route_to_current_page(uploaded_file=None, selected_year=None):
         render_single_analysis_view()
     elif current_page == 'comparison':
         render_comparison_view()
-    elif current_page == 'corrosion_assessment':  # Add this condition
+    elif current_page == 'clustering':  # NEW: Add clustering route
+        render_clustering_view()
+    elif current_page == 'corrosion_assessment':
         render_corrosion_assessment_view()
     else:
         # Fallback to home if unknown page

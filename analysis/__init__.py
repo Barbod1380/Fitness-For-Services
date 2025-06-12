@@ -12,5 +12,14 @@ from .growth_analysis import (
     create_growth_summary_table,
     create_highest_growth_table
 )
+from .clustering_analysis import (  # NEW: Add clustering imports
+    prepare_clustering_features,
+    perform_clustering,
+    optimize_clustering_parameters,
+    create_cluster_summary,
+    create_cluster_visualization_2d,
+    create_cluster_pipeline_visualization,
+    create_cluster_characteristics_plot
+)
 
 from .remaining_life_analysis import *
