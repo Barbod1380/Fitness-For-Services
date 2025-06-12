@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environment
+env/
+venv/
+
+# VS Code settings
+.vscode/
+
+# macOS
+.DS_Store
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+
+# Compiled files
+*.out
+*.exe
+
+# Node.js (if using)
+node_modules/
+
+# Build directories
+dist/
+build/
