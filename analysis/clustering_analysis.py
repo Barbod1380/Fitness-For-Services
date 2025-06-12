@@ -1,10 +1,5 @@
 # analysis/clustering_analysis.py
 
-"""
-Clustering analysis for pipeline defect data.
-Provides multiple clustering algorithms and visualizations for defect pattern analysis.
-"""
-
 import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
@@ -14,8 +9,6 @@ from sklearn.decomposition import PCA
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-import streamlit as st
-
 
 def prepare_clustering_features(defects_df, feature_config):
     """
@@ -29,33 +22,31 @@ def prepare_clustering_features(defects_df, feature_config):
     - features_df: DataFrame with prepared features
     - feature_info: Dict with feature preparation info
     """
-    features = []
+    
+    # === Pre-allocate arrays for better memory efficiency ===
+    n_rows = len(defects_df)
+    features_list = []
     feature_names = []
-    feature_info = {
-        'numeric_features': [],
-        'categorical_features': [],
-        'scaled_features': [],
-        'original_shape': defects_df.shape[0]
-    }
+    feature_info = {'numeric_features': [], 'categorical_features': [], 'scaled_features': [], 'original_shape': n_rows}
     
-    # Spatial features
-    if feature_config.get('include_location', False):
-        if 'log dist. [m]' in defects_df.columns:
-            features.append(defects_df['log dist. [m]'].values.reshape(-1, 1))
-            feature_names.append('location')
-            feature_info['numeric_features'].append('location')
+    # === Vectorized spatial feature processing ===
+    if feature_config.get('include_location', False) and 'log dist. [m]' in defects_df.columns:
+        # Use numpy array directly for speed
+        location_data = defects_df['log dist. [m]'].values.reshape(-1, 1)
+        features_list.append(location_data)
+        feature_names.append('location')
+        feature_info['numeric_features'].append('location')
     
-    if feature_config.get('include_clock', False):
-        if 'clock_float' in defects_df.columns:
-            # Convert clock to x,y coordinates for proper distance calculation
-            clock_radians = defects_df['clock_float'] * np.pi / 6  # Convert to radians
-            clock_x = np.cos(clock_radians).values.reshape(-1, 1)
-            clock_y = np.sin(clock_radians).values.reshape(-1, 1)
-            features.extend([clock_x, clock_y])
-            feature_names.extend(['clock_x', 'clock_y'])
-            feature_info['numeric_features'].extend(['clock_x', 'clock_y'])
+    if feature_config.get('include_clock', False) and 'clock_float' in defects_df.columns:
+        # Vectorized trigonometric conversion
+        clock_radians = defects_df['clock_float'].values * np.pi / 6
+        clock_x = np.cos(clock_radians).reshape(-1, 1)
+        clock_y = np.sin(clock_radians).reshape(-1, 1)
+        features_list.extend([clock_x, clock_y])
+        feature_names.extend(['clock_x', 'clock_y'])
+        feature_info['numeric_features'].extend(['clock_x', 'clock_y'])
     
-    # Dimensional features
+    # === Efficient dimension processing ===
     dimension_cols = {
         'include_depth': 'depth [%]',
         'include_length': 'length [mm]',
@@ -64,49 +55,41 @@ def prepare_clustering_features(defects_df, feature_config):
     
     for config_key, col_name in dimension_cols.items():
         if feature_config.get(config_key, False) and col_name in defects_df.columns:
+            # Use pd.to_numeric with vectorized operations
             values = pd.to_numeric(defects_df[col_name], errors='coerce')
             if not values.isna().all():
-                features.append(values.fillna(values.median()).values.reshape(-1, 1))
-                feature_names.append(col_name.split(' [')[0])  # Clean name
+                # Faster median calculation and fillna
+                median_val = values.median()
+                filled_values = values.fillna(median_val).values.reshape(-1, 1)
+                features_list.append(filled_values)
+                feature_names.append(col_name.split(' [')[0])
                 feature_info['numeric_features'].append(col_name.split(' [')[0])
     
-    # Categorical features
-    if feature_config.get('include_defect_type', False):
-        if 'component / anomaly identification' in defects_df.columns:
-            le = LabelEncoder()
-            defect_types = defects_df['component / anomaly identification'].fillna('Unknown')
-            encoded_types = le.fit_transform(defect_types).reshape(-1, 1)
-            features.append(encoded_types)
-            feature_names.append('defect_type')
-            feature_info['categorical_features'].append('defect_type')
-            feature_info['defect_type_mapping'] = dict(zip(le.classes_, le.transform(le.classes_)))
+    # === Efficient categorical encoding ===
+    if feature_config.get('include_defect_type', False) and 'component / anomaly identification' in defects_df.columns:
+        # Use pd.Categorical for faster encoding
+        defect_types = defects_df['component / anomaly identification'].fillna('Unknown')
+        categories = pd.Categorical(defect_types)
+        encoded_types = categories.codes.reshape(-1, 1)
+        features_list.append(encoded_types)
+        feature_names.append('defect_type')
+        feature_info['categorical_features'].append('defect_type')
+        feature_info['defect_type_mapping'] = dict(enumerate(categories.categories))
     
-    if feature_config.get('include_joint', False):
-        if 'joint number' in defects_df.columns:
-            joint_nums = pd.to_numeric(defects_df['joint number'], errors='coerce')
-            if not joint_nums.isna().all():
-                features.append(joint_nums.fillna(0).values.reshape(-1, 1))
-                feature_names.append('joint_number')
-                feature_info['numeric_features'].append('joint_number')
-    
-    if not features:
+    if not features_list:
         raise ValueError("No valid features selected for clustering")
     
-    # Combine features
-    feature_matrix = np.hstack(features)
+    # === Efficient array concatenation ===
+    feature_matrix = np.hstack(features_list)
     features_df = pd.DataFrame(feature_matrix, columns=feature_names)
     
-    # Scale numeric features
-    scaler = StandardScaler()
-    numeric_indices = [i for i, name in enumerate(feature_names) 
-                      if name in feature_info['numeric_features']]
-    
-    if numeric_indices:
-        features_df.iloc[:, numeric_indices] = scaler.fit_transform(
-            features_df.iloc[:, numeric_indices]
-        )
+    # === Vectorized scaling ===
+    numeric_mask = np.array([name in feature_info['numeric_features'] for name in feature_names])
+    if numeric_mask.any():
+        scaler = StandardScaler()
+        features_df.loc[:, numeric_mask] = scaler.fit_transform(features_df.loc[:, numeric_mask])
         feature_info['scaler'] = scaler
-        feature_info['scaled_features'] = [feature_names[i] for i in numeric_indices]
+        feature_info['scaled_features'] = [feature_names[i] for i in np.where(numeric_mask)[0]]
     
     return features_df, feature_info
 

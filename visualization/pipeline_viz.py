@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 
 def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter = 1.0):
