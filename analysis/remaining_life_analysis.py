@@ -2,19 +2,21 @@ import pandas as pd
 import numpy as np
 from typing import Dict
 import streamlit as st
+from utils.validation_utils import *
 
-def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.DataFrame) -> pd.DataFrame:
+def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.DataFrame, joint_tolerance = 5) -> pd.DataFrame:
     """
     Find defects similar to the target defect based on type, depth, and location.
     
     Parameters:
-    - target_defect: Series containing the new defect information
-    - historical_matches_df: DataFrame with defects that have growth history
-    - joints_df: DataFrame with joint information for wall thickness lookup
+        - target_defect: Series containing the new defect information
+        - historical_matches_df: DataFrame with defects that have growth history
+        - joints_df: DataFrame with joint information for wall thickness lookup
     
     Returns:
-    - DataFrame with similar defects that have growth history
+        - DataFrame with similar defects that have growth history
     """
+    
     if historical_matches_df.empty:
         return pd.DataFrame()
     
@@ -22,14 +24,12 @@ def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.Dat
     
     # Criteria 1: Defect type (High Priority)
     if 'defect_type' in target_defect and pd.notna(target_defect['defect_type']):
-        similar_defects = similar_defects[
-            similar_defects['defect_type'] == target_defect['defect_type']
-        ]
-    
+        similar_defects = similar_defects[similar_defects['defect_type'] == target_defect['defect_type']]
+
     # Criteria 2: Current depth range ±10% (High Priority)
     if 'new_depth_pct' in target_defect and pd.notna(target_defect['new_depth_pct']):
         target_depth = float(target_defect['new_depth_pct'])
-        depth_tolerance = target_depth * 0.1  # ±10%
+        depth_tolerance = target_depth * 0.1  
         
         similar_defects = similar_defects[
             (similar_defects['new_depth_pct'] >= target_depth - depth_tolerance) &
@@ -39,7 +39,6 @@ def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.Dat
     # Criteria 3: Joint location proximity ±5 joints (Medium Priority)
     if 'joint number' in target_defect and pd.notna(target_defect['joint number']):
         target_joint = int(target_defect['joint number'])
-        joint_tolerance = 5
         
         similar_defects = similar_defects[
             (similar_defects['joint number'] >= target_joint - joint_tolerance) &
@@ -54,34 +53,27 @@ def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matche
     Estimate growth rate for a new defect based on similar historical defects.
     
     Parameters:
-    - new_defect: Series containing the new defect information
-    - historical_matches_df: DataFrame with defects that have growth history
-    - joints_df: DataFrame with joint information
-    - min_similar_defects: Minimum number of similar defects required for estimation
+        - new_defect: Series containing the new defect information
+        - historical_matches_df: DataFrame with defects that have growth history
+        - joints_df: DataFrame with joint information
+        - min_similar_defects: Minimum number of similar defects required for estimation
     
     Returns:
-    - Dictionary with estimated growth rates and confidence information
+        - Dictionary with estimated growth rates and confidence information
     """
 
     # Find similar defects
-    similar_defects = find_similar_defects(new_defect, historical_matches_df)
+    joint_tolerance = 5
+    similar_defects = find_similar_defects(new_defect, historical_matches_df, joint_tolerance)
     
-    if len(similar_defects) < min_similar_defects:
-        # Not enough similar defects - use conservative industry defaults
-        return {
-            'estimated_depth_growth_rate_pct_per_year': 2.0,
-            'estimated_length_growth_rate_mm_per_year': 5.0,
-            'estimated_width_growth_rate_mm_per_year': 3.0,
-            'confidence_level': 'LOW',
-            'similar_defects_count': len(similar_defects),
-            'estimation_method': 'INDUSTRY_DEFAULT',
-            'note': f'Used conservative defaults - only {len(similar_defects)} similar defects found'
-        }
+    while(len(similar_defects) < min_similar_defects):
+        joint_tolerance += 1
+        find_similar_defects(new_defect, historical_matches_df, joint_tolerance)
     
     # Calculate statistical measures from similar defects
-    depth_growth_rates = similar_defects['growth_rate_pct_per_year'].dropna()
     length_growth_rates = similar_defects.get('length_growth_rate_mm_per_year', pd.Series()).dropna()
     width_growth_rates = similar_defects.get('width_growth_rate_mm_per_year', pd.Series()).dropna()
+    depth_growth_rates = similar_defects['growth_rate_pct_per_year'].dropna()
     
     # Determine confidence level based on sample size
     if len(similar_defects) >= 10:
@@ -99,22 +91,24 @@ def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matche
         'similar_defects_count': len(similar_defects),
         'estimation_method': 'STATISTICAL_INFERENCE',
         'note': f'Based on {len(similar_defects)} similar defects with {confidence.lower()} confidence'
-    }
-    
+    }    
+
     return result
+
 
 def calculate_remaining_life_single_defect(defect: pd.Series, growth_rate_pct_per_year: float) -> Dict:
     """
     Calculate remaining life for a single defect until it reaches 80% wall thickness.
     
     Parameters:
-    - defect: Series containing defect information
-    - wall_thickness_mm: Wall thickness in mm for the defect's joint
-    - growth_rate_pct_per_year: Depth growth rate in % points per year
+        - defect: Series containing defect information
+        - wall_thickness_mm: Wall thickness in mm for the defect's joint
+        - growth_rate_pct_per_year: Depth growth rate in % points per year
     
     Returns:
-    - Dictionary with remaining life calculation results
+        - Dictionary with remaining life calculation results
     """
+    
     try:
         current_depth_pct = float(defect.get('new_depth_pct', defect.get('depth [%]', 0)))
         critical_threshold_pct = 80.0  # B31G limit
@@ -177,12 +171,13 @@ def calculate_average_growth_rates_for_similar_defects(defect: pd.Series, histor
     Calculate average growth rates for similar defects, replacing negative growth with positive averages.
     
     Parameters:
-    - defect: Series containing the defect information
-    - historical_matches_df: DataFrame with defects that have growth history
+        - defect: Series containing the defect information
+        - historical_matches_df: DataFrame with defects that have growth history
     
     Returns:
-    - Dictionary with average growth rates for each dimension
+        - Dictionary with average growth rates for each dimension
     """
+    
     # Find similar defects (reuse existing logic)
     similar_defects = find_similar_defects(defect, historical_matches_df)
     

@@ -16,12 +16,7 @@ def correct_negative_growth_rates(matches_df, k=3):
     """
     df = matches_df.copy()
 
-    required_cols = [
-        'joint number',
-        'old_depth_pct',
-        'new_depth_pct',
-        'is_negative_growth'
-    ]
+    required_cols = ['joint number', 'old_depth_pct', 'new_depth_pct', 'is_negative_growth']
     dimension_cols = ['length [mm]', 'width [mm]']
 
     # Check for required columns
@@ -29,9 +24,7 @@ def correct_negative_growth_rates(matches_df, k=3):
         if col not in df.columns:
             return df, {"error": f"Missing required column: {col}", "success": False}
 
-    available_dimension_cols = [
-        col for col in dimension_cols if col in df.columns
-    ]
+    available_dimension_cols = [col for col in dimension_cols if col in df.columns]
     if not available_dimension_cols:
         return df, {
             "error": "Missing at least one dimension column "
@@ -81,18 +74,14 @@ def correct_negative_growth_rates(matches_df, k=3):
             features = available_dimension_cols + ['old_depth_pct']
 
             scaler = StandardScaler()
-            X_positive = scaler.fit_transform(
-                joint_positive[features]
-            )
-            X_negative = scaler.transform(
-                joint_negative[features]
-            )
+            X_positive = scaler.fit_transform(joint_positive[features])
+            X_negative = scaler.transform(joint_negative[features])
 
             k_value = min(k, len(joint_positive))
             knn = NearestNeighbors(n_neighbors=k_value)
             knn.fit(X_positive)
 
-            distances, indices = knn.kneighbors(X_negative)
+            _, indices = knn.kneighbors(X_negative)
 
             # Apply corrections for each negative-growth defect
             for i, idx in enumerate(joint_negative.index):
