@@ -9,7 +9,6 @@ APP_VERSION = "1.0"
 
 # Data processing settings
 ENCODING_OPTIONS = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
-DEFAULT_PIPE_DIAMETER = 1.0  # meters
 
 # Visualization settings
 DEFAULT_PLOT_HEIGHT = 600

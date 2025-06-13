@@ -58,18 +58,6 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
             row=1,  # Top row
             col=idx
         )
-        
-        # Add histogram in bottom row
-        fig.add_trace(
-            go.Histogram(
-                x=series,
-                nbinsx=20,
-                marker=dict(color='rgba(0,128,255,0.6)'),
-                showlegend=False
-            ),
-            row=2,  # Bottom row
-            col=idx
-        )
 
         # Add histogram (row 2)
         fig.add_trace(

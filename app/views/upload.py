@@ -7,13 +7,12 @@ import re
 import time
 
 from app.components import show_step_indicator, info_box
-from app.config import ENCODING_OPTIONS, DEFAULT_PIPE_DIAMETER
+from app.config import ENCODING_OPTIONS
 from core.column_mapping import *
 from core.data_processing import process_pipeline_data, validate_pipeline_data
 from utils.format_utils import float_to_clock
 from app.ui_components import show_step_indicator, info_box, create_column_mapping_form
 from utils.format_utils import float_to_clock, parse_clock
-
 
 def load_csv_with_encoding(file):
     """
@@ -134,8 +133,8 @@ def render_upload_view(uploaded_file, selected_year):
                 "Pipe Diameter (m)",
                 min_value=0.1,
                 max_value=3.0,  # Reasonable range for pipeline diameters
-                value=DEFAULT_PIPE_DIAMETER,
                 step=0.1,
+                value=None,
                 format="%.2f",
                 help="Enter the pipeline diameter in meters"
             )
@@ -151,67 +150,70 @@ def render_upload_view(uploaded_file, selected_year):
             )
         
         if process_button:
-            # Update active step
-            st.session_state.active_step = 3
-            
-            with st.spinner(f"Processing {selected_year} data..."):
-                # Apply the mapping to rename columns
-                standardized_df = apply_column_mapping(df, confirmed_mapping)
+            if(pipe_diameter != None):
+                # Update active step
+                st.session_state.active_step = 3
                 
-                # Process the pipeline data
-                joints_df, defects_df = process_pipeline_data(standardized_df)
-                
-                # Add progress bar for processing
-                progress_bar = st.progress(0)
-                for i in range(100):
-                    # Simulating work
-                    time.sleep(0.01)
-                    progress_bar.progress(i + 1)
-                
-                # Process clock and area data
-                if 'clock' in defects_df.columns:
-                    # First ensure all clock values are in string format
-                    defects_df['clock'] = defects_df['clock'].astype(str)
+                with st.spinner(f"Processing {selected_year} data..."):
+                    # Apply the mapping to rename columns
+                    standardized_df = apply_column_mapping(df, confirmed_mapping)
                     
-                    # Check if string values don't match the expected format
-                    clock_pattern = re.compile(r'^\d{1,2}:\d{2}$')
-                    non_standard = defects_df['clock'].apply(
-                        lambda x: pd.notna(x) and not clock_pattern.match(x) and x != 'nan'
-                    ).any()
+                    # Process the pipeline data
+                    joints_df, defects_df = process_pipeline_data(standardized_df)
                     
-                    if non_standard:
-                        info_box("Some clock values may not be in standard HH:MM format. These will be handled as NaN.", "warning")
-                        # Try to fix non-standard formats
-                        defects_df['clock'] = defects_df['clock'].apply(
-                            lambda x: float_to_clock(float(x)) if pd.notna(x) and x != 'nan' and not clock_pattern.match(x) else x
-                        )
+                    # Add progress bar for processing
+                    progress_bar = st.progress(0)
+                    for i in range(100):
+                        # Simulating work
+                        time.sleep(0.01)
+                        progress_bar.progress(i + 1)
                     
-                    # Now convert to float for visualization
-                    defects_df["clock_float"] = defects_df["clock"].apply(parse_clock)
-                
-                if 'length [mm]' in defects_df.columns and 'width [mm]' in defects_df.columns:
-                    defects_df["area_mm2"] = defects_df["length [mm]"] * defects_df["width [mm]"]
-                
-                if 'joint number' in defects_df.columns:
-                    defects_df["joint number"] = defects_df["joint number"].astype("Int64")
-                
-                try:
-                    validate_pipeline_data(joints_df, defects_df)
-                except ValueError as e:
-                    st.error(f"Data validation failed:\n{e}")
-                    st.stop()
+                    # Process clock and area data
+                    if 'clock' in defects_df.columns:
+                        # First ensure all clock values are in string format
+                        defects_df['clock'] = defects_df['clock'].astype(str)
+                        
+                        # Check if string values don't match the expected format
+                        clock_pattern = re.compile(r'^\d{1,2}:\d{2}$')
+                        non_standard = defects_df['clock'].apply(
+                            lambda x: pd.notna(x) and not clock_pattern.match(x) and x != 'nan'
+                        ).any()
+                        
+                        if non_standard:
+                            info_box("Some clock values may not be in standard HH:MM format. These will be handled as NaN.", "warning")
+                            # Try to fix non-standard formats
+                            defects_df['clock'] = defects_df['clock'].apply(
+                                lambda x: float_to_clock(float(x)) if pd.notna(x) and x != 'nan' and not clock_pattern.match(x) else x
+                            )
+                        
+                        # Now convert to float for visualization
+                        defects_df["clock_float"] = defects_df["clock"].apply(parse_clock)
+                    
+                    if 'length [mm]' in defects_df.columns and 'width [mm]' in defects_df.columns:
+                        defects_df["area_mm2"] = defects_df["length [mm]"] * defects_df["width [mm]"]
+                    
+                    if 'joint number' in defects_df.columns:
+                        defects_df["joint number"] = defects_df["joint number"].astype("Int64")
+                    
+                    try:
+                        validate_pipeline_data(joints_df, defects_df)
+                    except ValueError as e:
+                        st.error(f"Data validation failed:\n{e}")
+                        st.stop()
 
-                # Store in session state
-                st.session_state.datasets[selected_year] = {
-                    'joints_df': joints_df,
-                    'defects_df': defects_df,
-                    'pipe_diameter': pipe_diameter  # Store the pipe diameter
-                }
-                st.session_state.current_year = selected_year
-                
-                # Force the file uploader to reset
-                st.session_state.file_upload_key += 1
-                
-                # Show success message and then rerun
-                st.success(f"Successfully processed {selected_year} data")
-                st.rerun()
+                    # Store in session state
+                    st.session_state.datasets[selected_year] = {
+                        'joints_df': joints_df,
+                        'defects_df': defects_df,
+                        'pipe_diameter': pipe_diameter  # Store the pipe diameter
+                    }
+                    st.session_state.current_year = selected_year
+                    
+                    # Force the file uploader to reset
+                    st.session_state.file_upload_key += 1
+                    
+                    # Show success message and then rerun
+                    st.success(f"Successfully processed {selected_year} data")
+                    st.rerun()
+            else:
+                st.warning("Please enter a valid number for pipe diameter.")
