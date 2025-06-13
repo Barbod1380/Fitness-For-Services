@@ -399,11 +399,11 @@ def calculate_simplified_effective_area_method(defect_depth_pct, defect_length_m
     }
 
 
-
-def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, missing_wt_handling='error'):
+def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor):
     """
     Compute B31G, Modified B31G, and Effective Area metrics for all defects in the dataframe.
     Wall thickness is extracted from joints_df based on each defect's joint number.
+    NO DEFAULT VALUES ARE USED - missing wall thickness is a critical error.
     
     Parameters:
     - defects_df: DataFrame containing defect information
@@ -411,23 +411,24 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     - pipe_diameter_mm: Outside diameter of pipe in millimeters
     - smys_mpa: Specified Minimum Yield Strength in MPa
     - safety_factor: Safety factor to apply to all calculations
-    - missing_wt_handling: How to handle missing wall thickness ('error', 'skip')
     
     Returns:
     - DataFrame with additional columns for corrosion assessment metrics
+    
+    Raises:
+    - ValueError if required data is missing or invalid
     """
     # Create a copy to avoid modifying the original dataframe
     enhanced_df = defects_df.copy()
     
-    # Create wall thickness lookup dictionary from joints_df
-    wt_lookup = {}
-    if 'joint number' in joints_df.columns and 'wt nom [mm]' in joints_df.columns:
-        wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
-    else:
-        raise ValueError("joints_df must contain 'joint number' and 'wt nom [mm]' columns")
+    # Step 1: Validate joints_df has required columns
+    if 'joint number' not in joints_df.columns:
+        raise ValueError("joints_df must contain 'joint number' column")
+    if 'wt nom [mm]' not in joints_df.columns:
+        raise ValueError("joints_df must contain 'wt nom [mm]' column for wall thickness")
     
-    if not wt_lookup:
-        raise ValueError("No wall thickness data found in joints_df. Cannot proceed with corrosion assessment.")
+    # Step 2: Create wall thickness lookup and validate completeness
+    wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
     
     # Check for any missing wall thickness values in joints_df
     missing_wt_joints = joints_df[joints_df['wt nom [mm]'].isna()]
@@ -438,12 +439,40 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
             f"Joint numbers: {missing_joint_numbers[:10]}{'...' if len(missing_joint_numbers) > 10 else ''}. "
             f"Please update your joints data with wall thickness values for ALL joints before proceeding."
         )
-
-    # Track missing wall thickness cases
-    missing_wt_defects = []
+    
+    # Check for invalid (zero or negative) wall thickness values
+    invalid_wt_joints = joints_df[joints_df['wt nom [mm]'] <= 0]
+    if not invalid_wt_joints.empty:
+        invalid_joint_numbers = invalid_wt_joints['joint number'].tolist()
+        raise ValueError(
+            f"CRITICAL: {len(invalid_wt_joints)} joints have invalid (≤0) wall thickness values. "
+            f"Joint numbers: {invalid_joint_numbers[:10]}{'...' if len(invalid_joint_numbers) > 10 else ''}"
+        )
+    
+    # Step 3: Validate defects_df has required columns
+    if 'joint number' not in defects_df.columns:
+        raise ValueError("defects_df must contain 'joint number' column to link to wall thickness data")
+    
+    # Check that all defects have joint assignments
+    missing_joint_defects = defects_df[defects_df['joint number'].isna()]
+    if not missing_joint_defects.empty:
+        raise ValueError(
+            f"CRITICAL: {len(missing_joint_defects)} defects have no joint number assigned. "
+            f"Cannot determine wall thickness for these defects. "
+            f"Defect locations: {missing_joint_defects['log dist. [m]'].head(10).tolist()}"
+        )
+    
+    # Check that all defect joint numbers exist in joints_df
+    defect_joints = set(defects_df['joint number'].unique())
+    available_joints = set(joints_df['joint number'].unique())
+    missing_joints = defect_joints - available_joints
+    if missing_joints:
+        raise ValueError(
+            f"CRITICAL: Defects reference joints that don't exist in joints_df: {list(missing_joints)[:10]}"
+        )
     
     # Initialize new columns for each method
-    methods = ['b31g', 'modified_b31g', 'effective_area']  # Renamed from rstreng
+    methods = ['b31g', 'modified_b31g', 'effective_area']
     
     for method in methods:
         enhanced_df[f'{method}_safe'] = True
@@ -457,20 +486,35 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     enhanced_df['b31g_flaw_type'] = ""
     enhanced_df['modified_b31g_folias_factor'] = np.nan
     enhanced_df['modified_b31g_z_parameter'] = np.nan
-    enhanced_df['rstreng_folias_factor'] = np.nan
-    enhanced_df['rstreng_effective_depth_factor'] = np.nan
+    enhanced_df['effective_area_folias_factor'] = np.nan
+    enhanced_df['effective_area_effective_depth_factor'] = np.nan
     
     # Add a column to store the wall thickness used for each defect
     enhanced_df['wall_thickness_used_mm'] = np.nan
     
     # Process each defect
     for idx, row in defects_df.iterrows():
-        # Check if required columns exist and have valid data
-        required_cols = ['depth [%]', 'length [mm]', 'width [mm]', 'joint number']
+        # Get wall thickness for this defect's joint - NO DEFAULTS!
+        joint_number = row['joint number']
+        wall_thickness_mm = wt_lookup.get(joint_number)
+        
+        if wall_thickness_mm is None or pd.isna(wall_thickness_mm):
+            # This should not happen given our validation above, but double-check
+            raise ValueError(
+                f"CRITICAL: Wall thickness not found for joint {joint_number} "
+                f"(defect at {row.get('log dist. [m]', 'Unknown')}m). "
+                f"This should have been caught in validation."
+            )
+        
+        # Store the wall thickness used
+        enhanced_df.loc[idx, 'wall_thickness_used_mm'] = wall_thickness_mm
+        
+        # Check if required defect dimension columns exist and have valid data
+        required_cols = ['depth [%]', 'length [mm]', 'width [mm]']
         missing_data = []
         
         for col in required_cols:
-            if pd.isna(row.get(col)):
+            if col not in row or pd.isna(row[col]):
                 missing_data.append(col)
         
         if missing_data:
@@ -479,45 +523,24 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
                 enhanced_df.loc[idx, f'{method}_safe'] = False
                 enhanced_df.loc[idx, f'{method}_notes'] = f"Missing required data: {', '.join(missing_data)}"
             continue
-            
+        
         depth_pct = float(row['depth [%]'])
         length_mm = float(row['length [mm]'])
         width_mm = float(row['width [mm]'])
-        joint_number = row['joint number']
-        
-        # Get wall thickness for this defect's joint
-        wall_thickness_mm = wt_lookup.get(joint_number)
-        if wall_thickness_mm is None or pd.isna(wall_thickness_mm):
-            missing_wt_defects.append({
-                'index': idx,
-                'joint_number': joint_number,
-                'log_dist': row.get('log dist. [m]', 'Unknown')
-            })
-            
-            if missing_wt_handling == 'error':
-                # Don't just mark as unsafe - raise an exception to stop processing
-                raise ValueError(
-                    f"CRITICAL: Wall thickness not found for joint {joint_number} "
-                    f"(defect at {row.get('log dist. [m]', 'Unknown')}m). "
-                    f"Cannot perform safe corrosion assessment without wall thickness data."
-                )
-            elif missing_wt_handling == 'skip':
-                # Skip this defect entirely
-                continue
-        
-        # Store the wall thickness used
-        enhanced_df.loc[idx, 'wall_thickness_used_mm'] = wall_thickness_mm
         
         # Skip if any dimension is zero or negative
-        if depth_pct <= 0 or length_mm <= 0 or width_mm <= 0 or wall_thickness_mm <= 0:
+        if depth_pct <= 0 or length_mm <= 0 or width_mm <= 0:
             for method in methods:
                 enhanced_df.loc[idx, f'{method}_safe'] = False
                 enhanced_df.loc[idx, f'{method}_notes'] = "Invalid dimensional data (zero or negative values)"
             continue
         
-        # Calculate B31G using existing function
+        # Calculate B31G
         try:
-            b31g_result = calculate_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
+            b31g_result = calculate_b31g(
+                depth_pct, length_mm, pipe_diameter_mm, 
+                wall_thickness_mm, smys_mpa, safety_factor
+            )
             enhanced_df.loc[idx, 'b31g_safe'] = b31g_result['safe']
             enhanced_df.loc[idx, 'b31g_failure_pressure_mpa'] = b31g_result['failure_pressure_mpa']
             enhanced_df.loc[idx, 'b31g_safe_pressure_mpa'] = b31g_result['safe_pressure_mpa']
@@ -529,9 +552,12 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
             enhanced_df.loc[idx, 'b31g_safe'] = False
             enhanced_df.loc[idx, 'b31g_notes'] = f"Calculation error: {str(e)}"
         
-        # Calculate Modified B31G using existing function
+        # Calculate Modified B31G
         try:
-            mod_b31g_result = calculate_modified_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
+            mod_b31g_result = calculate_modified_b31g(
+                depth_pct, length_mm, pipe_diameter_mm, 
+                wall_thickness_mm, smys_mpa, safety_factor
+            )
             enhanced_df.loc[idx, 'modified_b31g_safe'] = mod_b31g_result['safe']
             enhanced_df.loc[idx, 'modified_b31g_failure_pressure_mpa'] = mod_b31g_result['failure_pressure_mpa']
             enhanced_df.loc[idx, 'modified_b31g_safe_pressure_mpa'] = mod_b31g_result['safe_pressure_mpa']
@@ -543,21 +569,24 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
             enhanced_df.loc[idx, 'modified_b31g_safe'] = False
             enhanced_df.loc[idx, 'modified_b31g_notes'] = f"Calculation error: {str(e)}"
         
-        # Calculate RSTRENG using existing function
+        # Calculate Effective Area (Simplified RSTRENG)
         try:
-            rstreng_result = calculate_simplified_effective_area_method(depth_pct, length_mm, width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
-            enhanced_df.loc[idx, 'rstreng_safe'] = rstreng_result['safe']
-            enhanced_df.loc[idx, 'rstreng_failure_pressure_mpa'] = rstreng_result['failure_pressure_mpa']
-            enhanced_df.loc[idx, 'rstreng_safe_pressure_mpa'] = rstreng_result['safe_pressure_mpa']
-            enhanced_df.loc[idx, 'rstreng_remaining_strength_pct'] = rstreng_result['remaining_strength_pct']
-            enhanced_df.loc[idx, 'rstreng_folias_factor'] = rstreng_result.get('folias_factor_M')
-            enhanced_df.loc[idx, 'rstreng_effective_depth_factor'] = rstreng_result.get('effective_depth_factor')
-            enhanced_df.loc[idx, 'rstreng_notes'] = rstreng_result['note']
+            effective_area_result = calculate_simplified_effective_area_method(
+                depth_pct, length_mm, width_mm, pipe_diameter_mm, 
+                wall_thickness_mm, smys_mpa, safety_factor
+            )
+            enhanced_df.loc[idx, 'effective_area_safe'] = effective_area_result['safe']
+            enhanced_df.loc[idx, 'effective_area_failure_pressure_mpa'] = effective_area_result['failure_pressure_mpa']
+            enhanced_df.loc[idx, 'effective_area_safe_pressure_mpa'] = effective_area_result['safe_pressure_mpa']
+            enhanced_df.loc[idx, 'effective_area_remaining_strength_pct'] = effective_area_result['remaining_strength_pct']
+            enhanced_df.loc[idx, 'effective_area_folias_factor'] = effective_area_result.get('folias_factor_M')
+            enhanced_df.loc[idx, 'effective_area_effective_depth_factor'] = effective_area_result.get('effective_depth_factor')
+            enhanced_df.loc[idx, 'effective_area_notes'] = effective_area_result['note']
         except Exception as e:
-            enhanced_df.loc[idx, 'rstreng_safe'] = False
-            enhanced_df.loc[idx, 'rstreng_notes'] = f"Calculation error: {str(e)}"
+            enhanced_df.loc[idx, 'effective_area_safe'] = False
+            enhanced_df.loc[idx, 'effective_area_notes'] = f"Calculation error: {str(e)}"
     
-    return enhanced_df, missing_wt_defects
+    return enhanced_df
 
 
 def get_wall_thickness_statistics(joints_df):
@@ -862,46 +891,62 @@ def calculate_intact_pipe_values(pipe_diameter_mm, wall_thickness_mm, smys_mpa):
     return intact_values
 
 
-
-def aggregate_assessment_results_by_joint(enhanced_df, joints_df, pipe_diameter_mm=None, smys_mpa=None, safety_factor=1.39):
+def aggregate_assessment_results_by_joint(enhanced_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor=1.39):
     """
     Enhanced aggregation that includes wall thickness data for visualization.
-    NEVER uses silent defaults for critical parameters.
+    NEVER uses defaults for critical parameters - all data must be provided.
     
     Parameters:
     - enhanced_df: DataFrame with computed corrosion metrics
-    - joints_df: DataFrame with joint information
-    - pipe_diameter_mm: Pipe diameter in mm (needed for intact pipe calculations)
-    - smys_mpa: SMYS in MPa (needed for intact pipe calculations)
+    - joints_df: DataFrame with joint information including wall thickness
+    - pipe_diameter_mm: Pipe diameter in mm (REQUIRED - no defaults)
+    - smys_mpa: SMYS in MPa (REQUIRED - no defaults)
     - safety_factor: Safety factor used in calculations
     
     Returns:
     - DataFrame with joint-level aggregated assessment results including wall thickness
+    
+    Raises:
+    - ValueError if required parameters are missing or invalid
     """
+    # Validate critical parameters
+    if pipe_diameter_mm is None or pipe_diameter_mm <= 0:
+        raise ValueError(f"Invalid pipe diameter: {pipe_diameter_mm}. Must be positive value in mm.")
+    
+    if smys_mpa is None or smys_mpa <= 0:
+        raise ValueError(f"Invalid SMYS: {smys_mpa}. Must be positive value in MPa.")
+    
+    # Validate joints_df has required columns
+    required_joint_cols = ['joint number', 'log dist. [m]', 'joint length [m]', 'wt nom [mm]']
+    missing_cols = [col for col in required_joint_cols if col not in joints_df.columns]
+    if missing_cols:
+        raise ValueError(f"joints_df missing required columns: {missing_cols}")
+    
+    # Check for any missing wall thickness values
+    missing_wt_joints = joints_df[joints_df['wt nom [mm]'].isna()]
+    if not missing_wt_joints.empty:
+        raise ValueError(
+            f"CRITICAL: {len(missing_wt_joints)} joints have missing wall thickness values. "
+            f"Joint numbers: {missing_wt_joints['joint number'].tolist()[:10]}... "
+            f"Cannot proceed without complete wall thickness data."
+        )
+    
+    # Check for invalid wall thickness values
+    invalid_wt = joints_df[joints_df['wt nom [mm]'] <= 0]
+    if not invalid_wt.empty:
+        raise ValueError(
+            f"CRITICAL: {len(invalid_wt)} joints have invalid wall thickness (≤0). "
+            f"Joint numbers: {invalid_wt['joint number'].tolist()[:10]}"
+        )
+    
+    # Start with joints dataframe to ensure all joints are included
+    joint_summary = joints_df[required_joint_cols].copy()
+    
     # Focus only on the 3 core metrics
     methods = ['b31g', 'modified_b31g', 'effective_area']
     metrics = ['failure_pressure_mpa', 'safe_pressure_mpa', 'remaining_strength_pct']
     
-    # Start with joints dataframe (include wall thickness)
-    if 'wt nom [mm]' in joints_df.columns:
-        joint_summary = joints_df[['joint number', 'log dist. [m]', 'joint length [m]', 'wt nom [mm]']].copy()
-    else:
-        # This is a critical error - we cannot proceed without wall thickness
-        raise ValueError("CRITICAL: joints_df must contain 'wt nom [mm]' column for corrosion assessment")
-    
-    # Check for any missing wall thickness values
-    missing_wt_joints = joint_summary[joint_summary['wt nom [mm]'].isna()]
-    if not missing_wt_joints.empty:
-        raise ValueError(f"CRITICAL: {len(missing_wt_joints)} joints have missing wall thickness values. "
-                        f"Joint numbers: {missing_wt_joints['joint number'].tolist()}")
-    
-    # Calculate intact pipe values if parameters provided
-    intact_values = None
-    if pipe_diameter_mm is not None and smys_mpa is not None:
-        avg_wall_thickness = joint_summary['wt nom [mm]'].mean()
-        intact_values = calculate_intact_pipe_values(pipe_diameter_mm, avg_wall_thickness, smys_mpa)
-    
-    # For each method and metric, calculate joint-level statistics
+    # Initialize columns for each method and metric
     for method in methods:
         # Initialize columns for the 3 core metrics
         for metric in metrics:
@@ -913,75 +958,102 @@ def aggregate_assessment_results_by_joint(enhanced_df, joints_df, pipe_diameter_
         # Initialize safety columns (needed for enhanced hover info)
         joint_summary[f'{method}_total_defects'] = 0
         joint_summary[f'{method}_safe_defects'] = 0
-        
-        # Process joints that have defects
-        for metric in metrics:
-            col_name = f'{method}_{metric}'
-            if col_name in enhanced_df.columns:
-                # Group by joint and calculate statistics for joints WITH defects
-                joint_stats = enhanced_df.groupby('joint number')[col_name].agg([
-                    'count', 'min', 'max', 'mean'
-                ]).reset_index()
-                
-                # Update joints with defects
-                for _, row in joint_stats.iterrows():
-                    joint_num = row['joint number']
-                    mask = joint_summary['joint number'] == joint_num
-                    
-                    joint_summary.loc[mask, f'{method}_{metric}_defect_count'] = row['count']
-                    joint_summary.loc[mask, f'{method}_{metric}_min'] = row['min']
-                    joint_summary.loc[mask, f'{method}_{metric}_max'] = row['max']
-                    joint_summary.loc[mask, f'{method}_{metric}_avg'] = row['mean']
-        
-        # Calculate safety statistics for enhanced hover info
-        safe_col = f'{method}_safe'
-        if safe_col in enhanced_df.columns:
-            safety_stats = enhanced_df.groupby('joint number')[safe_col].agg([
-                'count', 'sum'
-            ]).reset_index()
-            
-            # Update joints that have defects
-            for _, row in safety_stats.iterrows():
-                joint_num = row['joint number']
-                mask = joint_summary['joint number'] == joint_num
-                
-                joint_summary.loc[mask, f'{method}_total_defects'] = row['count']
-                joint_summary.loc[mask, f'{method}_safe_defects'] = row['sum']
     
-    # Handle joints without defects using realistic calculated values
-    for method in methods:
-        # Find joints with no defects
-        no_defect_mask = joint_summary[f'{method}_total_defects'] == 0
-        
-        if intact_values and method in intact_values:
-            # Use calculated intact pipe values
-            method_intact = intact_values[method]
+    # Process defects by joint if enhanced_df has data
+    if len(enhanced_df) > 0:
+        # Group enhanced_df by joint number
+        for joint_num in joint_summary['joint number'].unique():
+            joint_defects = enhanced_df[enhanced_df['joint number'] == joint_num]
             
-            for metric in metrics:
-                if metric in method_intact:
-                    joint_summary.loc[no_defect_mask, f'{method}_{metric}_min'] = method_intact[metric]
-                    joint_summary.loc[no_defect_mask, f'{method}_{metric}_max'] = method_intact[metric]
-                    joint_summary.loc[no_defect_mask, f'{method}_{metric}_avg'] = method_intact[metric]
-        else:
-            # Fallback: use joint-specific wall thickness with Barlow's formula
-            for idx, row in joint_summary[no_defect_mask].iterrows():
-                wt = row['wt nom [mm]']
-                if pipe_diameter_mm and smys_mpa and not pd.isna(wt):
-                    # Calculate using Barlow's formula for this specific joint
-                    theoretical_pressure = (2.0 * smys_mpa * wt) / pipe_diameter_mm
-                    safe_pressure = theoretical_pressure / 1.39
+            if len(joint_defects) == 0:
+                continue  # No defects in this joint
+            
+            # Get the row index for this joint in joint_summary
+            joint_idx = joint_summary[joint_summary['joint number'] == joint_num].index[0]
+            
+            # Calculate statistics for each method
+            for method in methods:
+                # Count total and safe defects
+                safe_col = f'{method}_safe'
+                if safe_col in joint_defects.columns:
+                    total_defects = len(joint_defects)
+                    safe_defects = joint_defects[safe_col].sum()
                     
-                    joint_summary.loc[idx, f'{method}_failure_pressure_mpa_min'] = theoretical_pressure
-                    joint_summary.loc[idx, f'{method}_failure_pressure_mpa_max'] = theoretical_pressure
-                    joint_summary.loc[idx, f'{method}_failure_pressure_mpa_avg'] = theoretical_pressure
+                    joint_summary.loc[joint_idx, f'{method}_total_defects'] = total_defects
+                    joint_summary.loc[joint_idx, f'{method}_safe_defects'] = safe_defects
+                
+                # Calculate statistics for each metric
+                for metric in metrics:
+                    col_name = f'{method}_{metric}'
+                    if col_name in joint_defects.columns:
+                        # Get valid (non-null) values
+                        valid_values = joint_defects[col_name].dropna()
+                        
+                        if len(valid_values) > 0:
+                            joint_summary.loc[joint_idx, f'{col_name}_defect_count'] = len(valid_values)
+                            joint_summary.loc[joint_idx, f'{col_name}_min'] = valid_values.min()
+                            joint_summary.loc[joint_idx, f'{col_name}_max'] = valid_values.max()
+                            joint_summary.loc[joint_idx, f'{col_name}_avg'] = valid_values.mean()
+    
+    # Calculate intact pipe values for joints without defects
+    # Each joint may have different wall thickness, so calculate per joint
+    for idx, joint in joint_summary.iterrows():
+        joint_wt = joint['wt nom [mm]']
+        
+        # Validate wall thickness for this specific joint
+        if pd.isna(joint_wt) or joint_wt <= 0:
+            raise ValueError(f"Invalid wall thickness {joint_wt} for joint {joint['joint number']}")
+        
+        # For joints with no defects, calculate intact pipe values
+        for method in methods:
+            if joint_summary.loc[idx, f'{method}_total_defects'] == 0:
+                # Calculate theoretical intact pipe values for this specific joint
+                # Using the actual wall thickness for THIS joint
+                
+                if method == 'b31g':
+                    # B31G uses flow stress = 1.1 * SMYS
+                    flow_stress = 1.1 * smys_mpa
+                    theoretical_pressure = (2.0 * flow_stress * joint_wt) / pipe_diameter_mm
+                elif method == 'modified_b31g':
+                    # Modified B31G uses flow stress = SMYS + 69 MPa
+                    flow_stress = smys_mpa + 69.0
+                    theoretical_pressure = (2.0 * flow_stress * joint_wt) / pipe_diameter_mm
+                elif method == 'effective_area':
+                    # Effective area method (simplified RSTRENG) similar to Modified B31G
+                    flow_stress = smys_mpa + 69.0
+                    theoretical_pressure = (2.0 * flow_stress * joint_wt) / pipe_diameter_mm
+                
+                safe_pressure = theoretical_pressure / safety_factor
+                
+                # Set all statistics to intact pipe values
+                for metric in metrics:
+                    if metric == 'failure_pressure_mpa':
+                        value = theoretical_pressure
+                    elif metric == 'safe_pressure_mpa':
+                        value = safe_pressure
+                    elif metric == 'remaining_strength_pct':
+                        value = 100.0
                     
-                    joint_summary.loc[idx, f'{method}_safe_pressure_mpa_min'] = safe_pressure
-                    joint_summary.loc[idx, f'{method}_safe_pressure_mpa_max'] = safe_pressure
-                    joint_summary.loc[idx, f'{method}_safe_pressure_mpa_avg'] = safe_pressure
-                    
-                    joint_summary.loc[idx, f'{method}_remaining_strength_pct_min'] = 100.0
-                    joint_summary.loc[idx, f'{method}_remaining_strength_pct_max'] = 100.0
-                    joint_summary.loc[idx, f'{method}_remaining_strength_pct_avg'] = 100.0
+                    joint_summary.loc[idx, f'{method}_{metric}_min'] = value
+                    joint_summary.loc[idx, f'{method}_{metric}_max'] = value
+                    joint_summary.loc[idx, f'{method}_{metric}_avg'] = value
+    
+    # Add a summary column for quick reference
+    joint_summary['has_defects'] = joint_summary['b31g_total_defects'] > 0
+    
+    # Validate output
+    # Ensure no NaN values in critical columns for joints without defects
+    for method in methods:
+        for metric in metrics:
+            col_min = f'{method}_{metric}_min'
+            intact_joints = joint_summary[~joint_summary['has_defects']]
+            if not intact_joints.empty:
+                nan_count = intact_joints[col_min].isna().sum()
+                if nan_count > 0:
+                    raise ValueError(
+                        f"Internal error: {nan_count} intact joints have NaN values "
+                        f"for {col_min}. This should not happen."
+                    )
     
     return joint_summary
 

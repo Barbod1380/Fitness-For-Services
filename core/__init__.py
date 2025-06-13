@@ -8,4 +8,4 @@ from .column_mapping import (
     STANDARD_COLUMNS,
     REQUIRED_COLUMNS
 )
-from .data_processing import process_pipeline_data
+from .data_processing import process_pipeline_data, validate_pipeline_data

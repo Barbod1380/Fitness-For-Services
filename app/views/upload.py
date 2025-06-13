@@ -9,11 +9,9 @@ import time
 from app.components import show_step_indicator, info_box
 from app.config import ENCODING_OPTIONS, DEFAULT_PIPE_DIAMETER
 from core.column_mapping import *
-from core.data_processing import process_pipeline_data
+from core.data_processing import process_pipeline_data, validate_pipeline_data
 from utils.format_utils import float_to_clock
-from app.ui_components import (
-    show_step_indicator, info_box, create_column_mapping_form
-)
+from app.ui_components import show_step_indicator, info_box, create_column_mapping_form
 from utils.format_utils import float_to_clock, parse_clock
 
 
@@ -197,6 +195,12 @@ def render_upload_view(uploaded_file, selected_year):
                 if 'joint number' in defects_df.columns:
                     defects_df["joint number"] = defects_df["joint number"].astype("Int64")
                 
+                try:
+                    validate_pipeline_data(joints_df, defects_df)
+                except ValueError as e:
+                    st.error(f"Data validation failed:\n{e}")
+                    st.stop()
+
                 # Store in session state
                 st.session_state.datasets[selected_year] = {
                     'joints_df': joints_df,

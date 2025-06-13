@@ -438,36 +438,19 @@ def enhanced_calculate_remaining_life_analysis(comparison_results: Dict, joints_
     Returns:
     - Dictionary with enhanced remaining life analysis results
     """
-    if not comparison_results.get('has_depth_data', False):
+
+    # Create wall thickness lookup with validation
+    try:
+        wt_lookup = create_wall_thickness_lookup(joints_df, validate=True)
+    except ValueError as e:
         return {
-            'error': 'No depth data available for remaining life analysis',
+            'error': str(e),
             'analysis_possible': False
         }
     
     # Get matched and new defects
     matched_defects = comparison_results['matches_df'].copy()
     new_defects = comparison_results['new_defects'].copy()
-    
-    # Create wall thickness lookup
-    wt_lookup = {}
-    if 'wt nom [mm]' in joints_df.columns:
-        wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
-        
-        # Validate no missing values
-        missing_wt = joints_df[joints_df['wt nom [mm]'].isna()]
-        if not missing_wt.empty:
-            return {
-                'error': f'Missing wall thickness for {len(missing_wt)} joints. Cannot calculate remaining life.',
-                'analysis_possible': False
-            }
-
-    # In the loop analyzing defects (around line 310-330):
-    for idx, defect in matched_defects.iterrows():
-        wall_thickness = wt_lookup.get(defect.get('joint number'))
-        if wall_thickness is None:
-            # Don't use a default - skip or error
-            st.error(f"CRITICAL: Wall thickness missing for joint {defect.get('joint number')}. Skipping remaining life calculation for this defect.")
-            continue  # Skip this defect
     
     results = {
         'matched_defects_analysis': [],
@@ -479,80 +462,93 @@ def enhanced_calculate_remaining_life_analysis(comparison_results: Dict, joints_
     
     # Analyze matched defects (have measured growth rates)
     for idx, defect in matched_defects.iterrows():
-        wall_thickness = wt_lookup.get(defect.get('joint number'), 10.0)
-        
-        # Original depth-based analysis
-        depth_growth_rate = defect.get('growth_rate_pct_per_year', 0)
-        depth_remaining_life = calculate_remaining_life_single_defect(defect, depth_growth_rate)
-        
-        # Enhanced pressure-based analysis
-        measured_growth_rates = {
-            'depth_growth_rate_pct_per_year': depth_growth_rate,
-            'length_growth_rate_mm_per_year': defect.get('length_growth_rate_mm_per_year', 0),
-            'width_growth_rate_mm_per_year': defect.get('width_growth_rate_mm_per_year', 0)
-        }
-        
-        pressure_analysis = calculate_pressure_based_remaining_life(
-            defect, measured_growth_rates, pipe_diameter_mm, wall_thickness,
-            smys_mpa, safety_factor, operating_pressure_mpa
-        )
-        
-        # Combine results
-        combined_result = {
-            'defect_id': defect.get('new_defect_id', idx),
-            'log_dist': defect.get('log_dist', 0),
-            'defect_type': defect.get('defect_type', 'Unknown'),
-            'joint_number': defect.get('joint number', 0),
-            'wall_thickness_mm': wall_thickness,
-            'growth_rate_source': 'MEASURED',
+        try: 
+            wall_thickness = get_wall_thickness_for_defect(defect, wt_lookup)
             
-            # Depth-based results
-            'depth_based_remaining_life': depth_remaining_life['remaining_life_years'],
-            'depth_based_status': depth_remaining_life['status'],
+            # Original depth-based analysis
+            depth_growth_rate = defect.get('growth_rate_pct_per_year', 0)
+            depth_remaining_life = calculate_remaining_life_single_defect(defect, depth_growth_rate)
             
-            # Pressure-based results for each method
-            **pressure_analysis
-        }
+            # Enhanced pressure-based analysis
+            measured_growth_rates = {
+                'depth_growth_rate_pct_per_year': depth_growth_rate,
+                'length_growth_rate_mm_per_year': defect.get('length_growth_rate_mm_per_year', 0),
+                'width_growth_rate_mm_per_year': defect.get('width_growth_rate_mm_per_year', 0)
+            }
+            
+            pressure_analysis = calculate_pressure_based_remaining_life(
+                defect, measured_growth_rates, pipe_diameter_mm, wall_thickness,
+                smys_mpa, safety_factor, operating_pressure_mpa
+            )
+            
+            # Combine results
+            combined_result = {
+                'defect_id': defect.get('new_defect_id', idx),
+                'log_dist': defect.get('log_dist', 0),
+                'defect_type': defect.get('defect_type', 'Unknown'),
+                'joint_number': defect.get('joint number', 0),
+                'wall_thickness_mm': wall_thickness,
+                'growth_rate_source': 'MEASURED',
+                
+                # Depth-based results
+                'depth_based_remaining_life': depth_remaining_life['remaining_life_years'],
+                'depth_based_status': depth_remaining_life['status'],
+                
+                # Pressure-based results for each method
+                **pressure_analysis
+            }
+            results['matched_defects_analysis'].append(combined_result)
         
-        results['matched_defects_analysis'].append(combined_result)
+        except ValueError as e:
+            # Log the error but continue processing other defects
+            st.warning(f"Skipping defect at {defect.get('log_dist', 'unknown')}m: {e}")
+            continue
     
+
     # Analyze new defects (estimate growth rates)
     for idx, defect in new_defects.iterrows():
-        wall_thickness = wt_lookup.get(defect.get('joint number'), 10.0)
+        try:
+            wall_thickness = get_wall_thickness_for_defect(defect, wt_lookup)
         
-        # Estimate growth rates based on similar defects
-        estimated_growth_rates = calculate_average_growth_rates_for_similar_defects(defect, matched_defects)
-        
-        # Original depth-based analysis
-        estimated_depth_rate = estimated_growth_rates['depth_growth_rate_pct_per_year']
-        depth_remaining_life = calculate_remaining_life_single_defect(defect, estimated_depth_rate)
-        
-        # Enhanced pressure-based analysis
-        pressure_analysis = calculate_pressure_based_remaining_life(
-            defect, estimated_growth_rates, pipe_diameter_mm, wall_thickness,
-            smys_mpa, safety_factor, operating_pressure_mpa
-        )
-        
-        # Combine results
-        combined_result = {
-            'defect_id': defect.get('defect_id', idx),
-            'log_dist': defect.get('log dist. [m]', 0),
-            'defect_type': defect.get('component / anomaly identification', 'Unknown'),
-            'joint_number': defect.get('joint number', 0),
-            'wall_thickness_mm': wall_thickness,
-            'growth_rate_source': 'ESTIMATED',
-            'estimation_confidence': estimated_growth_rates['confidence'],
-            'similar_defects_count': estimated_growth_rates['similar_defects_count'],
+            # Estimate growth rates based on similar defects
+            estimated_growth_rates = calculate_average_growth_rates_for_similar_defects(defect, matched_defects)
             
-            # Depth-based results
-            'depth_based_remaining_life': depth_remaining_life['remaining_life_years'],
-            'depth_based_status': depth_remaining_life['status'],
+            # Original depth-based analysis
+            estimated_depth_rate = estimated_growth_rates['depth_growth_rate_pct_per_year']
+            depth_remaining_life = calculate_remaining_life_single_defect(defect, estimated_depth_rate)
             
-            # Pressure-based results for each method
-            **pressure_analysis
-        }
-        
-        results['new_defects_analysis'].append(combined_result)
+            # Enhanced pressure-based analysis
+            pressure_analysis = calculate_pressure_based_remaining_life(
+                defect, estimated_growth_rates, pipe_diameter_mm, wall_thickness,
+                smys_mpa, safety_factor, operating_pressure_mpa
+            )
+            
+            # Combine results
+            combined_result = {
+                'defect_id': defect.get('defect_id', idx),
+                'log_dist': defect.get('log dist. [m]', 0),
+                'defect_type': defect.get('component / anomaly identification', 'Unknown'),
+                'joint_number': defect.get('joint number', 0),
+                'wall_thickness_mm': wall_thickness,
+                'growth_rate_source': 'ESTIMATED',
+                'estimation_confidence': estimated_growth_rates['confidence'],
+                'similar_defects_count': estimated_growth_rates['similar_defects_count'],
+                
+                # Depth-based results
+                'depth_based_remaining_life': depth_remaining_life['remaining_life_years'],
+                'depth_based_status': depth_remaining_life['status'],
+                
+                # Pressure-based results for each method
+                **pressure_analysis
+            }
+            
+            results['new_defects_analysis'].append(combined_result)
+
+        except ValueError as e:
+            # Log the error but continue processing other defects
+            st.warning(f"Skipping defect at {defect.get('log_dist', 'unknown')}m: {e}")
+            continue
+
     
     # Calculate summary statistics
     all_analyses = results['matched_defects_analysis'] + results['new_defects_analysis']

@@ -56,7 +56,7 @@ def process_pipeline_data(df):
     
     # === Efficient forward fill ===
     if "joint number" in df_view.columns:
-        df_view["joint number"].df_view["joint number"].ffill(inplace=True)
+        df_view["joint number"].ffill(inplace=True)
     
     # === Optimized defects DataFrame creation ===
     length_width_cols = ["length [mm]", "width [mm]"]
@@ -94,3 +94,39 @@ def process_pipeline_data(df):
         )
     
     return joints_df, defects_df
+
+
+# Add to core/data_processing.py
+def validate_pipeline_data(joints_df, defects_df):
+    """
+    Validate that pipeline data is complete and consistent.
+    """
+    errors = []
+    
+    # Check joints have wall thickness
+    if 'wt nom [mm]' not in joints_df.columns:
+        errors.append("Joints data missing 'wt nom [mm]' column")
+    else:
+        missing_wt = joints_df[joints_df['wt nom [mm]'].isna()]
+        if not missing_wt.empty:
+            errors.append(f"{len(missing_wt)} joints have missing wall thickness")
+    
+    # Check all defects have joint assignments
+    if 'joint number' not in defects_df.columns:
+        errors.append("Defects data missing 'joint number' column")
+    else:
+        missing_joints = defects_df[defects_df['joint number'].isna()]
+        if not missing_joints.empty:
+            errors.append(f"{len(missing_joints)} defects have no joint number")
+        
+        # Check all defect joints exist in joints_df
+        defect_joints = set(defects_df['joint number'].dropna().unique())
+        joint_numbers = set(joints_df['joint number'].unique())
+        orphan_joints = defect_joints - joint_numbers
+        if orphan_joints:
+            errors.append(f"Defects reference non-existent joints: {list(orphan_joints)[:5]}")
+    
+    if errors:
+        raise ValueError("Data validation failed:\n" + "\n".join(errors))
+    
+    return True
