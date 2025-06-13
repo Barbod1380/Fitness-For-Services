@@ -5,7 +5,7 @@ Based on ASME B31G-2012 and API 579-1/ASME FFS-1 interaction rules.
 """
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Tuple
+from typing import List, Dict
 import warnings
 
 class FFSDefectInteraction:
@@ -50,8 +50,8 @@ class FFSDefectInteraction:
         else:
             raise ValueError(f"Unknown circumferential interaction method: {self.circ_method}")
     
-    def convert_to_cartesian(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame,
-                           pipe_diameter_mm: float) -> pd.DataFrame:
+    def convert_to_cartesian(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame, 
+                            pipe_diameter_mm: float) -> pd.DataFrame:
         """
         Convert defect positions to cartesian coordinates for interaction analysis.
         
@@ -60,7 +60,7 @@ class FFSDefectInteraction:
         df = defects_df.copy()
         
         # Ensure we have required columns
-        required_cols = ['log dist. [m]', 'length [mm]', 'o\'clock position', 'joint number']
+        required_cols = ['log dist. [m]', 'length [mm]', 'clock', 'joint number']
         missing = [col for col in required_cols if col not in df.columns]
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
@@ -70,9 +70,32 @@ class FFSDefectInteraction:
         df['x_start_mm'] = df['x_center_mm'] - df['length [mm]'] / 2
         df['x_end_mm'] = df['x_center_mm'] + df['length [mm]'] / 2
         
-        # Convert o'clock to angular position (degrees)
-        # 12 o'clock = 0°, 3 o'clock = 90°, etc.
-        df['angle_deg'] = (df['o\'clock position'] % 12) * 30
+        # Parse clock position string (e.g., '8:43' -> 8.717 hours)
+        def parse_clock_to_decimal_hours(clock_str):
+            """Convert clock string 'H:MM' or 'HH:MM' to decimal hours."""
+            try:
+                parts = clock_str.strip().split(':')
+                hours = int(parts[0])
+                minutes = int(parts[1]) if len(parts) > 1 else 0
+                
+                # Convert to decimal hours
+                decimal_hours = hours + minutes / 60.0
+                
+                # Validate range (1:00 to 12:59)
+                if decimal_hours < 1.0 or decimal_hours >= 13.0:
+                    warnings.warn(f"Clock position {clock_str} outside expected range 1:00-12:59")
+                
+                return decimal_hours
+            except (ValueError, IndexError) as e:
+                warnings.warn(f"Invalid clock format '{clock_str}': {e}")
+                return 12.0  # Default to 12:00 if parsing fails
+        
+        # Convert clock strings to decimal hours
+        df['decimal_hours'] = df['clock'].apply(parse_clock_to_decimal_hours)
+        
+        # Convert to angular position (degrees)
+        # 12:00 = 0°, 3:00 = 90°, 6:00 = 180°, 9:00 = 270°
+        df['angle_deg'] = (df['decimal_hours'] % 12) * 30
         
         # Calculate circumferential position (y) in mm
         # Using arc length = radius × angle (in radians)
@@ -89,12 +112,13 @@ class FFSDefectInteraction:
             df['y_end_mm'] = df['y_center_mm']
             df['width [mm]'] = 0
         
-        return df
-    
+        return df        
+
     def find_interacting_defects(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame,
-                               pipe_diameter_mm: float) -> List[List[int]]:
+                            pipe_diameter_mm: float) -> List[List[int]]:
         """
         Find groups of interacting defects according to FFS rules.
+        OPTIMIZED: Uses sorted nature of defects to skip distant comparisons.
         
         Returns:
         - List of defect groups, where each group is a list of defect indices
@@ -119,12 +143,43 @@ class FFSDefectInteraction:
             if px != py:
                 parent[px] = py
         
-        # Check all pairs of defects for interaction
+        # OPTIMIZATION: Pre-calculate the maximum possible interaction distance
+        # This is the axial distance + maximum possible defect length
+        max_defect_length = df['length [mm]'].max() if not df.empty else 0
+        max_axial_search_distance = self.axial_interaction_distance + max_defect_length
+        
+        # Track statistics for debugging/info
+        comparisons_made = 0
+        comparisons_skipped = 0
+        
+        # Check pairs of defects for interaction - OPTIMIZED VERSION
         for i in range(n_defects):
+            defect_i = df.iloc[i]
+            
+            # Only check defects ahead in the sorted list
             for j in range(i + 1, n_defects):
-                if self._defects_interact(df.iloc[i], df.iloc[j], pipe_diameter_mm, wt_lookup):
+                defect_j = df.iloc[j]
+                
+                # OPTIMIZATION: Calculate axial distance between defect centers
+                axial_center_distance = abs(defect_j['x_center_mm'] - defect_i['x_center_mm'])
+                
+                # If defects are too far apart axially (even considering their lengths),
+                # all subsequent defects will also be too far
+                if axial_center_distance > max_axial_search_distance:
+                    comparisons_skipped += (n_defects - j)  # Count skipped comparisons
+                    break  # Skip all remaining defects for this i
+                
+                comparisons_made += 1
+                
+                # Check if defects actually interact
+                if self._defects_interact(defect_i, defect_j, pipe_diameter_mm, wt_lookup):
                     union(i, j)
         
+        # Log optimization statistics (optional)
+        total_possible = n_defects * (n_defects - 1) // 2
+        print(f"Defect interaction optimization: {comparisons_made} comparisons made, "
+            f"{comparisons_skipped} skipped (out of {total_possible} possible)")
+
         # Group defects by their root parent
         groups = {}
         for i in range(n_defects):
@@ -139,8 +194,8 @@ class FFSDefectInteraction:
         
         return interacting_groups + single_defects
     
-    def _defects_interact(self, defect1: pd.Series, defect2: pd.Series, 
-                         pipe_diameter_mm: float, wt_lookup: Dict) -> bool:
+
+    def _defects_interact(self, defect1: pd.Series, defect2: pd.Series, pipe_diameter_mm: float, wt_lookup: Dict) -> bool:
         """
         Check if two defects interact according to FFS rules.
         """
@@ -181,6 +236,7 @@ class FFSDefectInteraction:
         
         return True  # Defects interact
     
+
     def _calculate_circumferential_gap(self, y1_start, y1_end, y2_start, y2_end, 
                                      pipe_diameter_mm):
         """
@@ -198,9 +254,7 @@ class FFSDefectInteraction:
         
         return min(max(0, gap), max(0, wrap_gap))
     
-    def combine_interacting_defects(self, defects_df: pd.DataFrame, 
-                                  joints_df: pd.DataFrame,
-                                  pipe_diameter_mm: float) -> pd.DataFrame:
+    def combine_interacting_defects(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame, pipe_diameter_mm: float) -> pd.DataFrame:
         """
         Combine interacting defects according to FFS rules.
         
@@ -208,9 +262,8 @@ class FFSDefectInteraction:
         """
         # Find interacting groups
         groups = self.find_interacting_defects(defects_df, joints_df, pipe_diameter_mm)
-        
         combined_defects = []
-        
+
         for group in groups:
             if len(group) == 1:
                 # Single defect - keep as is
@@ -218,7 +271,25 @@ class FFSDefectInteraction:
             else:
                 # Multiple interacting defects - combine them
                 group_defects = defects_df.iloc[group]
+
+                def parse_clock_to_decimal_hours(clock_str):
+                    """Convert clock string 'H:MM' to decimal hours."""
+                    try:
+                        parts = clock_str.strip().split(':')
+                        hours = int(parts[0])
+                        minutes = int(parts[1]) if len(parts) > 1 else 0
+                        return hours + minutes / 60.0
+                    except:
+                        return 12.0  # Default if parsing fails
                 
+                decimal_hours = group_defects['clock'].apply(parse_clock_to_decimal_hours)
+                mean_decimal_hours = decimal_hours.mean()
+            
+                # Convert back to clock format (optional - you could keep decimal)
+                mean_hours = int(mean_decimal_hours)
+                mean_minutes = int((mean_decimal_hours - mean_hours) * 60)
+                mean_clock_str = f"{mean_hours}:{mean_minutes:02d}"
+
                 combined = {
                     # Take maximum depth (most conservative)
                     'depth [%]': group_defects['depth [%]'].max(),
@@ -235,7 +306,7 @@ class FFSDefectInteraction:
                     
                     # Preserve other important fields
                     'joint number': group_defects['joint number'].iloc[0],  # Assuming same joint
-                    'o\'clock position': group_defects['o\'clock position'].mean(),
+                    'clock': mean_clock_str,
                     
                     # Metadata about combination
                     'is_combined': True,
@@ -243,7 +314,7 @@ class FFSDefectInteraction:
                     'original_indices': list(group),
                     'combination_note': f"Combined {len(group)} interacting defects per FFS rules"
                 }
-                
+
                 # Preserve other columns from the first defect
                 first_defect = defects_df.iloc[group[0]]
                 for col in defects_df.columns:
@@ -261,16 +332,38 @@ class FFSDefectInteraction:
         
         return result_df
     
-    def _calculate_combined_width(self, group_defects: pd.DataFrame, 
-                                 pipe_diameter_mm: float) -> float:
+    def _calculate_combined_width(self, group_defects: pd.DataFrame, pipe_diameter_mm: float) -> float:
         """
         Calculate combined circumferential width of interacting defects.
         """
         if 'width [mm]' not in group_defects.columns:
             return 0
         
-        # Convert o'clock positions to angles and find extent
-        angles = (group_defects['o\'clock position'] % 12) * 30
+        def parse_clock_to_decimal_hours(clock_str):
+            """Convert clock string 'H:MM' or 'HH:MM' to decimal hours."""
+            try:
+                parts = clock_str.strip().split(':')
+                hours = int(parts[0])
+                minutes = int(parts[1]) if len(parts) > 1 else 0
+                
+                # Convert to decimal hours
+                decimal_hours = hours + minutes / 60.0
+                
+                # Validate range (1:00 to 12:59)
+                if decimal_hours < 1.0 or decimal_hours >= 13.0:
+                    warnings.warn(f"Clock position {clock_str} outside expected range 1:00-12:59")
+                
+                return decimal_hours
+            except (ValueError, IndexError) as e:
+                warnings.warn(f"Invalid clock format '{clock_str}': {e}")
+                return 12.0  # Default to 12:00 if parsing fails
+            
+
+        group_defects['decimal_hours'] = group_defects['clock'].apply(parse_clock_to_decimal_hours)
+        
+        # Convert to angular position (degrees)
+        # 12:00 = 0°, 3:00 = 90°, 6:00 = 180°, 9:00 = 270°
+        angles = (group_defects['decimal_hours'] % 12) * 30
         
         # Simple approach - can be enhanced for better accuracy
         min_angle = angles.min()

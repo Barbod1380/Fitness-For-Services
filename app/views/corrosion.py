@@ -1566,8 +1566,9 @@ def render_corrosion_assessment_view():
             combined_defects_df = ffs_analyzer.combine_interacting_defects(
                 defects_df, joints_df, pipe_diameter_mm
             )
-            combined_count = len(combined_defects_df)
-            
+
+            combined_count = len(combined_defects_df)            
+
             # Show summary
             st.success(f"""
             FFS Interaction Analysis Complete:
@@ -1575,9 +1576,16 @@ def render_corrosion_assessment_view():
             - After combining interactions: {combined_count}
             - Defects combined: {original_count - combined_count}
             """)
-            
+
+            print(combined_defects_df)
+
+            #combined_only = combined_defects_df[combined_defects_df.get('is_combined', False)]
             # Show which defects were combined
-            combined_only = combined_defects_df[combined_defects_df.get('is_combined', False)]
+            if 'is_combined' in combined_defects_df.columns:
+                combined_only = combined_defects_df[combined_defects_df['is_combined'].fillna(False) == True]
+            else:
+                combined_only = pd.DataFrame()  # Empty dataframe if no combined defects
+
             if not combined_only.empty:
                 st.markdown("### Combined Defects Summary")
                 for idx, combined in combined_only.iterrows():
@@ -1604,7 +1612,7 @@ def validate_ffs_interaction_parameters(defects_df, joints_df, pipe_diameter_mm)
     
     # Check required columns in defects
     required_defect_cols = ['log dist. [m]', 'length [mm]', 'depth [%]', 
-                           'o\'clock position', 'joint number']
+                           'clock', 'joint number']
     missing = [col for col in required_defect_cols if col not in defects_df.columns]
     if missing:
         errors.append(f"Defects missing required columns for FFS analysis: {missing}")
@@ -1614,10 +1622,10 @@ def validate_ffs_interaction_parameters(defects_df, joints_df, pipe_diameter_mm)
         warnings.warn("No width data - will treat defects as circumferentially point-like")
     
     # Validate o'clock positions
-    if 'o\'clock position' in defects_df.columns:
+    if 'clock' in defects_df.columns:
         invalid_oclock = defects_df[
-            (defects_df['o\'clock position'] < 0) | 
-            (defects_df['o\'clock position'] > 12)
+            (defects_df['clock'] < 0) | 
+            (defects_df['clock'] > 12)
         ]
         if not invalid_oclock.empty:
             errors.append(f"{len(invalid_oclock)} defects have invalid o'clock positions")
