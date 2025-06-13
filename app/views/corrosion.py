@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import base64
 from app.ui_components import create_metrics_row
 from app.services.state_manager import get_state
+from core.ffs_defect_interaction import *
 
 
 def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.39):
@@ -425,6 +426,13 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     Raises:
     - ValueError if required data is missing or invalid
     """
+
+    # Check if we should use FFS combined defects
+    if hasattr(st.session_state, 'use_ffs_combined') and st.session_state.use_ffs_combined:
+        if hasattr(st.session_state, 'ffs_combined_defects'):
+            defects_df = st.session_state.ffs_combined_defects
+            st.info(f"Using FFS-combined defects ({len(defects_df)} defects after combination)")
+
     # Create a copy to avoid modifying the original dataframe
     enhanced_df = defects_df.copy()
     
@@ -1490,3 +1498,131 @@ def render_corrosion_assessment_view():
                 """)
         
         st.markdown('</div>', unsafe_allow_html=True)  # Close visualization container
+
+    # Add FFS interaction analysis option
+    st.subheader("Defect Interaction Analysis")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        apply_ffs_interaction = st.checkbox(
+            "Apply FFS Defect Interaction Rules",
+            value=True,
+            help="Combine defects that are close enough to interact per ASME B31G/API 579 rules"
+        )
+    
+    with col2:
+        if apply_ffs_interaction:
+            interaction_method = st.selectbox(
+                "Circumferential Interaction Rule",
+                options=['sqrt_dt', '3t', 'custom'],
+                format_func=lambda x: {
+                    'sqrt_dt': '√(D×t) - Standard',
+                    '3t': '3×t - Conservative', 
+                    'custom': 'Custom Distance'
+                }[x]
+            )
+            
+            if interaction_method == 'custom':
+                custom_distance = st.number_input(
+                    "Custom Circumferential Distance (mm)",
+                    min_value=1.0,
+                    max_value=100.0,
+                    value=25.4
+                )
+            else:
+                custom_distance = None
+    
+    if apply_ffs_interaction:
+        with st.expander("ℹ️ FFS Defect Interaction Rules", expanded=False):
+            st.markdown("""
+            **Fitness-For-Service (FFS) Defect Interaction Criteria:**
+            
+            Per ASME B31G and API 579-1/ASME FFS-1, defects interact when:
+            
+            1. **Axial Spacing** < 1 inch (25.4 mm) - default
+            2. **Circumferential Spacing** < √(D×t) or 3×t
+            
+            **Combined Defect Properties:**
+            - Depth: Maximum of all interacting defects
+            - Length: Total axial extent 
+            - Width: Total circumferential extent
+            
+            This ensures conservative assessment of closely spaced defects.
+            """)
+    
+    # Process with FFS rules if selected
+    if apply_ffs_interaction and st.button("Analyze with FFS Interaction"):
+        try:
+            # Initialize FFS interaction analyzer
+            ffs_analyzer = FFSDefectInteraction(
+                axial_interaction_distance_mm=25.4,  # 1 inch
+                circumferential_interaction_method=interaction_method,
+                custom_circ_distance_mm=custom_distance
+            )
+            
+            # Find and combine interacting defects
+            original_count = len(defects_df)
+            combined_defects_df = ffs_analyzer.combine_interacting_defects(
+                defects_df, joints_df, pipe_diameter_mm
+            )
+            combined_count = len(combined_defects_df)
+            
+            # Show summary
+            st.success(f"""
+            FFS Interaction Analysis Complete:
+            - Original defects: {original_count}
+            - After combining interactions: {combined_count}
+            - Defects combined: {original_count - combined_count}
+            """)
+            
+            # Show which defects were combined
+            combined_only = combined_defects_df[combined_defects_df.get('is_combined', False)]
+            if not combined_only.empty:
+                st.markdown("### Combined Defects Summary")
+                for idx, combined in combined_only.iterrows():
+                    st.markdown(f"""
+                    **Combined Defect {idx + 1}:**
+                    - Number of original defects: {combined['num_original_defects']}
+                    - Combined depth: {combined['depth [%]']:.1f}%
+                    - Combined length: {combined['length [mm]']:.1f} mm
+                    - Location: {combined['log dist. [m]']:.1f} m
+                    """)
+            
+            # Store combined defects for assessment
+            st.session_state.ffs_combined_defects = combined_defects_df
+            st.session_state.use_ffs_combined = True
+            
+        except Exception as e:
+            st.error(f"Error in FFS interaction analysis: {str(e)}")
+
+def validate_ffs_interaction_parameters(defects_df, joints_df, pipe_diameter_mm):
+    """
+    Validate that we have all required data for FFS interaction analysis.
+    """
+    errors = []
+    
+    # Check required columns in defects
+    required_defect_cols = ['log dist. [m]', 'length [mm]', 'depth [%]', 
+                           'o\'clock position', 'joint number']
+    missing = [col for col in required_defect_cols if col not in defects_df.columns]
+    if missing:
+        errors.append(f"Defects missing required columns for FFS analysis: {missing}")
+    
+    # Check for circumferential data
+    if 'width [mm]' not in defects_df.columns:
+        warnings.warn("No width data - will treat defects as circumferentially point-like")
+    
+    # Validate o'clock positions
+    if 'o\'clock position' in defects_df.columns:
+        invalid_oclock = defects_df[
+            (defects_df['o\'clock position'] < 0) | 
+            (defects_df['o\'clock position'] > 12)
+        ]
+        if not invalid_oclock.empty:
+            errors.append(f"{len(invalid_oclock)} defects have invalid o'clock positions")
+    
+    if errors:
+        raise ValueError("FFS interaction validation failed:\n" + "\n".join(errors))
+    
+    return True

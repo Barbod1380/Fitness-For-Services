@@ -5,5 +5,4 @@ from .home import render_home_view
 from .upload import render_upload_view, load_csv_with_encoding
 from .single_analysis import render_single_analysis_view
 from .comparison import render_comparison_view
-from .clustering import render_clustering_view  # NEW: Add clustering import
 from .corrosion import *
