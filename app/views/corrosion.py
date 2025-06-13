@@ -2,12 +2,10 @@
 Corrosion assessment view for the Pipeline Analysis application.
 """
 
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import math
-import plotly.express as px
 import plotly.graph_objects as go
 import base64
 from app.ui_components import create_metrics_row
@@ -273,25 +271,34 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
 
 def calculate_simplified_effective_area_method(defect_depth_pct, defect_length_mm, defect_width_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.5):
     """
-    Calculate remaining strength using a SIMPLIFIED effective area method.
+    Calculate remaining strength using a SIMPLIFIED effective area approximation.
     
-    ⚠️ WARNING: This is NOT true RSTRENG analysis. True RSTRENG requires 
-    detailed river-bottom profile data from inline inspection tools.
-    This simplified method should only be used for preliminary assessments.
+    ⚠️ CRITICAL WARNING: This is NOT true RSTRENG (B31G Level 2) analysis!
     
-    For critical assessments, use proper RSTRENG software with detailed 
-    corrosion profiles.
-
-    Calculate remaining strength using a simplified RSTRENG method.
-    This is a simplified implementation as the actual method requires detailed river-bottom profile.
+    True RSTRENG requires:
+    - Detailed river-bottom profile from ILI tools
+    - Iterative effective area calculations
+    - Commercial software (e.g., RSTRENG+, Pipeline Toolbox)
+    
+    This simplified method:
+    - Uses basic geometric approximations
+    - May be non-conservative for complex corrosion patterns
+    - Should NOT be used for critical integrity decisions
+    - Is provided for preliminary screening only
+    
+    For pipeline integrity decisions requiring RSTRENG analysis, use:
+    - Certified RSTRENG software
+    - Actual ILI river-bottom profiles
+    - Qualified pipeline integrity engineers
     
     Parameters:
     - defect_depth_pct: Defect depth as percentage of wall thickness
     - defect_length_mm: Defect length (mm)
-    - defect_width_mm: Defect width (mm) - used as an additional parameter for simplified RSTRENG
+    - defect_width_mm: Defect width (mm)
     - pipe_diameter_mm: Outside diameter of pipe (mm)
     - wall_thickness_mm: Nominal wall thickness (mm)
     - smys_mpa: Specified Minimum Yield Strength (MPa)
+    - safety_factor: Safety factor (default 1.5)
     
     Returns:
     - Dict with results including failure pressure and safe pressure
@@ -472,7 +479,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         )
     
     # Initialize new columns for each method
-    methods = ['b31g', 'modified_b31g', 'effective_area']
+    methods = ['b31g', 'modified_b31g', 'simplified_eff_area']
     
     for method in methods:
         enhanced_df[f'{method}_safe'] = True
@@ -486,8 +493,8 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     enhanced_df['b31g_flaw_type'] = ""
     enhanced_df['modified_b31g_folias_factor'] = np.nan
     enhanced_df['modified_b31g_z_parameter'] = np.nan
-    enhanced_df['effective_area_folias_factor'] = np.nan
-    enhanced_df['effective_area_effective_depth_factor'] = np.nan
+    enhanced_df['simplified_eff_area_folias_factor'] = np.nan
+    enhanced_df['simplified_eff_area_effective_depth_factor'] = np.nan
     
     # Add a column to store the wall thickness used for each defect
     enhanced_df['wall_thickness_used_mm'] = np.nan
@@ -575,16 +582,16 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
                 depth_pct, length_mm, width_mm, pipe_diameter_mm, 
                 wall_thickness_mm, smys_mpa, safety_factor
             )
-            enhanced_df.loc[idx, 'effective_area_safe'] = effective_area_result['safe']
-            enhanced_df.loc[idx, 'effective_area_failure_pressure_mpa'] = effective_area_result['failure_pressure_mpa']
-            enhanced_df.loc[idx, 'effective_area_safe_pressure_mpa'] = effective_area_result['safe_pressure_mpa']
-            enhanced_df.loc[idx, 'effective_area_remaining_strength_pct'] = effective_area_result['remaining_strength_pct']
-            enhanced_df.loc[idx, 'effective_area_folias_factor'] = effective_area_result.get('folias_factor_M')
-            enhanced_df.loc[idx, 'effective_area_effective_depth_factor'] = effective_area_result.get('effective_depth_factor')
-            enhanced_df.loc[idx, 'effective_area_notes'] = effective_area_result['note']
+            enhanced_df.loc[idx, 'simplified_eff_area_safe'] = effective_area_result['safe']
+            enhanced_df.loc[idx, 'simplified_eff_area_failure_pressure_mpa'] = effective_area_result['failure_pressure_mpa']
+            enhanced_df.loc[idx, 'simplified_eff_area_safe_pressure_mpa'] = effective_area_result['safe_pressure_mpa']
+            enhanced_df.loc[idx, 'simplified_eff_area_remaining_strength_pct'] = effective_area_result['remaining_strength_pct']
+            enhanced_df.loc[idx, 'simplified_eff_area_folias_factor'] = effective_area_result.get('folias_factor_M')
+            enhanced_df.loc[idx, 'simplified_eff_area_effective_depth_factor'] = effective_area_result.get('effective_depth_factor')
+            enhanced_df.loc[idx, 'simplified_eff_area_notes'] = effective_area_result['note']
         except Exception as e:
-            enhanced_df.loc[idx, 'effective_area_safe'] = False
-            enhanced_df.loc[idx, 'effective_area_notes'] = f"Calculation error: {str(e)}"
+            enhanced_df.loc[idx, 'simplified_eff_area_safe'] = False
+            enhanced_df.loc[idx, 'simplified_eff_area_notes'] = f"Calculation error: {str(e)}"
     
     return enhanced_df
 
@@ -627,7 +634,7 @@ def create_assessment_summary_stats(enhanced_df):
     Returns:
     - Dictionary with summary statistics
     """
-    methods = ['b31g', 'modified_b31g', 'rstreng']
+    methods = ['b31g', 'modified_b31g', 'simplified_eff_area']
     summary = {}
     
     total_defects = len(enhanced_df)
@@ -689,12 +696,6 @@ def create_enhanced_csv_download_link(enhanced_df, year):
     href = f'<a href="data:file/csv;base64,{b64}" download="{filename}" class="custom-button" style="display:inline-block;text-decoration:none;margin-top:10px;font-size:0.9em;padding:8px 15px;background-color:#27AE60;color:white;border-radius:5px;">📊 Download Enhanced CSV with Corrosion Metrics</a>'
     return href
 
-
-import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-
 def create_joint_assessment_visualization(joint_summary, method='b31g', metric='remaining_strength_pct', 
                                         aggregation='min', pipe_diameter=1.0):
     """
@@ -728,7 +729,7 @@ def create_joint_assessment_visualization(joint_summary, method='b31g', metric='
     color_values = viz_data[color_col]
     
     # Set up visualization parameters
-    method_name = {'b31g': 'B31G Original', 'modified_b31g': 'Modified B31G', 'rstreng': 'RSTRENG'}[method]
+    method_name = {'b31g': 'B31G Original', 'modified_b31g': 'Modified B31G', 'simplified_eff_area': 'Simplified Eff. Area'}[method]
     
     if 'pressure' in metric:
         colorscale = [
@@ -943,7 +944,7 @@ def aggregate_assessment_results_by_joint(enhanced_df, joints_df, pipe_diameter_
     joint_summary = joints_df[required_joint_cols].copy()
     
     # Focus only on the 3 core metrics
-    methods = ['b31g', 'modified_b31g', 'effective_area']
+    methods = ['b31g', 'modified_b31g', 'simplified_eff_area']
     metrics = ['failure_pressure_mpa', 'safe_pressure_mpa', 'remaining_strength_pct']
     
     # Initialize columns for each method and metric
@@ -1266,29 +1267,12 @@ def render_corrosion_assessment_view():
     if st.button("Perform Corrosion Assessment", key="perform_assessment", use_container_width=True):
         with st.spinner("Computing B31G, Modified B31G, and Effective Area metrics..."):
             try:
-                # Map the missing_wt_action to parameter
-                if missing_wt_action == "Stop and show error (Recommended)":
-                    missing_wt_handling = 'error'
-                else:  # "Skip affected defects"
-                    missing_wt_handling = 'skip'
-                
+
                 # Compute the enhanced dataframe with corrosion metrics
-                enhanced_df, missing_wt_defects = compute_corrosion_metrics_for_dataframe(
+                enhanced_df = compute_corrosion_metrics_for_dataframe(
                     defects_df, joints_df, pipe_diameter_mm, smys_mpa, 
-                    safety_factor, missing_wt_handling
+                    safety_factor
                 )
-                
-                # Handle missing wall thickness cases
-                if missing_wt_defects and missing_wt_handling == 'skip':
-                    st.warning(f"""
-                    ⚠️ **WARNING: {len(missing_wt_defects)} defects were SKIPPED due to missing wall thickness data**
-                    
-                    Affected joints: {', '.join([str(d['joint_number']) for d in missing_wt_defects[:10]])}
-                    {'...' if len(missing_wt_defects) > 10 else ''}
-                    
-                    These defects were NOT assessed for safety. To include them, update your joints data 
-                    with wall thickness values for these joints.
-                    """)
 
                 # Aggregate results by joint for visualization
                 joint_summary = aggregate_assessment_results_by_joint(
@@ -1353,7 +1337,7 @@ def render_corrosion_assessment_view():
         
         with method_tabs[2]:
             st.markdown("### RSTRENG (Simplified) Results")
-            rstreng_stats = summary_stats['rstreng']
+            rstreng_stats = summary_stats['simplified_eff_area']
             
             metrics_data = [
                 ("Total Defects", f"{rstreng_stats['total_defects']}", None),
@@ -1377,7 +1361,7 @@ def render_corrosion_assessment_view():
         assessment_cols = [
             'b31g_safe', 'b31g_failure_pressure_mpa', 'b31g_remaining_strength_pct',
             'modified_b31g_safe', 'modified_b31g_failure_pressure_mpa', 'modified_b31g_remaining_strength_pct',
-            'rstreng_safe', 'rstreng_failure_pressure_mpa', 'rstreng_remaining_strength_pct'
+            'simplified_eff_area_safe', 'simplified_eff_area_failure_pressure_mpa', 'simplified_eff_area_remaining_strength_pct'
         ]
         
         preview_cols = display_cols + assessment_cols
