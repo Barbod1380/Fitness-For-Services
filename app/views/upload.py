@@ -6,7 +6,6 @@ import pandas as pd
 import re
 import time
 
-from app.components import show_step_indicator, info_box
 from app.config import ENCODING_OPTIONS
 from core.column_mapping import *
 from core.data_processing import process_pipeline_data, validate_pipeline_data

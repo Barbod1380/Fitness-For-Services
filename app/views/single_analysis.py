@@ -5,7 +5,7 @@ Single year analysis view for the Pipeline Analysis application.
 import streamlit as st
 import pandas as pd
 
-from app.components import custom_metric, info_box, create_data_download_links
+from app.ui_components.ui_elements import custom_metric, info_box, create_data_download_links
 from app.ui_components.charts import create_metrics_row
 from analysis.defect_analysis import (
     create_dimension_distribution_plots,
