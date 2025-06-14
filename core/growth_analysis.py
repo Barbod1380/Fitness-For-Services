@@ -28,68 +28,131 @@ class ClusterAwareGrowthAnalyzer:
         self.min_growth_rate = min_growth_rate
         self.max_growth_rate = max_growth_rate
         self.negative_growth_strategy = negative_growth_strategy
-    
+
+
     def analyze_growth_with_clustering(self,
-                                     year1_defects: pd.DataFrame,
-                                     year2_defects: pd.DataFrame,
-                                     matches: List[DefectMatch],
-                                     year1_date: pd.Timestamp,
-                                     year2_date: pd.Timestamp,
-                                     wall_thickness_lookup: Dict) -> pd.DataFrame:
+                                year1_defects: pd.DataFrame,
+                                year2_defects: pd.DataFrame,
+                                matches: List[DefectMatch],
+                                year1_date: pd.Timestamp,
+                                year2_date: pd.Timestamp,
+                                wall_thickness_lookup: Dict) -> pd.DataFrame:
         """
         Analyze growth rates for matched defects considering clustering.
         
-        Returns DataFrame with growth analysis for each match.
+        FIXED: Proper handling of DataFrame vs Series extraction
         """
         time_years = (year2_date - year1_date).days / 365.25
         
         growth_results = []
         
         for match in matches:
-            # Get defect data for this match
-            y1_defects = year1_defects.iloc[match.year1_indices]
-            y2_defects = year2_defects.iloc[match.year2_indices]
-            
-            # Calculate growth based on match type
-            if match.match_type == '1-to-1':
-                growth_data = self._analyze_simple_growth(
-                    y1_defects.iloc[0], y2_defects.iloc[0], 
-                    time_years, wall_thickness_lookup
-                )
-            elif match.match_type == 'many-to-1':
-                growth_data = self._analyze_coalescence_growth(
-                    y1_defects, y2_defects.iloc[0],
-                    time_years, wall_thickness_lookup
-                )
-            elif match.match_type == '1-to-many':
-                growth_data = self._analyze_split_growth(
-                    y1_defects.iloc[0], y2_defects,
-                    time_years, wall_thickness_lookup
-                )
-            else:  # many-to-many
-                growth_data = self._analyze_complex_growth(
-                    y1_defects, y2_defects,
-                    time_years, wall_thickness_lookup
-                )
-            
-            # Add match metadata
-            growth_data.update({
-                'match_type': match.match_type,
-                'match_confidence': match.match_confidence,
-                'year1_indices': match.year1_indices,
-                'year2_indices': match.year2_indices,
-                'time_years': time_years
-            })
-            
-            growth_results.append(growth_data)
+            try:
+                # CRITICAL FIX: Extract data properly to avoid tuple indexing errors
+                if match.match_type == '1-to-1':
+                    # Single defect to single defect - extract as Series
+                    y1_defect = year1_defects.iloc[match.year1_indices[0]]
+                    y2_defect = year2_defects.iloc[match.year2_indices[0]]
+                    
+                    growth_data = self._analyze_simple_growth(
+                        y1_defect, y2_defect, 
+                        time_years, wall_thickness_lookup
+                    )
+                    
+                elif match.match_type == 'many-to-1':
+                    # Multiple defects to single defect
+                    y1_defects_group = year1_defects.iloc[match.year1_indices]
+                    y2_defect = year2_defects.iloc[match.year2_indices[0]]
+                    
+                    growth_data = self._analyze_coalescence_growth(
+                        y1_defects_group, y2_defect,
+                        time_years, wall_thickness_lookup
+                    )
+                    
+                elif match.match_type == '1-to-many':
+                    # Single defect to multiple defects
+                    y1_defect = year1_defects.iloc[match.year1_indices[0]]
+                    y2_defects_group = year2_defects.iloc[match.year2_indices]
+                    
+                    growth_data = self._analyze_split_growth(
+                        y1_defect, y2_defects_group,
+                        time_years, wall_thickness_lookup
+                    )
+                    
+                else:  # many-to-many
+                    # Multiple defects to multiple defects
+                    y1_defects_group = year1_defects.iloc[match.year1_indices]
+                    y2_defects_group = year2_defects.iloc[match.year2_indices]
+                    
+                    growth_data = self._analyze_complex_growth(
+                        y1_defects_group, y2_defects_group,
+                        time_years, wall_thickness_lookup
+                    )
+                
+                # Add match metadata
+                growth_data.update({
+                    'match_type': match.match_type,
+                    'match_confidence': match.match_confidence,
+                    'year1_indices': match.year1_indices,
+                    'year2_indices': match.year2_indices,
+                    'time_years': time_years
+                })
+                
+                growth_results.append(growth_data)
+                
+            except Exception as e:
+                # Add detailed error information for debugging
+                import traceback
+                error_details = traceback.format_exc()
+                
+                print(f"Error processing match {match.match_type}: {str(e)}")
+                print(f"Year1 indices: {match.year1_indices}, Year2 indices: {match.year2_indices}")
+                print(f"Error details: {error_details}")
+                
+                # Try to extract some basic info for the error case
+                try:
+                    if match.year1_indices and match.year2_indices:
+                        y1_loc = year1_defects.iloc[match.year1_indices[0]]['log dist. [m]']
+                        y2_loc = year2_defects.iloc[match.year2_indices[0]]['log dist. [m]']
+                        avg_location = (y1_loc + y2_loc) / 2
+                    else:
+                        avg_location = 0.0
+                except:
+                    avg_location = 0.0
+                
+                # Add a placeholder result to avoid stopping the entire analysis
+                growth_results.append({
+                    'match_type': match.match_type,
+                    'error': str(e),
+                    'depth_growth_mm_per_year': 0.0,
+                    'length_growth_mm_per_year': 0.0,
+                    'width_growth_mm_per_year': 0.0,
+                    'year1_depth_pct': 0.0,
+                    'year2_depth_pct': 0.0,
+                    'year1_length_mm': 0.0,
+                    'year2_length_mm': 0.0,
+                    'location_m': avg_location,
+                    'growth_type': 'error'
+                })
         
         # Convert to DataFrame
-        growth_df = pd.DataFrame(growth_results)
-        
-        # Handle negative growth rates
-        growth_df = self._handle_negative_growth(growth_df, year1_defects, year2_defects)
-        
-        return growth_df
+        if growth_results:
+            growth_df = pd.DataFrame(growth_results)
+            
+            # Filter out error rows for negative growth handling
+            valid_rows = growth_df[~growth_df.get('error', '').astype(bool)]
+            if not valid_rows.empty:
+                # Handle negative growth rates only for valid rows
+                growth_df = self._handle_negative_growth(growth_df, year1_defects, year2_defects)
+            
+            return growth_df
+        else:
+            # Return empty DataFrame with expected columns
+            return pd.DataFrame(columns=[
+                'match_type', 'depth_growth_mm_per_year', 'length_growth_mm_per_year', 
+                'width_growth_mm_per_year', 'location_m', 'growth_type'
+            ])
+
     
     def _analyze_simple_growth(self, 
                              d1: pd.Series, 

@@ -5,10 +5,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from app.ui_components import (
-    custom_metric, info_box, create_data_download_links, create_comparison_metrics
-)
+from app.ui_components import custom_metric, info_box, create_comparison_metrics
 from core.multi_year_analysis import compare_defects
+from analysis.remaining_life_analysis import enhanced_calculate_remaining_life_analysis
 from analysis.growth_analysis import correct_negative_growth_rates
 from visualization.comparison_viz import *
 from app.services.state_manager import *
@@ -18,7 +17,7 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
     
     # Create visualization tabs
     viz_tabs = st.tabs([
-        "New vs Common", "New Defect Types", "Negative Growth Correction", "Growth Rate Analysis", "Remaining Life Analysis"
+        "New vs Common", "New Defect Types", "Negative Growth Correction", "Growth Rate Analysis", "Remaining Life Analysis", "Dynamic Clustering Simulation"
     ])
     
     with viz_tabs[0]:
@@ -402,12 +401,11 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                             st.plotly_chart(growth_hist_fig, use_container_width=True, config={'displayModeBar': False})
                         except Exception as e:
                             st.warning(f"Could not generate histogram: {str(e)}. Data is available but visualization failed.")
+
     # Remaining Life Analysis tab
     with viz_tabs[4]:
         st.subheader("Remaining Life Analysis")
-        
-        from analysis.remaining_life_analysis import enhanced_calculate_remaining_life_analysis
-        
+
         # Check if we have the required data for remaining life analysis
         if not comparison_results.get('has_depth_data', False):
             st.warning("**Remaining life analysis requires depth data**")
@@ -802,6 +800,312 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             - **Update analysis** regularly with new inspection data
             """)
 
+
+    with viz_tabs[5]:
+        st.subheader("🔮 Dynamic Clustering Simulation")
+        st.info("""
+        **Advanced Analysis**: This simulation projects defect growth forward in time and detects when 
+        defects will start clustering according to FFS rules, potentially causing earlier failures 
+        than individual analysis would predict.
+        """)
+        
+        # Check if we have the required data
+        if not comparison_results.get('has_depth_data', False):
+            st.warning("Dynamic clustering simulation requires depth data from both years")
+            return
+        
+        if comparison_results['matches_df'].empty:
+            st.warning("No matched defects found for growth rate estimation")
+            return
+        
+        # Simulation parameters
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            max_sim_years = st.slider(
+                "Simulation Years",
+                min_value=5, max_value=50, value=20,
+                help="How many years into the future to simulate"
+            )
+        
+        with col2:
+            time_resolution = st.selectbox(
+                "Time Resolution",
+                options=[0.25, 0.5, 1.0],
+                index=1,
+                format_func=lambda x: f"{x} years ({int(x*12)} months)",
+                help="How often to check for clustering events"
+            )
+        
+        with col3:
+            clustering_method = st.selectbox(
+                "Clustering Rule",
+                options=['sqrt_dt', '3t'],
+                format_func=lambda x: {
+                    'sqrt_dt': '√(D×t) - Standard',
+                    '3t': '3×t - Conservative'
+                }[x]
+            )
+        
+        # Run simulation button
+        if st.button("🚀 Run Dynamic Clustering Simulation", use_container_width=True):
+            
+            with st.spinner("Running time-forward simulation..."):
+                try:
+                    # Import the dynamic clustering analyzer
+                    from core.dynamic_clustering_analysis import (
+                        DynamicClusteringAnalyzer, FFSDefectInteraction
+                    )
+                    
+                    # Get required data
+                    current_defects = st.session_state.datasets[later_year]['defects_df'].copy()
+                    joints_df = st.session_state.datasets[later_year]['joints_df']
+                    pipe_diameter_mm = st.session_state.datasets[later_year]['pipe_diameter'] * 1000
+                    
+                    # Extract growth rates from comparison results
+                    growth_rates_dict = {}
+                    matches_df = comparison_results['matches_df']
+                    
+                    for idx, match in matches_df.iterrows():
+                        defect_id = idx  # Use index as defect ID
+                        growth_rates_dict[defect_id] = {
+                            'depth_growth_pct_per_year': match.get('growth_rate_pct_per_year', 2.0),
+                            'length_growth_mm_per_year': match.get('length_growth_rate_mm_per_year', 0.0),
+                            'width_growth_mm_per_year': match.get('width_growth_rate_mm_per_year', 0.0)
+                        }
+                    
+                    # For defects without matches, use conservative estimates
+                    for i in range(len(current_defects)):
+                        if i not in growth_rates_dict:
+                            growth_rates_dict[i] = {
+                                'depth_growth_pct_per_year': 2.0,  # Conservative default
+                                'length_growth_mm_per_year': 3.0,
+                                'width_growth_mm_per_year': 2.0
+                            }
+                    
+                    # Add defect IDs to current defects
+                    current_defects['defect_id'] = range(len(current_defects))
+                    
+                    # Initialize dynamic analyzer
+                    ffs_rules = FFSDefectInteraction(
+                        axial_interaction_distance_mm=25.4,
+                        circumferential_interaction_method=clustering_method
+                    )
+                    
+                    analyzer = DynamicClusteringAnalyzer(
+                        ffs_rules=ffs_rules,
+                        max_simulation_years=max_sim_years,
+                        time_step_years=time_resolution,
+                        depth_failure_threshold=80.0
+                    )
+                    
+                    # Run simulation
+                    st.write("🔄 Projecting defect growth and detecting clustering events...")
+                    simulation_results = analyzer.simulate_dynamic_clustering_failure(
+                        current_defects, joints_df, growth_rates_dict, pipe_diameter_mm
+                    )
+                    
+                    # Store results in session state
+                    st.session_state.dynamic_clustering_results = simulation_results
+                    
+                    st.success("✅ Simulation completed!")
+                    st.rerun()  # Refresh to show results
+                    
+                except Exception as e:
+                    st.error(f"Error in dynamic clustering simulation: {str(e)}")
+                    import traceback
+                    with st.expander("Error Details"):
+                        st.code(traceback.format_exc())
+        
+        # Display results if available
+        if hasattr(st.session_state, 'dynamic_clustering_results'):
+            display_dynamic_clustering_results(st.session_state.dynamic_clustering_results, earlier_year, later_year)
+
+
+def display_dynamic_clustering_results(simulation_results, earlier_year, later_year):
+    """Display the results of the dynamic clustering simulation."""
+    
+    st.markdown("---")
+    st.subheader("📊 Simulation Results")
+    
+    # Summary metrics
+    summary = simulation_results['analysis_summary']
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        failure_time = simulation_results['earliest_failure_time']
+        if failure_time == float('inf'):
+            st.metric("Earliest Failure", "No failure predicted")
+        else:
+            st.metric("Earliest Failure", f"{failure_time:.1f} years")
+    
+    with col2:
+        failure_mode = simulation_results['earliest_failure_mode']
+        color = "🔴" if failure_mode == "clustering" else "🟡" if failure_mode == "individual" else "🟢"
+        st.metric("Failure Mode", f"{color} {failure_mode.title()}")
+    
+    with col3:
+        clustering_events = len(simulation_results['clustering_events'])
+        st.metric("Clustering Events", clustering_events)
+    
+    with col4:
+        benefit = summary.get('individual_vs_clustering_benefit', 0)
+        if benefit > 0:
+            st.metric("⚠️ Earlier Failure", f"{benefit:.1f} years", delta=f"-{benefit:.1f}")
+        else:
+            st.metric("Risk Assessment", "✅ No early failure")
+    
+    # Key insights
+    if 'risk_insight' in summary:
+        if simulation_results['earliest_failure_mode'] == 'clustering':
+            st.error(f"🚨 **Critical Finding**: {summary['risk_insight']}")
+        else:
+            st.success(f"✅ **Good News**: {summary['risk_insight']}")
+    
+    # Detailed results in tabs
+    result_tabs = st.tabs(["Timeline", "Clustering Events", "Individual vs Clustering", "Export"])
+    
+    with result_tabs[0]:
+        st.subheader("📈 Simulation Timeline")
+        
+        if simulation_results['simulation_timeline']:
+            timeline_df = pd.DataFrame(simulation_results['simulation_timeline'])
+            
+            # Create timeline plot
+            import plotly.graph_objects as go
+            fig = go.Figure()
+            
+            fig.add_trace(go.Scatter(
+                x=timeline_df['time'],
+                y=timeline_df['active_clusters'],
+                mode='lines+markers',
+                name='Active Clusters',
+                line=dict(color='blue')
+            ))
+            
+            # Add clustering events as vertical lines
+            for event in simulation_results['clustering_events']:
+                fig.add_vline(
+                    x=event.year,
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=f"Cluster Event"
+                )
+            
+            # Add failure time
+            if simulation_results['earliest_failure_time'] != float('inf'):
+                fig.add_vline(
+                    x=simulation_results['earliest_failure_time'],
+                    line_dash="solid",
+                    line_color="red",
+                    annotation_text="Predicted Failure"
+                )
+            
+            fig.update_layout(
+                title="Clustering Events Over Time",
+                xaxis_title="Years from Now",
+                yaxis_title="Number of Active Clusters",
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No timeline data available")
+    
+    with result_tabs[1]:
+        st.subheader("🔗 Clustering Events")
+        
+        if simulation_results['clustering_events']:
+            events_data = []
+            for i, event in enumerate(simulation_results['clustering_events']):
+                events_data.append({
+                    'Event #': i + 1,
+                    'Year': f"{event.year:.1f}",
+                    'Defects Involved': len(event.defect_indices),
+                    'Combined Depth (%)': f"{event.combined_defect_props['combined_depth_pct']:.1f}",
+                    'Combined Length (mm)': f"{event.combined_defect_props['combined_length_mm']:.1f}",
+                    'Estimated Failure Time': f"{event.failure_time:.1f} years after clustering"
+                })
+            
+            events_df = pd.DataFrame(events_data)
+            st.dataframe(events_df, use_container_width=True)
+            
+            # Detailed view of first event
+            if len(simulation_results['clustering_events']) > 0:
+                with st.expander("Detailed View: First Clustering Event"):
+                    first_event = simulation_results['clustering_events'][0]
+                    st.json(first_event.combined_defect_props)
+        else:
+            st.success("✅ No clustering events detected - defects remain individual")
+    
+    with result_tabs[2]:
+        st.subheader("⚖️ Individual vs Clustering Analysis")
+        
+        # Compare individual failure times with clustering prediction
+        individual_failures = simulation_results['individual_failure_times']
+        
+        if individual_failures:
+            comparison_data = []
+            for defect_id, individual_time in individual_failures.items():
+                comparison_data.append({
+                    'Defect ID': defect_id,
+                    'Individual Failure (years)': f"{individual_time:.1f}" if individual_time != float('inf') else "No failure",
+                    'Clustering Impact': "To be determined"  # This could be enhanced
+                })
+            
+            comparison_df = pd.DataFrame(comparison_data)
+            st.dataframe(comparison_df, use_container_width=True)
+            
+            # Summary comparison
+            earliest_individual = min(individual_failures.values()) if individual_failures else float('inf')
+            clustering_failure = simulation_results['earliest_failure_time']
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Standard Analysis Prediction", 
+                         f"{earliest_individual:.1f} years" if earliest_individual != float('inf') else "No failure")
+            with col2:
+                st.metric("Dynamic Clustering Prediction", 
+                         f"{clustering_failure:.1f} years" if clustering_failure != float('inf') else "No failure")
+    
+    with result_tabs[3]:
+        st.subheader("📥 Export Results")
+        
+        if st.button("Export Simulation Results"):
+            # Prepare export data
+            export_data = {
+                'simulation_parameters': {
+                    'max_years': simulation_results['analysis_summary']['total_simulation_years'],
+                    'earlier_year': earlier_year,
+                    'later_year': later_year
+                },
+                'results': simulation_results
+            }
+            
+            import json
+            json_str = json.dumps(export_data, default=str, indent=2)
+            
+            st.download_button(
+                label="Download Simulation Results (JSON)",
+                data=json_str,
+                file_name=f"dynamic_clustering_simulation_{earlier_year}_{later_year}.json",
+                mime="application/json"
+            )
+        
+        st.info("""
+        **Export includes:**
+        - All clustering events with timing and properties
+        - Individual vs clustering failure predictions  
+        - Complete simulation timeline
+        - Analysis parameters and settings
+        """)
+    
+    # Clear results button
+    if st.button("🗑️ Clear Simulation Results"):
+        if hasattr(st.session_state, 'dynamic_clustering_results'):
+            del st.session_state.dynamic_clustering_results
+        st.rerun()
     
 
 def render_comparison_view():
@@ -988,11 +1292,367 @@ from core.ffs_defect_interaction import FFSDefectInteraction
 from core.defect_matching import ClusterAwareDefectMatcher
 from core.growth_analysis import ClusterAwareGrowthAnalyzer
 
+def render_remaining_life_analysis_integrated(comparison_results, earlier_year, later_year):
+    """
+    Wrapper function with enhanced debugging and error handling.
+    """
+    try:
+        # Check if we have the required data
+        if not comparison_results.get('has_depth_data', False):
+            st.warning("**Clustering-aware analysis requires depth data**")
+            st.info("Please ensure both datasets have depth measurements.")
+            return
+        
+        # Extract DataFrames from session state
+        earlier_defects = st.session_state.datasets[earlier_year]['defects_df']
+        later_defects = st.session_state.datasets[later_year]['defects_df']
+        joints_df = st.session_state.datasets[later_year]['joints_df']
+        
+        # Get pipe diameter
+        pipe_diameter_m = st.session_state.datasets[later_year]['pipe_diameter']
+        pipe_diameter_mm = pipe_diameter_m * 1000
+        
+        # Add comprehensive debugging information
+        st.write("🔍 **Debug Information:**")
+        with st.expander("Data Validation Details", expanded=False):
+            st.write(f"**Earlier year ({earlier_year}) data:**")
+            st.write(f"  - Shape: {earlier_defects.shape}")
+            st.write(f"  - Columns: {list(earlier_defects.columns)}")
+            st.write(f"  - Sample data types:")
+            for col in ['log dist. [m]', 'joint number', 'depth [%]', 'length [mm]', 'clock']:
+                if col in earlier_defects.columns:
+                    st.write(f"    - {col}: {earlier_defects[col].dtype}")
+            
+            st.write(f"**Later year ({later_year}) data:**")
+            st.write(f"  - Shape: {later_defects.shape}")
+            st.write(f"  - Columns: {list(later_defects.columns)}")
+            
+            st.write(f"**Joints data:**")
+            st.write(f"  - Shape: {joints_df.shape}")
+            st.write(f"  - Pipe diameter: {pipe_diameter_mm} mm")
+        
+        # Validate required columns
+        required_cols = ['log dist. [m]', 'length [mm]', 'clock', 'joint number', 'depth [%]']
+        missing_cols_early = [col for col in required_cols if col not in earlier_defects.columns]
+        missing_cols_later = [col for col in required_cols if col not in later_defects.columns]
+        
+        if missing_cols_early or missing_cols_later:
+            st.error(f"Missing required columns for clustering analysis:")
+            if missing_cols_early:
+                st.error(f"  {earlier_year} data: {missing_cols_early}")
+            if missing_cols_later:
+                st.error(f"  {later_year} data: {missing_cols_later}")
+            return
+        
+        # Check for sufficient data
+        if len(earlier_defects) == 0 or len(later_defects) == 0:
+            st.warning("Insufficient defect data for clustering analysis")
+            return
+        
+        # Step 1: User options for clustering
+        st.subheader("📊 Clustering-Aware Remaining Life Analysis")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            use_clustering = st.checkbox(
+                "Apply FFS Defect Clustering",
+                value=True,
+                help="Apply FFS interaction rules to both inspection years"
+            )
+        
+        with col2:
+            if use_clustering:
+                clustering_method = st.selectbox(
+                    "Clustering Method",
+                    options=['sqrt_dt', '3t'],
+                    format_func=lambda x: {
+                        'sqrt_dt': '√(D×t) - Standard',
+                        '3t': '3×t - Conservative'
+                    }[x]
+                )
+            else:
+                clustering_method = None
+        
+        # Step 2: Apply FFS clustering if selected
+        if use_clustering:
+            with st.spinner("Applying FFS clustering to inspection data..."):
+                try:
+                    from core.ffs_defect_interaction import FFSDefectInteraction
+                    
+                    # Initialize FFS analyzer
+                    ffs_analyzer = FFSDefectInteraction(
+                        axial_interaction_distance_mm=25.4,  # 1 inch
+                        circumferential_interaction_method=clustering_method
+                    )
+                    
+                    # Apply clustering to both years
+                    st.write(f"🔄 Clustering {earlier_year} defects...")
+                    year1_clusters = ffs_analyzer.find_interacting_defects(
+                        earlier_defects, joints_df, pipe_diameter_mm
+                    )
+                    
+                    st.write(f"🔄 Clustering {later_year} defects...")
+                    year2_clusters = ffs_analyzer.find_interacting_defects(
+                        later_defects, joints_df, pipe_diameter_mm
+                    )
+                    
+                    # Show clustering summary
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric(
+                            f"{earlier_year} Clustering",
+                            f"{len(year1_clusters)} groups",
+                            f"from {len(earlier_defects)} defects"
+                        )
+                    with col2:
+                        st.metric(
+                            f"{later_year} Clustering", 
+                            f"{len(year2_clusters)} groups",
+                            f"from {len(later_defects)} defects"
+                        )
+                    
+                    # Debug: Show cluster sizes
+                    with st.expander("Cluster Details", expanded=False):
+                        st.write(f"**{earlier_year} cluster sizes:** {[len(cluster) for cluster in year1_clusters]}")
+                        st.write(f"**{later_year} cluster sizes:** {[len(cluster) for cluster in year2_clusters]}")
+                        
+                except Exception as e:
+                    st.error(f"Error in FFS clustering: {str(e)}")
+                    import traceback
+                    with st.expander("Clustering Error Details"):
+                        st.code(traceback.format_exc())
+                    return
+        else:
+            # No clustering - each defect is its own group
+            year1_clusters = [[i] for i in range(len(earlier_defects))]
+            year2_clusters = [[i] for i in range(len(later_defects))]
+        
+        # Step 3: Match defects between years
+        with st.spinner("Matching defects between inspection years..."):
+            try:
+                from core.defect_matching import ClusterAwareDefectMatcher
+                
+                matcher = ClusterAwareDefectMatcher(
+                    max_axial_distance_mm=300.0,  # 30cm tolerance
+                    max_clock_difference_hours=1.0,
+                    pipe_diameter_mm=pipe_diameter_mm
+                )
+                
+                st.write("🔄 Matching clusters between years...")
+                matches = matcher.match_defects_with_clustering(
+                    earlier_defects, later_defects,
+                    year1_clusters, year2_clusters
+                )
+                
+                # Show matching summary
+                if matches:
+                    match_types = {}
+                    for m in matches:
+                        match_types[m.match_type] = match_types.get(m.match_type, 0) + 1
+                    
+                    st.success(f"✅ Found {len(matches)} matches between years")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("1-to-1", match_types.get('1-to-1', 0))
+                    with col2:
+                        st.metric("Many-to-1", match_types.get('many-to-1', 0))
+                    with col3:
+                        st.metric("1-to-Many", match_types.get('1-to-many', 0))
+                    with col4:
+                        st.metric("Many-to-Many", match_types.get('many-to-many', 0))
+                    
+                    # Debug: Show first few matches
+                    with st.expander("Match Details", expanded=False):
+                        for i, match in enumerate(matches[:5]):
+                            st.write(f"**Match {i+1}:** {match.match_type}")
+                            st.write(f"  - Year1 indices: {match.year1_indices}")
+                            st.write(f"  - Year2 indices: {match.year2_indices}")
+                            st.write(f"  - Confidence: {match.match_confidence:.3f}")
+                            
+                else:
+                    st.warning("No matches found between the two inspection years")
+                    return
+                    
+            except Exception as e:
+                st.error(f"Error in defect matching: {str(e)}")
+                import traceback
+                with st.expander("Matching Error Details"):
+                    st.code(traceback.format_exc())
+                return
+        
+        # Step 4: Analyze growth rates
+        with st.spinner("Analyzing defect growth rates..."):
+            try:
+                from core.growth_analysis import ClusterAwareGrowthAnalyzer
+                
+                # Get wall thickness lookup
+                wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
+                
+                # Initialize growth analyzer
+                growth_analyzer = ClusterAwareGrowthAnalyzer(
+                    negative_growth_strategy='similar_match'
+                )
+                
+                # Parse dates
+                import pandas as pd
+                year1_date = pd.Timestamp(f'{earlier_year}-01-01')
+                year2_date = pd.Timestamp(f'{later_year}-01-01')
+                
+                st.write("🔄 Starting growth analysis...")
+                st.write(f"  - Time period: {(year2_date - year1_date).days / 365.25:.1f} years")
+                st.write(f"  - Processing {len(matches)} matches...")
+                
+                # This is where the error was occurring - now fixed with better data extraction
+                growth_df = growth_analyzer.analyze_growth_with_clustering(
+                    earlier_defects, later_defects,
+                    matches,
+                    year1_date, year2_date,
+                    wt_lookup
+                )
+
+                print(growth_df)
+                
+                if growth_df.empty:
+                    st.warning("No growth data could be calculated")
+                    return
+                
+                # Check for errors in the results
+                error_rows = growth_df[
+                    growth_df.get('error', '').notna() & 
+                    (growth_df.get('error', '') != '') & 
+                    (growth_df.get('error', '').astype(str) != 'nan')
+                ]
+                if not error_rows.empty:
+                    st.warning(f"⚠️ {len(error_rows)} matches had errors during analysis")
+                    with st.expander("Growth Analysis Errors"):
+                        st.dataframe(error_rows[['match_type', 'error']])
+                
+                # Filter out error rows for remaining life calculation
+                valid_growth_df = growth_df[
+                    growth_df.get('error', '').isna() | 
+                    (growth_df.get('error', '') == '') |
+                    (growth_df.get('error', '').astype(str) == 'nan')
+                ]
+                if valid_growth_df.empty:
+                    st.error("No valid growth data available after error filtering")
+                    return
+                    
+                st.success(f"✅ Growth analysis completed. {len(valid_growth_df)} valid results.")
+                
+                # Calculate remaining life
+                st.write("🔄 Calculating remaining life...")
+                remaining_life_df = growth_analyzer.calculate_remaining_life(
+                    valid_growth_df,
+                    max_allowable_depth_pct=80.0
+                )
+                
+            except Exception as e:
+                st.error(f"Error in growth analysis: {str(e)}")
+                import traceback
+                with st.expander("Growth Analysis Error Details"):
+                    st.code(traceback.format_exc())
+                    
+                    # Show debugging information
+                    if 'matches' in locals() and matches:
+                        st.write("**First match for debugging:**")
+                        match = matches[0]
+                        st.write(f"Match type: {match.match_type}")
+                        st.write(f"Year1 indices: {match.year1_indices}")
+                        st.write(f"Year2 indices: {match.year2_indices}")
+                        
+                        # Try to show the actual defect data
+                        try:
+                            if match.year1_indices:
+                                y1_defect = earlier_defects.iloc[match.year1_indices[0]]
+                                st.write("**Year1 defect data:**")
+                                st.write(f"Type: {type(y1_defect)}")
+                                if isinstance(y1_defect, pd.Series):
+                                    st.write(f"Index: {y1_defect.index.tolist()}")
+                                    st.write(f"Values: {y1_defect.to_dict()}")
+                        except Exception as debug_e:
+                            st.write(f"Could not show defect data: {debug_e}")
+                return
+        
+        # Step 5: Display results
+        st.subheader("📊 Growth Analysis Results")
+        
+        # Show summary statistics
+        total_analyzed = len(remaining_life_df)
+        critical_defects = remaining_life_df[
+            remaining_life_df['safety_classification'].isin(['CRITICAL', 'HIGH PRIORITY'])
+        ]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Analyzed", total_analyzed)
+        with col2:
+            st.metric("Critical Defects", len(critical_defects))
+        with col3:
+            pct_critical = (len(critical_defects) / total_analyzed * 100) if total_analyzed > 0 else 0
+            st.metric("% Critical", f"{pct_critical:.1f}%")
+        
+        if not critical_defects.empty:
+            st.warning(f"⚠️ {len(critical_defects)} defects require immediate attention!")
+            
+            # Show critical defects table
+            display_cols = ['location_m', 'year2_depth_pct', 'depth_growth_mm_per_year',
+                           'remaining_life_years', 'safety_classification', 'growth_type']
+            
+            st.dataframe(
+                critical_defects[display_cols].round(2),
+                use_container_width=True
+            )
+        else:
+            st.success("✅ No critical defects identified in this analysis")
+        
+        # Show full results table
+        with st.expander("All Results", expanded=False):
+            st.dataframe(remaining_life_df.round(3), use_container_width=True)
+        
+        # Export functionality
+        if st.button("📥 Export Analysis Results"):
+            csv = remaining_life_df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name=f"clustering_growth_analysis_{earlier_year}_{later_year}.csv",
+                mime="text/csv"
+            )
+        
+        return remaining_life_df
+        
+    except Exception as e:
+        st.error(f"Error in clustering-aware analysis: {str(e)}")
+        import traceback
+        with st.expander("Main Error Details"):
+            st.code(traceback.format_exc())
+
+
 def render_remaining_life_analysis(defects_df_year1, defects_df_year2, 
                                   joints_df, pipe_params, assessment_params):
     """
     Perform remaining life analysis with FFS clustering consideration.
+    
+    FIXED: Add proper validation and error handling
     """
+    
+    # Validate inputs first
+    if defects_df_year1 is None or defects_df_year2 is None:
+        st.error("Missing defect data for analysis")
+        return None
+        
+    if joints_df is None or joints_df.empty:
+        st.error("Missing joint data for wall thickness lookup")
+        return None
+        
+    if 'diameter_mm' not in pipe_params:
+        st.error("Missing pipe diameter parameter")
+        return None
+    
+    pipe_diameter_mm = pipe_params['diameter_mm']
+    
     st.subheader("📊 Remaining Life Analysis with Clustering")
     
     # Step 1: User options for clustering
@@ -1015,38 +1675,45 @@ def render_remaining_life_analysis(defects_df_year1, defects_df_year2,
                     '3t': '3×t - Conservative'
                 }[x]
             )
+        else:
+            clustering_method = None
     
     # Step 2: Apply FFS clustering if selected
     if use_clustering:
         with st.spinner("Applying FFS clustering to inspection data..."):
-            # Initialize FFS analyzer
-            ffs_analyzer = FFSDefectInteraction(
-                axial_interaction_distance_mm=25.4,  # 1 inch
-                circumferential_interaction_method=clustering_method
-            )
-            
-            # Apply clustering to both years
-            year1_clusters = ffs_analyzer.find_interacting_defects(
-                defects_df_year1, joints_df, pipe_params['diameter_mm']
-            )
-            year2_clusters = ffs_analyzer.find_interacting_defects(
-                defects_df_year2, joints_df, pipe_params['diameter_mm']
-            )
-            
-            # Show clustering summary
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric(
-                    f"Year 1 Clustering",
-                    f"{len(year1_clusters)} groups",
-                    f"from {len(defects_df_year1)} defects"
+            try:
+                # Initialize FFS analyzer
+                ffs_analyzer = FFSDefectInteraction(
+                    axial_interaction_distance_mm=25.4,  # 1 inch
+                    circumferential_interaction_method=clustering_method
                 )
-            with col2:
-                st.metric(
-                    f"Year 2 Clustering", 
-                    f"{len(year2_clusters)} groups",
-                    f"from {len(defects_df_year2)} defects"
+                
+                # Apply clustering to both years
+                year1_clusters = ffs_analyzer.find_interacting_defects(
+                    defects_df_year1, joints_df, pipe_diameter_mm
                 )
+                year2_clusters = ffs_analyzer.find_interacting_defects(
+                    defects_df_year2, joints_df, pipe_diameter_mm
+                )
+                
+                # Show clustering summary
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric(
+                        f"Year 1 Clustering",
+                        f"{len(year1_clusters)} groups",
+                        f"from {len(defects_df_year1)} defects"
+                    )
+                with col2:
+                    st.metric(
+                        f"Year 2 Clustering", 
+                        f"{len(year2_clusters)} groups",
+                        f"from {len(defects_df_year2)} defects"
+                    )
+                    
+            except Exception as e:
+                st.error(f"Error in FFS clustering: {str(e)}")
+                return None
     else:
         # No clustering - each defect is its own group
         year1_clusters = [[i] for i in range(len(defects_df_year1))]
@@ -1054,53 +1721,82 @@ def render_remaining_life_analysis(defects_df_year1, defects_df_year2,
     
     # Step 3: Match defects between years
     with st.spinner("Matching defects between inspection years..."):
-        matcher = ClusterAwareDefectMatcher(
-            max_axial_distance_mm=300.0,  # 30cm tolerance
-            max_clock_difference_hours=1.0,
-            pipe_diameter_mm=pipe_params['diameter_mm']
-        )
-        
-        matches = matcher.match_defects_with_clustering(
-            defects_df_year1, defects_df_year2,
-            year1_clusters, year2_clusters
-        )
-        
-        # Show matching summary
-        match_types = pd.Series([m.match_type for m in matches]).value_counts()
-        
-        st.info(f"""
-        **Defect Matching Results:**
-        - Total matches found: {len(matches)}
-        - Simple (1-to-1): {match_types.get('1-to-1', 0)}
-        - Coalescence (many-to-1): {match_types.get('many-to-1', 0)}
-        - Split (1-to-many): {match_types.get('1-to-many', 0)}
-        - Complex (many-to-many): {match_types.get('many-to-many', 0)}
-        """)
+        try:
+            matcher = ClusterAwareDefectMatcher(
+                max_axial_distance_mm=300.0,  # 30cm tolerance
+                max_clock_difference_hours=1.0,
+                pipe_diameter_mm=pipe_diameter_mm
+            )
+            
+            matches = matcher.match_defects_with_clustering(
+                defects_df_year1, defects_df_year2,
+                year1_clusters, year2_clusters
+            )
+            
+            # Show matching summary
+            if matches:
+                match_types = {}
+                for m in matches:
+                    match_types[m.match_type] = match_types.get(m.match_type, 0) + 1
+                
+                st.info(f"""
+                **Defect Matching Results:**
+                - Total matches found: {len(matches)}
+                - Simple (1-to-1): {match_types.get('1-to-1', 0)}
+                - Coalescence (many-to-1): {match_types.get('many-to-1', 0)}
+                - Split (1-to-many): {match_types.get('1-to-many', 0)}
+                - Complex (many-to-many): {match_types.get('many-to-many', 0)}
+                """)
+            else:
+                st.warning("No matches found between the two inspection years")
+                return None
+                
+        except Exception as e:
+            st.error(f"Error in defect matching: {str(e)}")
+            return None
     
     # Step 4: Analyze growth rates
     with st.spinner("Analyzing defect growth rates..."):
-        # Get wall thickness lookup
-        wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
-        
-        # Initialize growth analyzer
-        growth_analyzer = ClusterAwareGrowthAnalyzer(
-            negative_growth_strategy='similar_match'
-        )
-        
-        # Analyze growth
-        growth_df = growth_analyzer.analyze_growth_with_clustering(
-            defects_df_year1, defects_df_year2,
-            matches,
-            pd.Timestamp(assessment_params['year1_date']),
-            pd.Timestamp(assessment_params['year2_date']),
-            wt_lookup
-        )
-        
-        # Calculate remaining life
-        remaining_life_df = growth_analyzer.calculate_remaining_life(
-            growth_df,
-            max_allowable_depth_pct=80.0  # Standard limit
-        )
+        try:
+            print("HEEEEE")
+            # Get wall thickness lookup
+            wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
+            
+            print("HEEEEE2")
+            # Initialize growth analyzer
+            growth_analyzer = ClusterAwareGrowthAnalyzer(
+                negative_growth_strategy='similar_match'
+            )
+            
+            print("HEEEEE3")
+            # Parse dates
+            year1_date = pd.Timestamp(assessment_params['year1_date'])
+            year2_date = pd.Timestamp(assessment_params['year2_date'])
+            
+            print("HEEEEE4")
+            # Analyze growth
+            growth_df = growth_analyzer.analyze_growth_with_clustering(
+                defects_df_year1, defects_df_year2,
+                matches,
+                year1_date, year2_date,
+                wt_lookup
+            )
+            
+            print("HEEEEE5")
+            if growth_df.empty:
+                st.warning("No growth data could be calculated")
+                return None
+            
+            print("HEEEEE")
+            # Calculate remaining life
+            remaining_life_df = growth_analyzer.calculate_remaining_life(
+                growth_df,
+                max_allowable_depth_pct=80.0  # Standard limit
+            )
+            
+        except Exception as e:
+            st.error(f"Error in growth analysis: {str(e)}")
+            return None
     
     # Step 5: Display results
     st.subheader("Growth Analysis Results")
@@ -1121,95 +1817,8 @@ def render_remaining_life_analysis(defects_df_year1, defects_df_year2,
             ]].round(2),
             use_container_width=True
         )
-    
-    # Visualizations
-    tab1, tab2, tab3 = st.tabs(["Growth Rates", "Remaining Life", "Clustering Impact"])
-    
-    with tab1:
-        # Growth rate distribution
-        fig = go.Figure()
-        
-        # Separate by growth type
-        for growth_type in remaining_life_df['growth_type'].unique():
-            data = remaining_life_df[remaining_life_df['growth_type'] == growth_type]
-            
-            fig.add_trace(go.Scatter(
-                x=data['location_m'],
-                y=data['depth_growth_mm_per_year'],
-                mode='markers',
-                name=growth_type.capitalize(),
-                marker=dict(
-                    size=10,
-                    color={'simple': 'blue', 'coalescence': 'red', 
-                           'split': 'orange', 'complex': 'purple'}.get(growth_type, 'gray')
-                )
-            ))
-        
-        fig.update_layout(
-            title="Defect Growth Rates Along Pipeline",
-            xaxis_title="Distance (m)",
-            yaxis_title="Depth Growth Rate (mm/year)",
-            hovermode='closest'
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with tab2:
-        # Remaining life visualization
-        fig = go.Figure()
-        
-        # Color by safety classification
-        colors = {
-            'CRITICAL': 'red',
-            'HIGH PRIORITY': 'orange',
-            'MODERATE': 'yellow',
-            'LOW PRIORITY': 'green'
-        }
-        
-        for safety_class, color in colors.items():
-            data = remaining_life_df[remaining_life_df['safety_classification'] == safety_class]
-            
-            fig.add_trace(go.Scatter(
-                x=data['location_m'],
-                y=data['remaining_life_years'].clip(upper=50),  # Cap at 50 years for visibility
-                mode='markers',
-                name=safety_class,
-                marker=dict(size=12, color=color),
-                text=[f"Depth: {d:.1f}%, Growth: {g:.2f} mm/yr" 
-                      for d, g in zip(data['year2_depth_pct'], 
-                                     data['depth_growth_mm_per_year'])]
-            ))
-        
-        fig.update_layout(
-            title="Remaining Life Estimates",
-            xaxis_title="Distance (m)",
-            yaxis_title="Remaining Life (years)",
-            yaxis_type="log",
-            hovermode='closest'
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with tab3:
-        # Show impact of clustering
-        if use_clustering:
-            coalescence_defects = remaining_life_df[
-                remaining_life_df['growth_type'] == 'coalescence'
-            ]
-            
-            if not coalescence_defects.empty:
-                st.markdown("### Impact of Defect Coalescence")
-                
-                for idx, defect in coalescence_defects.iterrows():
-                    st.markdown(f"""
-                    **Location: {defect['location_m']:.1f} m**
-                    - {defect.get('coalescence_note', 'Multiple defects coalesced')}
-                    - Combined depth: {defect['year2_depth_pct']:.1f}%
-                    - Growth rate: {defect['depth_growth_mm_per_year']:.2f} mm/year
-                    - Remaining life: {defect['remaining_life_years']:.1f} years
-                    """)
-            else:
-                st.info("No defect coalescence detected between inspection years.")
+    else:
+        st.success("✅ No critical defects identified in this analysis")
     
     # Export results
     if st.button("Export Detailed Growth Analysis"):
