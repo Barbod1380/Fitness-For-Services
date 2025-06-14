@@ -49,6 +49,26 @@ class FFSDefectInteraction:
             return self.custom_circ_distance
         else:
             raise ValueError(f"Unknown circumferential interaction method: {self.circ_method}")
+        
+    # Parse clock position string (e.g., '8:43' -> 8.717 hours)
+    def parse_clock_to_decimal_hours(self, clock_str):
+        """Convert clock string 'H:MM' or 'HH:MM' to decimal hours."""
+        try:
+            parts = clock_str.strip().split(':')
+            hours = int(parts[0])
+            minutes = int(parts[1]) if len(parts) > 1 else 0
+            
+            # Convert to decimal hours
+            decimal_hours = hours + minutes / 60.0
+            
+            # Validate range (1:00 to 12:59)
+            if decimal_hours < 1.0 or decimal_hours >= 13.0:
+                warnings.warn(f"Clock position {clock_str} outside expected range 1:00-12:59")
+            
+            return decimal_hours
+        except (ValueError, IndexError) as e:
+            warnings.warn(f"Invalid clock format '{clock_str}': {e}")
+            return 12.0  # Default to 12:00 if parsing fails
     
     def convert_to_cartesian(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame, 
                             pipe_diameter_mm: float) -> pd.DataFrame:
@@ -69,26 +89,6 @@ class FFSDefectInteraction:
         df['x_center_mm'] = df['log dist. [m]'] * 1000  # Convert m to mm
         df['x_start_mm'] = df['x_center_mm'] - df['length [mm]'] / 2
         df['x_end_mm'] = df['x_center_mm'] + df['length [mm]'] / 2
-        
-        # Parse clock position string (e.g., '8:43' -> 8.717 hours)
-        def parse_clock_to_decimal_hours(clock_str):
-            """Convert clock string 'H:MM' or 'HH:MM' to decimal hours."""
-            try:
-                parts = clock_str.strip().split(':')
-                hours = int(parts[0])
-                minutes = int(parts[1]) if len(parts) > 1 else 0
-                
-                # Convert to decimal hours
-                decimal_hours = hours + minutes / 60.0
-                
-                # Validate range (1:00 to 12:59)
-                if decimal_hours < 1.0 or decimal_hours >= 13.0:
-                    warnings.warn(f"Clock position {clock_str} outside expected range 1:00-12:59")
-                
-                return decimal_hours
-            except (ValueError, IndexError) as e:
-                warnings.warn(f"Invalid clock format '{clock_str}': {e}")
-                return 12.0  # Default to 12:00 if parsing fails
         
         # Convert clock strings to decimal hours
         df['decimal_hours'] = df['clock'].apply(parse_clock_to_decimal_hours)
@@ -271,18 +271,8 @@ class FFSDefectInteraction:
             else:
                 # Multiple interacting defects - combine them
                 group_defects = defects_df.iloc[group]
-
-                def parse_clock_to_decimal_hours(clock_str):
-                    """Convert clock string 'H:MM' to decimal hours."""
-                    try:
-                        parts = clock_str.strip().split(':')
-                        hours = int(parts[0])
-                        minutes = int(parts[1]) if len(parts) > 1 else 0
-                        return hours + minutes / 60.0
-                    except:
-                        return 12.0  # Default if parsing fails
                 
-                decimal_hours = group_defects['clock'].apply(parse_clock_to_decimal_hours)
+                decimal_hours = group_defects['clock'].apply(self.parse_clock_to_decimal_hours)
                 mean_decimal_hours = decimal_hours.mean()
             
                 # Convert back to clock format (optional - you could keep decimal)
@@ -339,27 +329,7 @@ class FFSDefectInteraction:
         if 'width [mm]' not in group_defects.columns:
             return 0
         
-        def parse_clock_to_decimal_hours(clock_str):
-            """Convert clock string 'H:MM' or 'HH:MM' to decimal hours."""
-            try:
-                parts = clock_str.strip().split(':')
-                hours = int(parts[0])
-                minutes = int(parts[1]) if len(parts) > 1 else 0
-                
-                # Convert to decimal hours
-                decimal_hours = hours + minutes / 60.0
-                
-                # Validate range (1:00 to 12:59)
-                if decimal_hours < 1.0 or decimal_hours >= 13.0:
-                    warnings.warn(f"Clock position {clock_str} outside expected range 1:00-12:59")
-                
-                return decimal_hours
-            except (ValueError, IndexError) as e:
-                warnings.warn(f"Invalid clock format '{clock_str}': {e}")
-                return 12.0  # Default to 12:00 if parsing fails
-            
-
-        group_defects['decimal_hours'] = group_defects['clock'].apply(parse_clock_to_decimal_hours)
+        group_defects['decimal_hours'] = group_defects['clock'].apply(self.parse_clock_to_decimal_hours)
         
         # Convert to angular position (degrees)
         # 12:00 = 0°, 3:00 = 90°, 6:00 = 180°, 9:00 = 270°

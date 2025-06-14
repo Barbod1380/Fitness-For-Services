@@ -10,63 +10,6 @@ from core.column_mapping import apply_column_mapping
 from core.data_processing import process_pipeline_data
 from utils.format_utils import float_to_clock, parse_clock
 
-def load_csv_with_encoding(file, encodings=None):
-    """
-    Try to load a CSV file with different encodings.
-    
-    Parameters:
-    - file: Uploaded file object
-    - encodings: List of encodings to try
-    
-    Returns:
-    - Tuple of (DataFrame, encoding)
-    
-    Raises:
-    - ValueError if the file cannot be loaded with any encoding
-    """
-    if encodings is None:
-        encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
-    
-    for encoding in encodings:
-        try:
-            # Reset file pointer to the beginning
-            file.seek(0)
-            
-            # Try to read with current encoding
-            df = pd.read_csv(
-                file, 
-                encoding=encoding,
-                sep=None,  # Auto-detect separator
-                engine='python',  # More flexible engine
-                on_bad_lines='warn'  # Continue despite bad lines
-            )
-            
-            # Check and convert clock column if needed
-            if 'clock' in df.columns:
-                # Check if any values are numeric (floating point)
-                if df['clock'].dtype.kind in 'fi' or any(isinstance(x, (int, float)) for x in df['clock'].dropna()):
-                    st.info("Converting numeric clock values to HH:MM format")
-                    # Convert numeric values to clock format
-                    df['clock'] = df['clock'].apply(
-                        lambda x: float_to_clock(float(x)) if pd.notna(x) and isinstance(x, (int, float)) else x
-                    )
-                
-                # For string values that don't look like clock format (HH:MM)
-                clock_pattern = re.compile(r'^\d{1,2}:\d{2}$')
-                non_standard = df['clock'].apply(
-                    lambda x: pd.notna(x) and isinstance(x, str) and not clock_pattern.match(x)
-                ).any()
-                
-                if non_standard:
-                    info_box("Some clock values may not be in standard HH:MM format", box_type="warning")
-            return df, encoding
-            
-        except Exception as e:
-            continue  # Try next encoding
-    
-    # If all encodings fail
-    raise ValueError(f"Failed to load the file with any of the encodings: {', '.join(encodings)}")
-
 def process_dataset(df, column_mapping, pipe_diameter, year):
     """
     Process a dataset with column mapping and store in session state.
