@@ -1,0 +1,324 @@
+# Create new file: core/growth_analysis.py
+"""
+Growth rate analysis for defects considering FFS clustering.
+"""
+import numpy as np
+import pandas as pd
+from typing import List, Dict, Optional, Tuple
+from .defect_matching import DefectMatch, ClusterAwareDefectMatcher
+
+class ClusterAwareGrowthAnalyzer:
+    """
+    Analyzes defect growth rates considering FFS clustering effects.
+    """
+    
+    def __init__(self, 
+                 min_growth_rate: float = 0.0,  # mm/year minimum
+                 max_growth_rate: float = 5.0,   # mm/year maximum reasonable
+                 negative_growth_strategy: str = 'similar_match'):
+        """
+        Initialize growth analyzer.
+        
+        Parameters:
+        - min_growth_rate: Minimum acceptable growth rate (0 = no shrinkage)
+        - max_growth_rate: Maximum reasonable growth rate for validation
+        - negative_growth_strategy: How to handle negative growth
+          Options: 'similar_match', 'zero', 'statistical'
+        """
+        self.min_growth_rate = min_growth_rate
+        self.max_growth_rate = max_growth_rate
+        self.negative_growth_strategy = negative_growth_strategy
+    
+    def analyze_growth_with_clustering(self,
+                                     year1_defects: pd.DataFrame,
+                                     year2_defects: pd.DataFrame,
+                                     matches: List[DefectMatch],
+                                     year1_date: pd.Timestamp,
+                                     year2_date: pd.Timestamp,
+                                     wall_thickness_lookup: Dict) -> pd.DataFrame:
+        """
+        Analyze growth rates for matched defects considering clustering.
+        
+        Returns DataFrame with growth analysis for each match.
+        """
+        time_years = (year2_date - year1_date).days / 365.25
+        
+        growth_results = []
+        
+        for match in matches:
+            # Get defect data for this match
+            y1_defects = year1_defects.iloc[match.year1_indices]
+            y2_defects = year2_defects.iloc[match.year2_indices]
+            
+            # Calculate growth based on match type
+            if match.match_type == '1-to-1':
+                growth_data = self._analyze_simple_growth(
+                    y1_defects.iloc[0], y2_defects.iloc[0], 
+                    time_years, wall_thickness_lookup
+                )
+            elif match.match_type == 'many-to-1':
+                growth_data = self._analyze_coalescence_growth(
+                    y1_defects, y2_defects.iloc[0],
+                    time_years, wall_thickness_lookup
+                )
+            elif match.match_type == '1-to-many':
+                growth_data = self._analyze_split_growth(
+                    y1_defects.iloc[0], y2_defects,
+                    time_years, wall_thickness_lookup
+                )
+            else:  # many-to-many
+                growth_data = self._analyze_complex_growth(
+                    y1_defects, y2_defects,
+                    time_years, wall_thickness_lookup
+                )
+            
+            # Add match metadata
+            growth_data.update({
+                'match_type': match.match_type,
+                'match_confidence': match.match_confidence,
+                'year1_indices': match.year1_indices,
+                'year2_indices': match.year2_indices,
+                'time_years': time_years
+            })
+            
+            growth_results.append(growth_data)
+        
+        # Convert to DataFrame
+        growth_df = pd.DataFrame(growth_results)
+        
+        # Handle negative growth rates
+        growth_df = self._handle_negative_growth(growth_df, year1_defects, year2_defects)
+        
+        return growth_df
+    
+    def _analyze_simple_growth(self, 
+                             d1: pd.Series, 
+                             d2: pd.Series,
+                             time_years: float,
+                             wt_lookup: Dict) -> Dict:
+        """Analyze growth for simple 1-to-1 match."""
+        # Get wall thickness
+        wt = wt_lookup.get(d1['joint number'], wt_lookup.get(d2['joint number'], 10.0))
+        
+        # Depth growth
+        depth1_mm = d1['depth [%]'] * wt / 100
+        depth2_mm = d2['depth [%]'] * wt / 100
+        depth_growth_rate = (depth2_mm - depth1_mm) / time_years
+        
+        # Length growth
+        length_growth_rate = (d2['length [mm]'] - d1['length [mm]']) / time_years
+        
+        # Width growth (if available)
+        if 'width [mm]' in d1.index and 'width [mm]' in d2.index:
+            width_growth_rate = (d2['width [mm]'] - d1['width [mm]']) / time_years
+        else:
+            width_growth_rate = 0.0
+        
+        return {
+            'depth_growth_mm_per_year': depth_growth_rate,
+            'length_growth_mm_per_year': length_growth_rate,
+            'width_growth_mm_per_year': width_growth_rate,
+            'year1_depth_pct': d1['depth [%]'],
+            'year2_depth_pct': d2['depth [%]'],
+            'year1_length_mm': d1['length [mm]'],
+            'year2_length_mm': d2['length [mm]'],
+            'location_m': (d1['log dist. [m]'] + d2['log dist. [m]']) / 2,
+            'growth_type': 'simple'
+        }
+    
+    def _analyze_coalescence_growth(self,
+                                   d1_group: pd.DataFrame,
+                                   d2_single: pd.Series,
+                                   time_years: float,
+                                   wt_lookup: Dict) -> Dict:
+        """
+        Analyze growth when multiple defects coalesced into one.
+        This represents accelerated degradation.
+        """
+        # Get wall thickness (use minimum for conservative approach)
+        wt = min(wt_lookup.get(d['joint number'], 10.0) for d in d1_group.itertuples())
+        
+        # For coalesced defects, use the maximum depth from year1
+        # (conservative assumption that the deepest defect drives growth)
+        max_depth1_pct = d1_group['depth [%]'].max()
+        max_depth1_mm = max_depth1_pct * wt / 100
+        
+        # Year 2 depth
+        depth2_mm = d2_single['depth [%]'] * wt / 100
+        
+        # Depth growth rate
+        depth_growth_rate = (depth2_mm - max_depth1_mm) / time_years
+        
+        # Length comparison - total extent
+        total_extent_y1 = (d1_group['log dist. [m]'].max() * 1000 + 
+                          d1_group.loc[d1_group['log dist. [m]'].idxmax(), 'length [mm]'] / 2) - \
+                         (d1_group['log dist. [m]'].min() * 1000 - 
+                          d1_group.loc[d1_group['log dist. [m]'].idxmin(), 'length [mm]'] / 2)
+        
+        length_growth_rate = (d2_single['length [mm]'] - total_extent_y1) / time_years
+        
+        return {
+            'depth_growth_mm_per_year': depth_growth_rate,
+            'length_growth_mm_per_year': length_growth_rate,
+            'width_growth_mm_per_year': 0.0,  # Complex to calculate
+            'year1_depth_pct': max_depth1_pct,
+            'year2_depth_pct': d2_single['depth [%]'],
+            'year1_length_mm': total_extent_y1,
+            'year2_length_mm': d2_single['length [mm]'],
+            'location_m': d2_single['log dist. [m]'],
+            'growth_type': 'coalescence',
+            'num_coalesced': len(d1_group),
+            'coalescence_note': f"{len(d1_group)} defects coalesced into 1"
+        }
+    
+    def _analyze_split_growth(self,
+                            d1_single: pd.Series,
+                            d2_group: pd.DataFrame,
+                            time_years: float,
+                            wt_lookup: Dict) -> Dict:
+        """
+        Analyze growth when one defect split into multiple.
+        This is rare but can happen with complex corrosion patterns.
+        """
+        # Use the most severe defect in year 2 for conservative analysis
+        max_d2 = d2_group.loc[d2_group['depth [%]'].idxmax()]
+        
+        # Treat as simple growth to the worst defect
+        result = self._analyze_simple_growth(d1_single, max_d2, time_years, wt_lookup)
+        result['growth_type'] = 'split'
+        result['split_note'] = f"1 defect split into {len(d2_group)}"
+        
+        return result
+    
+    def _analyze_complex_growth(self,
+                              d1_group: pd.DataFrame,
+                              d2_group: pd.DataFrame,
+                              time_years: float,
+                              wt_lookup: Dict) -> Dict:
+        """
+        Analyze complex many-to-many matches.
+        Use conservative assumptions.
+        """
+        # Use maximum depths for conservative analysis
+        max_d1 = d1_group.loc[d1_group['depth [%]'].idxmax()]
+        max_d2 = d2_group.loc[d2_group['depth [%]'].idxmax()]
+        
+        # Analyze as simple growth between worst defects
+        result = self._analyze_simple_growth(max_d1, max_d2, time_years, wt_lookup)
+        result['growth_type'] = 'complex'
+        result['complex_note'] = f"{len(d1_group)} defects → {len(d2_group)} defects"
+        
+        return result
+    
+    def _handle_negative_growth(self,
+                              growth_df: pd.DataFrame,
+                              year1_defects: pd.DataFrame,
+                              year2_defects: pd.DataFrame) -> pd.DataFrame:
+        """Handle cases where calculated growth is negative."""
+        
+        negative_mask = growth_df['depth_growth_mm_per_year'] < self.min_growth_rate
+        
+        if not negative_mask.any():
+            return growth_df
+        
+        if self.negative_growth_strategy == 'zero':
+            # Simply set to zero
+            growth_df.loc[negative_mask, 'depth_growth_mm_per_year'] = 0.0
+            growth_df.loc[negative_mask, 'growth_adjustment'] = 'Set to zero'
+            
+        elif self.negative_growth_strategy == 'similar_match':
+            # Find similar defects with positive growth
+            for idx in growth_df[negative_mask].index:
+                row = growth_df.loc[idx]
+                
+                # Find similar defects based on depth and length
+                similar_growth = self._find_similar_positive_growth(
+                    row, growth_df[~negative_mask]
+                )
+                
+                if similar_growth is not None:
+                    growth_df.loc[idx, 'depth_growth_mm_per_year'] = similar_growth
+                    growth_df.loc[idx, 'growth_adjustment'] = 'Matched to similar defect'
+                else:
+                    # Fall back to statistical average
+                    avg_growth = growth_df[~negative_mask]['depth_growth_mm_per_year'].mean()
+                    growth_df.loc[idx, 'depth_growth_mm_per_year'] = avg_growth
+                    growth_df.loc[idx, 'growth_adjustment'] = 'Set to average'
+        
+        elif self.negative_growth_strategy == 'statistical':
+            # Use statistical distribution of positive growth rates
+            positive_growths = growth_df[~negative_mask]['depth_growth_mm_per_year']
+            if len(positive_growths) > 0:
+                p50 = positive_growths.quantile(0.5)
+                growth_df.loc[negative_mask, 'depth_growth_mm_per_year'] = p50
+                growth_df.loc[negative_mask, 'growth_adjustment'] = 'Set to median growth'
+        
+        return growth_df
+    
+    def _find_similar_positive_growth(self, 
+                                    target_row: pd.Series,
+                                    positive_growth_df: pd.DataFrame) -> Optional[float]:
+        """Find growth rate from similar defect with positive growth."""
+        if positive_growth_df.empty:
+            return None
+        
+        # Calculate similarity based on year1 characteristics
+        similarities = []
+        
+        for idx, row in positive_growth_df.iterrows():
+            depth_diff = abs(row['year1_depth_pct'] - target_row['year1_depth_pct'])
+            length_diff = abs(row['year1_length_mm'] - target_row['year1_length_mm'])
+            
+            # Normalized similarity score
+            similarity = 1 / (1 + depth_diff/10 + length_diff/100)
+            similarities.append((similarity, row['depth_growth_mm_per_year']))
+        
+        # Return growth rate of most similar defect
+        if similarities:
+            similarities.sort(reverse=True)
+            return similarities[0][1]
+        
+        return None
+    
+    def calculate_remaining_life(self,
+                               growth_df: pd.DataFrame,
+                               max_allowable_depth_pct: float = 80.0) -> pd.DataFrame:
+        """
+        Calculate remaining life for each defect/cluster based on growth rates.
+        
+        Parameters:
+        - growth_df: DataFrame from analyze_growth_with_clustering
+        - max_allowable_depth_pct: Maximum allowable depth (% of wall thickness)
+        
+        Returns:
+        - DataFrame with remaining life estimates
+        """
+        results = growth_df.copy()
+        
+        # Calculate remaining life for each defect/cluster
+        for idx, row in results.iterrows():
+            current_depth_pct = row['year2_depth_pct']
+            growth_rate_pct_per_year = row['depth_growth_mm_per_year'] * 100 / 10  # Assume 10mm wall
+            
+            if growth_rate_pct_per_year <= 0:
+                remaining_years = np.inf
+            else:
+                remaining_depth_pct = max_allowable_depth_pct - current_depth_pct
+                remaining_years = remaining_depth_pct / growth_rate_pct_per_year
+            
+            results.loc[idx, 'remaining_life_years'] = remaining_years
+            results.loc[idx, 'max_allowable_depth_pct'] = max_allowable_depth_pct
+            
+            # Add safety classification
+            if remaining_years < 2:
+                safety_class = 'CRITICAL'
+            elif remaining_years < 5:
+                safety_class = 'HIGH PRIORITY'
+            elif remaining_years < 10:
+                safety_class = 'MODERATE'
+            else:
+                safety_class = 'LOW PRIORITY'
+            
+            results.loc[idx, 'safety_classification'] = safety_class
+        
+        return results

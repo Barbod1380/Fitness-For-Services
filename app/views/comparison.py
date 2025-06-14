@@ -982,3 +982,252 @@ def render_comparison_view():
                 st.info("You've changed the years for comparison. Please click 'Compare Defects' to analyze the new year combination.")
         
         st.markdown('</div>', unsafe_allow_html=True)  # Close the card container
+
+
+from core.ffs_defect_interaction import FFSDefectInteraction
+from core.defect_matching import ClusterAwareDefectMatcher
+from core.growth_analysis import ClusterAwareGrowthAnalyzer
+
+def render_remaining_life_analysis(defects_df_year1, defects_df_year2, 
+                                  joints_df, pipe_params, assessment_params):
+    """
+    Perform remaining life analysis with FFS clustering consideration.
+    """
+    st.subheader("📊 Remaining Life Analysis with Clustering")
+    
+    # Step 1: User options for clustering
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        use_clustering = st.checkbox(
+            "Consider FFS Defect Clustering",
+            value=True,
+            help="Apply FFS interaction rules to both inspection years"
+        )
+    
+    with col2:
+        if use_clustering:
+            clustering_method = st.selectbox(
+                "Clustering Method",
+                options=['sqrt_dt', '3t'],
+                format_func=lambda x: {
+                    'sqrt_dt': '√(D×t) - Standard',
+                    '3t': '3×t - Conservative'
+                }[x]
+            )
+    
+    # Step 2: Apply FFS clustering if selected
+    if use_clustering:
+        with st.spinner("Applying FFS clustering to inspection data..."):
+            # Initialize FFS analyzer
+            ffs_analyzer = FFSDefectInteraction(
+                axial_interaction_distance_mm=25.4,  # 1 inch
+                circumferential_interaction_method=clustering_method
+            )
+            
+            # Apply clustering to both years
+            year1_clusters = ffs_analyzer.find_interacting_defects(
+                defects_df_year1, joints_df, pipe_params['diameter_mm']
+            )
+            year2_clusters = ffs_analyzer.find_interacting_defects(
+                defects_df_year2, joints_df, pipe_params['diameter_mm']
+            )
+            
+            # Show clustering summary
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    f"Year 1 Clustering",
+                    f"{len(year1_clusters)} groups",
+                    f"from {len(defects_df_year1)} defects"
+                )
+            with col2:
+                st.metric(
+                    f"Year 2 Clustering", 
+                    f"{len(year2_clusters)} groups",
+                    f"from {len(defects_df_year2)} defects"
+                )
+    else:
+        # No clustering - each defect is its own group
+        year1_clusters = [[i] for i in range(len(defects_df_year1))]
+        year2_clusters = [[i] for i in range(len(defects_df_year2))]
+    
+    # Step 3: Match defects between years
+    with st.spinner("Matching defects between inspection years..."):
+        matcher = ClusterAwareDefectMatcher(
+            max_axial_distance_mm=300.0,  # 30cm tolerance
+            max_clock_difference_hours=1.0,
+            pipe_diameter_mm=pipe_params['diameter_mm']
+        )
+        
+        matches = matcher.match_defects_with_clustering(
+            defects_df_year1, defects_df_year2,
+            year1_clusters, year2_clusters
+        )
+        
+        # Show matching summary
+        match_types = pd.Series([m.match_type for m in matches]).value_counts()
+        
+        st.info(f"""
+        **Defect Matching Results:**
+        - Total matches found: {len(matches)}
+        - Simple (1-to-1): {match_types.get('1-to-1', 0)}
+        - Coalescence (many-to-1): {match_types.get('many-to-1', 0)}
+        - Split (1-to-many): {match_types.get('1-to-many', 0)}
+        - Complex (many-to-many): {match_types.get('many-to-many', 0)}
+        """)
+    
+    # Step 4: Analyze growth rates
+    with st.spinner("Analyzing defect growth rates..."):
+        # Get wall thickness lookup
+        wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
+        
+        # Initialize growth analyzer
+        growth_analyzer = ClusterAwareGrowthAnalyzer(
+            negative_growth_strategy='similar_match'
+        )
+        
+        # Analyze growth
+        growth_df = growth_analyzer.analyze_growth_with_clustering(
+            defects_df_year1, defects_df_year2,
+            matches,
+            pd.Timestamp(assessment_params['year1_date']),
+            pd.Timestamp(assessment_params['year2_date']),
+            wt_lookup
+        )
+        
+        # Calculate remaining life
+        remaining_life_df = growth_analyzer.calculate_remaining_life(
+            growth_df,
+            max_allowable_depth_pct=80.0  # Standard limit
+        )
+    
+    # Step 5: Display results
+    st.subheader("Growth Analysis Results")
+    
+    # Critical defects summary
+    critical_defects = remaining_life_df[
+        remaining_life_df['safety_classification'].isin(['CRITICAL', 'HIGH PRIORITY'])
+    ]
+    
+    if not critical_defects.empty:
+        st.warning(f"⚠️ {len(critical_defects)} defects require immediate attention!")
+        
+        # Show critical defects table
+        st.dataframe(
+            critical_defects[[
+                'location_m', 'year2_depth_pct', 'depth_growth_mm_per_year',
+                'remaining_life_years', 'safety_classification', 'growth_type'
+            ]].round(2),
+            use_container_width=True
+        )
+    
+    # Visualizations
+    tab1, tab2, tab3 = st.tabs(["Growth Rates", "Remaining Life", "Clustering Impact"])
+    
+    with tab1:
+        # Growth rate distribution
+        fig = go.Figure()
+        
+        # Separate by growth type
+        for growth_type in remaining_life_df['growth_type'].unique():
+            data = remaining_life_df[remaining_life_df['growth_type'] == growth_type]
+            
+            fig.add_trace(go.Scatter(
+                x=data['location_m'],
+                y=data['depth_growth_mm_per_year'],
+                mode='markers',
+                name=growth_type.capitalize(),
+                marker=dict(
+                    size=10,
+                    color={'simple': 'blue', 'coalescence': 'red', 
+                           'split': 'orange', 'complex': 'purple'}.get(growth_type, 'gray')
+                )
+            ))
+        
+        fig.update_layout(
+            title="Defect Growth Rates Along Pipeline",
+            xaxis_title="Distance (m)",
+            yaxis_title="Depth Growth Rate (mm/year)",
+            hovermode='closest'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with tab2:
+        # Remaining life visualization
+        fig = go.Figure()
+        
+        # Color by safety classification
+        colors = {
+            'CRITICAL': 'red',
+            'HIGH PRIORITY': 'orange',
+            'MODERATE': 'yellow',
+            'LOW PRIORITY': 'green'
+        }
+        
+        for safety_class, color in colors.items():
+            data = remaining_life_df[remaining_life_df['safety_classification'] == safety_class]
+            
+            fig.add_trace(go.Scatter(
+                x=data['location_m'],
+                y=data['remaining_life_years'].clip(upper=50),  # Cap at 50 years for visibility
+                mode='markers',
+                name=safety_class,
+                marker=dict(size=12, color=color),
+                text=[f"Depth: {d:.1f}%, Growth: {g:.2f} mm/yr" 
+                      for d, g in zip(data['year2_depth_pct'], 
+                                     data['depth_growth_mm_per_year'])]
+            ))
+        
+        fig.update_layout(
+            title="Remaining Life Estimates",
+            xaxis_title="Distance (m)",
+            yaxis_title="Remaining Life (years)",
+            yaxis_type="log",
+            hovermode='closest'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with tab3:
+        # Show impact of clustering
+        if use_clustering:
+            coalescence_defects = remaining_life_df[
+                remaining_life_df['growth_type'] == 'coalescence'
+            ]
+            
+            if not coalescence_defects.empty:
+                st.markdown("### Impact of Defect Coalescence")
+                
+                for idx, defect in coalescence_defects.iterrows():
+                    st.markdown(f"""
+                    **Location: {defect['location_m']:.1f} m**
+                    - {defect.get('coalescence_note', 'Multiple defects coalesced')}
+                    - Combined depth: {defect['year2_depth_pct']:.1f}%
+                    - Growth rate: {defect['depth_growth_mm_per_year']:.2f} mm/year
+                    - Remaining life: {defect['remaining_life_years']:.1f} years
+                    """)
+            else:
+                st.info("No defect coalescence detected between inspection years.")
+    
+    # Export results
+    if st.button("Export Detailed Growth Analysis"):
+        # Prepare export data
+        export_df = remaining_life_df.copy()
+        
+        # Add additional context
+        export_df['clustering_applied'] = use_clustering
+        export_df['clustering_method'] = clustering_method if use_clustering else 'None'
+        
+        # Convert to CSV
+        csv = export_df.to_csv(index=False)
+        
+        st.download_button(
+            label="Download Growth Analysis CSV",
+            data=csv,
+            file_name=f"growth_analysis_clustered_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    
+    return remaining_life_df
