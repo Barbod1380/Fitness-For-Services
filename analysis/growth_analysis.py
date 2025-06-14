@@ -2,7 +2,6 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
-
 def correct_negative_growth_rates(matches_df, k=3):
     """
     Correct negative depth growth rates using K-Nearest Neighbors from similar defects in the same joint.

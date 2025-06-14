@@ -2,7 +2,6 @@
 Data service for managing pipeline data.
 """
 import pandas as pd
-import numpy as np
 import re
 import streamlit as st
 from app.services.state_manager import get_state, update_state, add_dataset

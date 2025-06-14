@@ -69,6 +69,9 @@ def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matche
     while(len(similar_defects) < min_similar_defects):
         joint_tolerance += 1
         find_similar_defects(new_defect, historical_matches_df, joint_tolerance)
+        
+        if(joint_tolerance > 20):
+            break
     
     # Calculate statistical measures from similar defects
     length_growth_rates = similar_defects.get('length_growth_rate_mm_per_year', pd.Series()).dropna()

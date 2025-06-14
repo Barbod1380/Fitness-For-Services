@@ -2,7 +2,6 @@
 Welcome screen components for the Pipeline Analysis application.
 """
 import streamlit as st
-from app.ui_components.navigation import get_logo_base64
 
 def create_welcome_screen():
     """

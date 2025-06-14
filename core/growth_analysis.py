@@ -4,8 +4,8 @@ Growth rate analysis for defects considering FFS clustering.
 """
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Optional, Tuple
-from .defect_matching import DefectMatch, ClusterAwareDefectMatcher
+from typing import List, Dict, Optional
+from .defect_matching import DefectMatch
 
 class ClusterAwareGrowthAnalyzer:
     """

@@ -1,7 +1,6 @@
 """
 Navigation service for the Pipeline Analysis application.
 """
-import streamlit as st
 from app.services.state_manager import get_state, update_state
 
 # Define page navigation structure

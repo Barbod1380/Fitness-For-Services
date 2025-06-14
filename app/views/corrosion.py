@@ -1577,8 +1577,6 @@ def render_corrosion_assessment_view():
             - Defects combined: {original_count - combined_count}
             """)
 
-            print(combined_defects_df)
-
             #combined_only = combined_defects_df[combined_defects_df.get('is_combined', False)]
             # Show which defects were combined
             if 'is_combined' in combined_defects_df.columns:

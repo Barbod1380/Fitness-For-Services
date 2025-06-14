@@ -3,7 +3,7 @@ Navigation components for the Pipeline Analysis application.
 """
 import streamlit as st
 from datetime import datetime
-from app.services.state_manager import get_state, update_state, clear_datasets
+from app.services.state_manager import get_state, clear_datasets
 from app.services.navigation_service import (
     get_navigation_items, set_current_page, get_breadcrumb_items
 )

@@ -2,7 +2,6 @@
 Router service for the Pipeline Analysis application.
 """
 import streamlit as st
-from app.services.state_manager import get_state
 from app.services.navigation_service import get_current_page
 from app.views import *
 

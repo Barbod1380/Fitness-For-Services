@@ -108,7 +108,7 @@ class DynamicClusteringAnalyzer:
             # Check for new clustering events
             clustering_events = self._detect_clustering_events(
                 projected_defects, joints_df, pipe_diameter_mm, 
-                current_time, active_clusters
+                current_time, active_clusters, growth_rates_dict
             )
             
             # Process clustering events
@@ -201,10 +201,7 @@ class DynamicClusteringAnalyzer:
         
         return individual_failures
     
-    def _project_defects_to_time(self,
-                               original_defects: pd.DataFrame,
-                               growth_rates_dict: Dict,
-                               target_time: float) -> pd.DataFrame:
+    def _project_defects_to_time(self, original_defects: pd.DataFrame, growth_rates_dict: Dict, target_time: float) -> pd.DataFrame:
         """Project all defects to a future time based on their growth rates."""
         
         projected = original_defects.copy()
@@ -237,7 +234,8 @@ class DynamicClusteringAnalyzer:
                                 joints_df: pd.DataFrame,
                                 pipe_diameter_mm: float,
                                 current_time: float,
-                                existing_clusters: Dict) -> List[ClusteringEvent]:
+                                existing_clusters: Dict, 
+                                growth_rates_dict: Dict) -> List[ClusteringEvent]:
         """Detect new clustering events at the current time."""
         
         clustering_events = []
@@ -266,7 +264,7 @@ class DynamicClusteringAnalyzer:
                         )
                         
                         # Calculate failure time for combined defect
-                        failure_time = self._calculate_cluster_failure_time(combined_props)
+                        failure_time = self._calculate_cluster_failure_time(combined_props, growth_rates_dict)
                         
                         # Get original individual failure times
                         original_failures = []
@@ -320,7 +318,7 @@ class DynamicClusteringAnalyzer:
             'original_defect_ids': cluster_defects.get('defect_id', cluster_defects.index).tolist()
         }
     
-    def _calculate_cluster_failure_time(self, combined_props: Dict) -> float:
+    def _calculate_cluster_failure_time(self, combined_props: Dict, growth_rates_dict: Dict) -> float:
         """Calculate how long until the combined defect fails."""
         
         current_depth = combined_props['combined_depth_pct']
@@ -330,7 +328,8 @@ class DynamicClusteringAnalyzer:
         
         # Estimate growth rate for combined defect (conservative approach)
         # This could be more sophisticated based on the original defects' growth rates
-        estimated_growth_rate = 3.0  # Conservative estimate for combined defects
+        constituent_growth_rates = [growth_rates_dict.get(idx, {}).get('depth_growth_pct_per_year', 2.0)  for idx in combined_props['original_defect_ids']]
+        estimated_growth_rate = np.mean(constituent_growth_rates) * 1.2  # 20% acceleration factor
         
         remaining_depth = self.depth_threshold - current_depth
         failure_time = remaining_depth / estimated_growth_rate

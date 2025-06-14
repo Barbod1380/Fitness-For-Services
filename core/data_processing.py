@@ -20,8 +20,7 @@ def process_pipeline_data(df):
 
     # Replace empty strings efficiently
     string_cols = df_view.select_dtypes(include=['object']).columns
-    for col in string_cols:
-        df_view[col] = df_view[col].replace(r'^\s*$', np.nan, regex=True)
+    df_view[string_cols] = df_view[string_cols].replace(r'^\s*$', np.nan, regex=True)
     
     # === Batch numeric conversion ===
     numeric_columns = [

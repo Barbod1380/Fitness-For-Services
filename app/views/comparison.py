@@ -1512,8 +1512,6 @@ def render_remaining_life_analysis_integrated(comparison_results, earlier_year, 
                     wt_lookup
                 )
 
-                print(growth_df)
-                
                 if growth_df.empty:
                     st.warning("No growth data could be calculated")
                     return
@@ -1758,22 +1756,18 @@ def render_remaining_life_analysis(defects_df_year1, defects_df_year2,
     # Step 4: Analyze growth rates
     with st.spinner("Analyzing defect growth rates..."):
         try:
-            print("HEEEEE")
             # Get wall thickness lookup
             wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
-            
-            print("HEEEEE2")
+
             # Initialize growth analyzer
             growth_analyzer = ClusterAwareGrowthAnalyzer(
                 negative_growth_strategy='similar_match'
             )
-            
-            print("HEEEEE3")
+
             # Parse dates
             year1_date = pd.Timestamp(assessment_params['year1_date'])
             year2_date = pd.Timestamp(assessment_params['year2_date'])
-            
-            print("HEEEEE4")
+
             # Analyze growth
             growth_df = growth_analyzer.analyze_growth_with_clustering(
                 defects_df_year1, defects_df_year2,
@@ -1781,13 +1775,11 @@ def render_remaining_life_analysis(defects_df_year1, defects_df_year2,
                 year1_date, year2_date,
                 wt_lookup
             )
-            
-            print("HEEEEE5")
+
             if growth_df.empty:
                 st.warning("No growth data could be calculated")
                 return None
-            
-            print("HEEEEE")
+
             # Calculate remaining life
             remaining_life_df = growth_analyzer.calculate_remaining_life(
                 growth_df,
