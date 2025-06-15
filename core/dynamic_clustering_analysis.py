@@ -277,7 +277,7 @@ class DynamicClusteringAnalyzer:
                         )
                         
                         # Calculate failure time for combined defect
-                        failure_time = self._calculate_cluster_failure_time(combined_props)
+                        failure_time = self._calculate_cluster_failure_time(combined_props, growth_rates_dict)
                         
                         # Create clustering event
                         event = ClusteringEvent(
@@ -338,7 +338,7 @@ class DynamicClusteringAnalyzer:
         estimated_growth_rate = np.mean(constituent_growth_rates) * 1.2  # 20% acceleration factor
         
         remaining_depth = self.depth_threshold - current_depth
-        failure_time = remaining_depth / estimated_growth_rate
+        failure_time = remaining_depth / estimated_growth_rate + 0.00001
         
         return max(0, failure_time)
     
