@@ -91,7 +91,7 @@ class FFSDefectInteraction:
         df['x_end_mm'] = df['x_center_mm'] + df['length [mm]'] / 2
         
         # Convert clock strings to decimal hours
-        df['decimal_hours'] = df['clock'].apply(parse_clock_to_decimal_hours)
+        df['decimal_hours'] = df['clock'].apply(self.parse_clock_to_decimal_hours)
         
         # Convert to angular position (degrees)
         # 12:00 = 0°, 3:00 = 90°, 6:00 = 180°, 9:00 = 270°

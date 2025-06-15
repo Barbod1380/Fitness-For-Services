@@ -97,7 +97,7 @@ class DynamicClusteringAnalyzer:
         active_clusters = {}  # Track existing clusters
         
         # Simulation loop
-        time_points = np.arange(0, self.max_years + self.time_step, self.time_step)
+        time_points = np.arange(self.time_step, self.max_years + self.time_step, self.time_step)
         
         for current_time in time_points:
             # Project defects to current time
@@ -245,42 +245,48 @@ class DynamicClusteringAnalyzer:
             current_clusters = self.ffs_rules.find_interacting_defects(
                 projected_defects, joints_df, pipe_diameter_mm
             )
+
+            existing_cluster_sets = {
+                cluster_id: set(cluster_info['defect_indices']) 
+                for cluster_id, cluster_info in existing_clusters.items()
+            }
             
             # Check for new clusters (groups with >1 defect that weren't clustered before)
             for cluster in current_clusters:
                 if len(cluster) > 1:  # Only interested in actual clusters
+                    cluster_set = set(cluster)
                     
-                    # Check if this is a new cluster
-                    is_new_cluster = True
-                    for existing_cluster_id, existing_cluster in existing_clusters.items():
-                        if set(cluster) == set(existing_cluster['defect_indices']):
-                            is_new_cluster = False
+                    # Check if this exact cluster already exists
+                    is_existing = any(
+                        cluster_set == existing_set 
+                        for existing_set in existing_cluster_sets.values()
+                    )
+                    
+                    # Also check if it's a subset or superset of existing clusters
+                    is_evolution = False
+                    for existing_set in existing_cluster_sets.values():
+                        if cluster_set.issuperset(existing_set) or existing_set.issuperset(cluster_set):
+                            is_evolution = True
                             break
                     
-                    if is_new_cluster:
+                    if not is_existing and (not is_evolution or current_time > 0):
+                        # This is a genuinely new cluster
                         # Calculate combined defect properties
                         combined_props = self._calculate_combined_defect_properties(
                             projected_defects.iloc[cluster], joints_df
                         )
                         
                         # Calculate failure time for combined defect
-                        failure_time = self._calculate_cluster_failure_time(combined_props, growth_rates_dict)
-                        
-                        # Get original individual failure times
-                        original_failures = []
-                        for defect_idx in cluster:
-                            defect_id = projected_defects.iloc[defect_idx].get('defect_id', defect_idx)
-                            # This would need to be calculated based on individual projections
-                            original_failures.append(float('inf'))  # Placeholder
+                        failure_time = self._calculate_cluster_failure_time(combined_props)
                         
                         # Create clustering event
                         event = ClusteringEvent(
                             year=current_time,
                             defect_indices=cluster,
-                            cluster_type='new_cluster',
+                            cluster_type='new_cluster' if not is_evolution else 'cluster_evolution',
                             combined_defect_props=combined_props,
                             failure_time=failure_time,
-                            original_failure_times=original_failures
+                            original_failure_times=[]  # We'll calculate this properly
                         )
                         
                         clustering_events.append(event)

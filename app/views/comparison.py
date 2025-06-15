@@ -4,7 +4,8 @@ Multi-year comparison view for the Pipeline Analysis application.
 import streamlit as st
 import pandas as pd
 import numpy as np
-
+import time
+from datetime import datetime
 from app.ui_components import custom_metric, info_box, create_comparison_metrics
 from core.multi_year_analysis import compare_defects
 from analysis.remaining_life_analysis import enhanced_calculate_remaining_life_analysis
@@ -818,13 +819,23 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             st.warning("No matched defects found for growth rate estimation")
             return
         
+        # Initialize session state for dynamic clustering if not exists
+        if 'dynamic_clustering_params' not in st.session_state:
+            st.session_state.dynamic_clustering_params = {
+                'max_sim_years': 20,
+                'time_resolution': 0.5,
+                'clustering_method': 'sqrt_dt',
+                'earlier_year': earlier_year,
+                'later_year': later_year
+            }
+        
         # Simulation parameters
         col1, col2, col3 = st.columns(3)
         
         with col1:
             max_sim_years = st.slider(
                 "Simulation Years",
-                min_value=5, max_value=50, value=20,
+                min_value=5, max_value=50, value=st.session_state.dynamic_clustering_params['max_sim_years'],
                 help="How many years into the future to simulate"
             )
         
@@ -832,7 +843,7 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             time_resolution = st.selectbox(
                 "Time Resolution",
                 options=[0.25, 0.5, 1.0],
-                index=1,
+                index=[0.25, 0.5, 1.0].index(st.session_state.dynamic_clustering_params['time_resolution']),
                 format_func=lambda x: f"{x} years ({int(x*12)} months)",
                 help="How often to check for clustering events"
             )
@@ -841,14 +852,66 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             clustering_method = st.selectbox(
                 "Clustering Rule",
                 options=['sqrt_dt', '3t'],
+                index=['sqrt_dt', '3t'].index(st.session_state.dynamic_clustering_params['clustering_method']),
                 format_func=lambda x: {
                     'sqrt_dt': '√(D×t) - Standard',
                     '3t': '3×t - Conservative'
                 }[x]
             )
         
-        # Run simulation button
-        if st.button("🚀 Run Dynamic Clustering Simulation", use_container_width=True):
+        # Check if parameters have changed
+        params_changed = (
+            max_sim_years != st.session_state.dynamic_clustering_params['max_sim_years'] or
+            time_resolution != st.session_state.dynamic_clustering_params['time_resolution'] or
+            clustering_method != st.session_state.dynamic_clustering_params['clustering_method'] or
+            earlier_year != st.session_state.dynamic_clustering_params['earlier_year'] or
+            later_year != st.session_state.dynamic_clustering_params['later_year']
+        )
+        
+        # Update stored parameters
+        new_params = {
+            'max_sim_years': max_sim_years,
+            'time_resolution': time_resolution,
+            'clustering_method': clustering_method,
+            'earlier_year': earlier_year,
+            'later_year': later_year
+        }
+        
+        # Show current status
+        if hasattr(st.session_state, 'dynamic_clustering_results') and not params_changed:
+            st.success("✅ Simulation results available (parameters unchanged)")
+        elif params_changed and hasattr(st.session_state, 'dynamic_clustering_results'):
+            st.warning("⚠️ Parameters changed - simulation needs to be re-run")
+        
+        # Button layout
+        button_col1, button_col2, button_col3 = st.columns([2, 1, 1])
+        
+        with button_col1:
+            run_simulation = st.button(
+                "🚀 Run Dynamic Clustering Simulation" if not hasattr(st.session_state, 'dynamic_clustering_results') 
+                else "🔄 Re-run Simulation with New Parameters" if params_changed 
+                else "✅ Simulation Complete",
+                use_container_width=True,
+                disabled=(hasattr(st.session_state, 'dynamic_clustering_results') and not params_changed),
+                type="primary" if not hasattr(st.session_state, 'dynamic_clustering_results') or params_changed else "secondary"
+            )
+        
+        with button_col2:
+            if hasattr(st.session_state, 'dynamic_clustering_results'):
+                if st.button("📊 Refresh View", use_container_width=True):
+                    # Just trigger a rerun to refresh the display
+                    st.rerun()
+        
+        with button_col3:
+            if hasattr(st.session_state, 'dynamic_clustering_results'):
+                if st.button("🗑️ Clear Results", use_container_width=True):
+                    del st.session_state.dynamic_clustering_results
+                    st.rerun()
+        
+        # Run simulation if button pressed
+        if run_simulation:
+            # Update parameters in session state
+            st.session_state.dynamic_clustering_params = new_params
             
             with st.spinner("Running time-forward simulation..."):
                 try:
@@ -899,16 +962,40 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                         depth_failure_threshold=80.0
                     )
                     
-                    # Run simulation
-                    st.write("🔄 Projecting defect growth and detecting clustering events...")
+                    # Progress bar
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    # Run simulation with progress updates
+                    status_text.text("🔄 Initializing simulation...")
+                    progress_bar.progress(10)
+                    
+                    status_text.text("🔄 Projecting defect growth...")
+                    progress_bar.progress(30)
+                    
                     simulation_results = analyzer.simulate_dynamic_clustering_failure(
                         current_defects, joints_df, growth_rates_dict, pipe_diameter_mm
                     )
                     
-                    # Store results in session state
-                    st.session_state.dynamic_clustering_results = simulation_results
+                    progress_bar.progress(90)
+                    status_text.text("🔄 Finalizing results...")
                     
-                    st.success("✅ Simulation completed!")
+                    # Store results with parameters
+                    st.session_state.dynamic_clustering_results = {
+                        'results': simulation_results,
+                        'parameters': new_params,
+                        'timestamp': datetime.now()
+                    }
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Simulation completed!")
+                    time.sleep(0.5)
+                    
+                    # Clear progress indicators
+                    progress_bar.empty()
+                    status_text.empty()
+                    
+                    st.success("✅ Simulation completed successfully!")
                     st.rerun()  # Refresh to show results
                     
                 except Exception as e:
@@ -919,8 +1006,26 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
         
         # Display results if available
         if hasattr(st.session_state, 'dynamic_clustering_results'):
-            display_dynamic_clustering_results(st.session_state.dynamic_clustering_results, earlier_year, later_year)
-
+            # Show parameters used
+            with st.expander("📋 Simulation Parameters", expanded=False):
+                params = st.session_state.dynamic_clustering_params
+                param_cols = st.columns(3)
+                with param_cols[0]:
+                    st.metric("Simulation Years", f"{params['max_sim_years']} years")
+                with param_cols[1]:
+                    st.metric("Time Resolution", f"{params['time_resolution']} years")
+                with param_cols[2]:
+                    st.metric("Clustering Method", params['clustering_method'].replace('_', ' ').upper())
+                
+                if 'timestamp' in st.session_state.dynamic_clustering_results:
+                    st.caption(f"Last run: {st.session_state.dynamic_clustering_results['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Display the results
+            display_dynamic_clustering_results(
+                st.session_state.dynamic_clustering_results['results'], 
+                earlier_year, 
+                later_year
+            )
 
 def display_dynamic_clustering_results(simulation_results, earlier_year, later_year):
     """Display the results of the dynamic clustering simulation."""
@@ -1047,28 +1152,35 @@ def display_dynamic_clustering_results(simulation_results, earlier_year, later_y
         
         if individual_failures:
             comparison_data = []
+            earliest_individual = min(individual_failures.values()) if individual_failures else float('inf')
+            clustering_failure = simulation_results['earliest_failure_time']
+            
             for defect_id, individual_time in individual_failures.items():
+                # Determine clustering impact
+                if clustering_failure < individual_time:
+                    impact = f"Fails {individual_time - clustering_failure:.1f} years earlier due to clustering"
+                elif clustering_failure > individual_time:
+                    impact = "Individual failure occurs first"
+                else:
+                    impact = "Same failure time"
+                    
                 comparison_data.append({
                     'Defect ID': defect_id,
                     'Individual Failure (years)': f"{individual_time:.1f}" if individual_time != float('inf') else "No failure",
-                    'Clustering Impact': "To be determined"  # This could be enhanced
+                    'Clustering Impact': impact
                 })
             
             comparison_df = pd.DataFrame(comparison_data)
             st.dataframe(comparison_df, use_container_width=True)
             
-            # Summary comparison
-            earliest_individual = min(individual_failures.values()) if individual_failures else float('inf')
-            clustering_failure = simulation_results['earliest_failure_time']
-            
+            # Fix the summary comparison metrics
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Standard Analysis Prediction", 
-                         f"{earliest_individual:.1f} years" if earliest_individual != float('inf') else "No failure")
+                        f"{earliest_individual:.1f} years" if earliest_individual != float('inf') else "No failure")
             with col2:
                 st.metric("Dynamic Clustering Prediction", 
-                         f"{clustering_failure:.1f} years" if clustering_failure != float('inf') else "No failure")
-    
+                        f"{clustering_failure:.1f} years" if clustering_failure != float('inf') else "No failure")
     with result_tabs[3]:
         st.subheader("📥 Export Results")
         
@@ -1100,13 +1212,6 @@ def display_dynamic_clustering_results(simulation_results, earlier_year, later_y
         - Complete simulation timeline
         - Analysis parameters and settings
         """)
-    
-    # Clear results button
-    if st.button("🗑️ Clear Simulation Results"):
-        if hasattr(st.session_state, 'dynamic_clustering_results'):
-            del st.session_state.dynamic_clustering_results
-        st.rerun()
-    
 
 def render_comparison_view():
     """Display the multi-year comparison view with analysis across different years."""
