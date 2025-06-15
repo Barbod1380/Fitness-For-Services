@@ -146,9 +146,7 @@ class DynamicClusteringAnalyzer:
             })
             
             # Early termination if we found a very early failure
-            if simulation_results['earliest_failure_time'] <= current_time + 1:
-                break
-        
+
         # Step 4: Compare with individual failures
         earliest_individual = min(individual_failures.values()) if individual_failures else float('inf')
         

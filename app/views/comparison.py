@@ -1137,7 +1137,7 @@ def display_dynamic_clustering_results(simulation_results, earlier_year, later_y
             st.success("✅ No clustering events detected - defects remain individual")
     
     with result_tabs[2]:
-        st.subheader("⚖️ Individual vs Clustering Analysis")
+        display_enhanced_clustering_analysis(simulation_results, earlier_year, later_year)
         
         # Compare individual failure times with clustering prediction
         individual_failures = simulation_results['individual_failure_times']
@@ -1161,9 +1161,6 @@ def display_dynamic_clustering_results(simulation_results, earlier_year, later_y
                     'Individual Failure (years)': f"{individual_time:.1f}" if individual_time != float('inf') else "No failure",
                     'Clustering Impact': impact
                 })
-            
-            comparison_df = pd.DataFrame(comparison_data)
-            st.dataframe(comparison_df, use_container_width=True)
             
             # Fix the summary comparison metrics
             col1, col2 = st.columns(2)
@@ -1929,3 +1926,209 @@ def render_remaining_life_analysis(defects_df_year1, defects_df_year2,
         )
     
     return remaining_life_df
+
+
+def create_enhanced_clustering_analysis_table(simulation_results, defects_df):
+    """
+    Create an enhanced table showing clustering events and their impacts.
+    
+    Parameters:
+    - simulation_results: Results from dynamic clustering simulation
+    - defects_df: Original defects dataframe for additional context
+    
+    Returns:
+    - pandas.DataFrame with enhanced clustering analysis
+    """
+    clustering_events = simulation_results['clustering_events']
+    individual_failures = simulation_results['individual_failure_times']
+    
+    if not clustering_events:
+        return pd.DataFrame([{
+            'Analysis': 'No clustering events detected',
+            'Details': 'All defects remain individual throughout simulation period'
+        }])
+    
+    enhanced_data = []
+    
+    for i, event in enumerate(clustering_events):
+        # Get involved defects information
+        involved_defects = defects_df.iloc[event.defect_indices] if hasattr(defects_df, 'iloc') else defects_df.loc[event.defect_indices]
+        
+        # Location information
+        locations = involved_defects['log dist. [m]'].values
+        location_range = f"{locations.min():.1f} - {locations.max():.1f}m"
+        center_location = f"{locations.mean():.1f}m"
+        
+        # Defect types involved
+        if 'component / anomaly identification' in involved_defects.columns:
+            defect_types = involved_defects['component / anomaly identification'].value_counts()
+            # Show top 2 most common types
+            main_types = defect_types.head(2)
+            type_summary = ", ".join([f"{count}x {dtype}" for dtype, count in main_types.items()])
+        else:
+            type_summary = "Type info not available"
+        
+        # Depth information
+        if 'depth [%]' in involved_defects.columns:
+            depths = involved_defects['depth [%]'].values
+            depth_info = f"{depths.min():.1f}% - {depths.max():.1f}% (max: {depths.max():.1f}%)"
+        else:
+            depth_info = "Depth info not available"
+        
+        # Individual failure times for involved defects
+        individual_times = []
+        for defect_idx in event.defect_indices:
+            defect_id = defect_idx  # Assuming defect_id matches index
+            individual_time = individual_failures.get(defect_id, float('inf'))
+            if individual_time != float('inf'):
+                individual_times.append(individual_time)
+        
+        # Calculate impact
+        if individual_times:
+            earliest_individual = min(individual_times)
+            cluster_failure_time = event.year + event.failure_time
+            
+            if cluster_failure_time < earliest_individual:
+                impact = f"⚠️ {earliest_individual - cluster_failure_time:.1f} years earlier"
+                impact_type = "Accelerated Failure"
+            else:
+                impact = f"✅ {cluster_failure_time - earliest_individual:.1f} years later"
+                impact_type = "Delayed Failure"
+        else:
+            impact = "No individual failures predicted"
+            impact_type = "New Failure Mode"
+        
+        # Combined defect properties
+        combined_props = event.combined_defect_props
+        
+        enhanced_data.append({
+            'Cluster #': f"C{i+1}",
+            'Formation Time': f"Year {event.year:.1f}",
+            'Defects Involved': f"{len(event.defect_indices)} defects",
+            'Location Range': location_range,
+            'Center Location': center_location,
+            'Primary Types': type_summary,
+            'Depth Range': depth_info,
+            'Combined Depth': f"{combined_props.get('combined_depth_pct', 0):.1f}%",
+            'Combined Length': f"{combined_props.get('combined_length_mm', 0):.1f}mm",
+            'Individual Failure': f"{min(individual_times):.1f}y" if individual_times else "None",
+            'Cluster Failure': f"{event.year + event.failure_time:.1f}y",
+            'Impact': impact,
+            'Impact Type': impact_type
+        })
+    
+    return pd.DataFrame(enhanced_data)
+
+
+def create_cluster_defect_mapping_table(simulation_results, defects_df):
+    """
+    Create a detailed mapping showing which specific defects are in each cluster.
+    
+    Parameters:
+    - simulation_results: Results from dynamic clustering simulation
+    - defects_df: Original defects dataframe
+    
+    Returns:
+    - pandas.DataFrame showing defect-to-cluster mapping
+    """
+    clustering_events = simulation_results['clustering_events']
+    
+    if not clustering_events:
+        return pd.DataFrame()
+    
+    mapping_data = []
+    
+    for i, event in enumerate(clustering_events):
+        cluster_id = f"C{i+1}"
+        
+        for defect_idx in event.defect_indices:
+            if hasattr(defects_df, 'iloc'):
+                defect = defects_df.iloc[defect_idx]
+            else:
+                defect = defects_df.loc[defect_idx]
+            
+            mapping_data.append({
+                'Cluster ID': cluster_id,
+                'Defect Index': defect_idx,
+                'Location (m)': f"{defect['log dist. [m]']:.2f}",
+                'Depth (%)': f"{defect.get('depth [%]', 0):.1f}",
+                'Length (mm)': f"{defect.get('length [mm]', 0):.1f}",
+                'Width (mm)': f"{defect.get('width [mm]', 0):.1f}",
+                'Type': defect.get('component / anomaly identification', 'Unknown'),
+                'Joint': defect.get('joint number', 'Unknown')
+            })
+    
+    return pd.DataFrame(mapping_data)
+
+
+# Modified section for display_dynamic_clustering_results function
+def display_enhanced_clustering_analysis(simulation_results, earlier_year, later_year):
+    """
+    Enhanced version of the Individual vs Clustering Analysis tab.
+    """
+    
+    st.subheader("🔗 Enhanced Clustering Impact Analysis")
+    
+    # Get the current defects dataframe for context
+    current_defects = st.session_state.datasets[later_year]['defects_df']
+    
+    # Create enhanced analysis table
+    enhanced_table = create_enhanced_clustering_analysis_table(simulation_results, current_defects)
+    
+    if not enhanced_table.empty and 'Cluster #' in enhanced_table.columns:
+        st.markdown("#### 📊 Clustering Events Summary")
+        
+        # Key metrics
+        total_clusters = len(enhanced_table)
+        accelerated_failures = len(enhanced_table[enhanced_table['Impact Type'] == 'Accelerated Failure'])
+        total_defects_clustered = enhanced_table['Defects Involved'].str.extract('(\d+)').astype(int).sum().iloc[0]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Clustering Events", total_clusters)
+        with col2:
+            st.metric("Accelerated Failures", accelerated_failures)
+        with col3:
+            st.metric("Total Defects Clustered", total_defects_clustered)
+        
+        # Main analysis table
+        st.markdown("#### 📋 Detailed Clustering Analysis")
+        st.dataframe(enhanced_table, use_container_width=True)
+        
+        # Detailed defect mapping (expandable)
+        with st.expander("🔍 Detailed Defect-to-Cluster Mapping", expanded=False):
+            mapping_table = create_cluster_defect_mapping_table(simulation_results, current_defects)
+            if not mapping_table.empty:
+                st.dataframe(mapping_table, use_container_width=True)
+            else:
+                st.info("No clustering events to map")
+        
+        # Analysis insights
+        if accelerated_failures > 0:
+            st.warning(f"⚠️ **Critical Finding**: {accelerated_failures} clustering event(s) cause earlier failures than individual analysis predicted!")
+            
+            # Show worst case
+            worst_case = enhanced_table[enhanced_table['Impact Type'] == 'Accelerated Failure'].copy()
+            if not worst_case.empty:
+                # Extract years from impact string
+                worst_case['Impact_Years'] = worst_case['Impact'].str.extract('(\d+\.?\d*)').astype(float)
+                worst_cluster = worst_case.loc[worst_case['Impact_Years'].idxmax()]
+                
+                st.error(f"""
+                **Most Critical Cluster**: {worst_cluster['Cluster #']}
+                - **Location**: {worst_cluster['Center Location']}
+                - **Formation Time**: {worst_cluster['Formation Time']}
+                - **Impact**: Failure occurs {worst_cluster['Impact']}
+                - **Defects Involved**: {worst_cluster['Defects Involved']}
+                """)
+        else:
+            st.success("✅ **Good News**: No clustering events cause earlier failures than individual analysis")
+            
+    else:
+        st.info("No clustering events detected during the simulation period")
+        
+        # Still show summary of individual analysis
+        individual_failures = simulation_results['individual_failure_times']
+        if individual_failures:
+            earliest_individual = min(individual_failures.values())
+            st.info(f"**Individual Analysis Result**: Earliest predicted failure in {earliest_individual:.1f} years")
