@@ -50,35 +50,24 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
         if not available_dimensions:
             st.warning("No growth data available for any dimension.")
         else:
-            # Get current dimension from session state
-            current_dimension = get_state('correction_dimension', 'depth')
-            
-            # If current dimension isn't in available dimensions, default to the first available
-            if current_dimension not in available_dimensions:
-                current_dimension = available_dimensions[0]
-                update_state('correction_dimension', current_dimension)
-            
             # Create a unique key for the selectbox
             select_key = f"correction_dimension_{earlier_year}_{later_year}"
-            
-            # Create the selectbox with default value from session state
+
+            # Initialize the selectbox state if it doesn't exist
+            if select_key not in st.session_state:
+                st.session_state[select_key] = 'depth' if 'depth' in available_dimensions else available_dimensions[0]
+
+            # Ensure the stored value is valid
+            if st.session_state[select_key] not in available_dimensions:
+                st.session_state[select_key] = available_dimensions[0]
+
+            # Create the selectbox - Streamlit automatically syncs with st.session_state[select_key]
             selected_dimension = st.selectbox(
                 "Choose dimension to analyze",
                 options=available_dimensions,
-                index=available_dimensions.index(current_dimension),
                 key=select_key,
                 help="Select which defect dimension to analyze for growth patterns"
             )
-            
-            # Check if selection changed
-            if selected_dimension != current_dimension:
-                # Update session state
-                update_state('correction_dimension', selected_dimension)
-                # Force a rerun to ensure UI updates immediately
-                st.rerun()
-                
-            # Update session state
-            st.session_state.correction_dimension = selected_dimension
             
             # Show growth plot for selected dimension
             st.markdown(f"#### {selected_dimension.title()} Growth Data")
@@ -261,12 +250,19 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
         
         # Create a unique key
         select_key = f"growth_dimension_{earlier_year}_{later_year}"
-        
-        # Create the selectbox with default value from session state
+
+        # Initialize if needed
+        if select_key not in st.session_state:
+            st.session_state[select_key] = 'depth'
+
+        # Ensure valid
+        if st.session_state[select_key] not in ['depth', 'length', 'width']:
+            st.session_state[select_key] = 'depth'
+
+        # Create the selectbox
         growth_dimension = st.selectbox(
             "Choose dimension for growth rate analysis",
-            options=dimensions,
-            index=dimensions.index(current_dimension),
+            options=['depth', 'length', 'width'],
             key=select_key,
             help="Select which defect dimension to analyze for growth rate statistics"
         )
@@ -275,8 +271,6 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
         if growth_dimension != current_dimension:
             # Update session state
             update_state('growth_analysis_dimension', growth_dimension)
-            # Force a rerun to ensure UI updates immediately
-            st.rerun()
 
         st.session_state.growth_analysis_dimension = growth_dimension
         

@@ -1,18 +1,20 @@
 import pandas as pd
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
+import numpy as np
 
-def correct_negative_growth_rates(matches_df, k=3):
+def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
     """
-    Correct negative depth growth rates using K-Nearest Neighbors from similar defects in the same joint.
+    Correct negative depth growth rates using K-Nearest Neighbors from similar defects 
+    in the same joint AND nearby joints (±2 joints).
 
     Parameters:
     - matches_df: DataFrame with matched defects from two inspections
     - k: Number of neighbors to consider (default: 3)
+    - joint_tolerance: Number of joints before/after to include in search (default: 2)
 
     Returns:
     - Tuple of (corrected_df, correction_info) where correction_info contains statistics
     """
+    
     df = matches_df.copy()
 
     required_cols = ['joint number', 'old_depth_pct', 'new_depth_pct', 'is_negative_growth']
@@ -26,8 +28,7 @@ def correct_negative_growth_rates(matches_df, k=3):
     available_dimension_cols = [col for col in dimension_cols if col in df.columns]
     if not available_dimension_cols:
         return df, {
-            "error": "Missing at least one dimension column "
-                     "(length [mm] or width [mm]) for features",
+            "error": "Missing at least one dimension column (length [mm] or width [mm]) for features",
             "success": False
         }
 
@@ -52,65 +53,93 @@ def correct_negative_growth_rates(matches_df, k=3):
     corrections = {}
 
     try:
-        # Process each joint separately
-        for joint_num in df['joint number'].unique():
-            joint_negative = negative_growth[
-                negative_growth['joint number'] == joint_num
+        # Import required libraries
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.neighbors import NearestNeighbors
+        
+        # NEW: Process each negative growth defect individually with nearby joint search
+        for neg_idx, neg_defect in negative_growth.iterrows():
+            target_joint = neg_defect['joint number']
+            
+            # Define joint search range
+            joint_min = target_joint - joint_tolerance
+            joint_max = target_joint + joint_tolerance
+            
+            # Find positive growth defects in nearby joints
+            nearby_positive = positive_growth[
+                (positive_growth['joint number'] >= joint_min) & 
+                (positive_growth['joint number'] <= joint_max)
             ]
-            joint_positive = positive_growth[
-                positive_growth['joint number'] == joint_num
-            ]
-
-            if joint_negative.empty:
-                continue
-
-            if len(joint_positive) < k:
-                uncorrected_count += len(joint_negative)
-                uncorrected_joints.add(joint_num)
+            
+            if len(nearby_positive) < k:
+                uncorrected_count += 1
+                uncorrected_joints.add(target_joint)
                 continue
 
             # Features for KNN: dimensions plus old depth
             features = available_dimension_cols + ['old_depth_pct']
 
+            # Prepare feature data - FIX: Handle Series correctly
             scaler = StandardScaler()
-            X_positive = scaler.fit_transform(joint_positive[features])
-            X_negative = scaler.transform(joint_negative[features])
+            X_positive = scaler.fit_transform(nearby_positive[features])
+            
+            # Extract features from the negative defect Series correctly
+            neg_features = []
+            for feature in features:
+                neg_features.append(neg_defect[feature])
+            
+            X_negative = scaler.transform([neg_features])  # Pass as list, not Series
 
-            k_value = min(k, len(joint_positive))
+            # Find k nearest neighbors
+            k_value = min(k, len(nearby_positive))
             knn = NearestNeighbors(n_neighbors=k_value)
             knn.fit(X_positive)
 
-            _, indices = knn.kneighbors(X_negative)
+            distances, indices = knn.kneighbors(X_negative)
+            
+            # Get the actual indices of similar defects
+            similar_defect_indices = nearby_positive.index[indices[0]]
+            
+            # ENHANCEMENT: Weight by joint distance (closer joints get higher weight)
+            weights = []
+            for similar_idx in similar_defect_indices:
+                joint_distance = abs(nearby_positive.loc[similar_idx, 'joint number'] - target_joint)
+                # Inverse distance weighting (closer joints get higher weight)
+                weight = 1.0 / (1.0 + joint_distance * 0.1)  # 0.1 is scaling factor
+                weights.append(weight)
+            
+            # Normalize weights
+            weights = np.array(weights)
+            if weights.sum() > 0:  # Avoid division by zero
+                weights = weights / weights.sum()
+            else:
+                weights = np.ones(len(weights)) / len(weights)  # Equal weights fallback
+            
+            # Calculate weighted average growth rate
+            growth_rates = nearby_positive.loc[similar_defect_indices, 'growth_rate_pct_per_year'].values
+            avg_growth_pct = np.average(growth_rates, weights=weights)
+            
+            year_diff = neg_defect['new_year'] - neg_defect['old_year']
 
-            # Apply corrections for each negative-growth defect
-            for i, idx in enumerate(joint_negative.index):
-                nn_indices = indices[i]
-                pos_indices = joint_positive.index[nn_indices]
+            # FIX: Store correction data more safely
+            corrections[neg_idx] = {
+                'growth_rate_pct_per_year': float(avg_growth_pct),
+                'depth_change_pct': float(avg_growth_pct * year_diff),
+                'new_depth_pct': float(neg_defect['old_depth_pct'] + (avg_growth_pct * year_diff)),
+                'is_negative_growth': False,
+                'is_corrected': True
+            }
 
-                avg_growth_pct = joint_positive.loc[
-                    pos_indices, 'growth_rate_pct_per_year'
-                ].mean()
-                year_diff = df.loc[idx, 'new_year'] - df.loc[idx, 'old_year']
+            if has_mm_data:
+                growth_rates_mm = nearby_positive.loc[similar_defect_indices, 'growth_rate_mm_per_year'].values
+                avg_growth_mm = np.average(growth_rates_mm, weights=weights)
+                corrections[neg_idx].update({
+                    'growth_rate_mm_per_year': float(avg_growth_mm),
+                    'depth_change_mm': float(avg_growth_mm * year_diff),
+                    'new_depth_mm': float(neg_defect['old_depth_mm'] + (avg_growth_mm * year_diff))
+                })
 
-                corrections[idx] = {
-                    'growth_rate_pct_per_year': avg_growth_pct,
-                    'depth_change_pct': avg_growth_pct * year_diff,
-                    'new_depth_pct': df.loc[idx, 'old_depth_pct'] + (avg_growth_pct * year_diff),
-                    'is_negative_growth': False,
-                    'is_corrected': True
-                }
-
-                if has_mm_data:
-                    avg_growth_mm = joint_positive.loc[
-                        pos_indices, 'growth_rate_mm_per_year'
-                    ].mean()
-                    corrections[idx].update({
-                        'growth_rate_mm_per_year': avg_growth_mm,
-                        'depth_change_mm': avg_growth_mm * year_diff,
-                        'new_depth_mm': df.loc[idx, 'old_depth_mm'] + (avg_growth_mm * year_diff)
-                    })
-
-                corrected_count += 1
+            corrected_count += 1
 
     except Exception as e:
         return df, {
@@ -165,6 +194,7 @@ def correct_negative_growth_rates(matches_df, k=3):
         'corrected_count': corrected_count,
         'uncorrected_count': uncorrected_count,
         'uncorrected_joints': list(uncorrected_joints),
+        'joint_tolerance_used': joint_tolerance,
         'success': corrected_count > 0
     }
 
@@ -172,8 +202,6 @@ def correct_negative_growth_rates(matches_df, k=3):
         correction_info['updated_growth_stats'] = updated_growth_stats
 
     return df, correction_info
-
-
 def create_growth_summary_table(comparison_results):
     """
     Create a summary table of growth statistics.

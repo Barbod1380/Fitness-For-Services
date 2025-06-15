@@ -264,7 +264,9 @@ def render_single_analysis_view():
                             f"total ({filt_count/orig_count*100:.1f}%) — Filters: {filter_text}"
                         )
 
-                    fig = create_unwrapped_pipeline_visualization(filtered_defects)
+                    pipe_diameter = st.session_state.datasets[selected_year]['pipe_diameter']
+                    fig = create_unwrapped_pipeline_visualization(filtered_defects, pipe_diameter)
+                    
                     st.plotly_chart(fig, use_container_width=True, config={"responsive": True})
                     st.info(
                         "**Visualization Guide:**\n"
