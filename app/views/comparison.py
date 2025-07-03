@@ -57,9 +57,13 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             if select_key not in st.session_state:
                 st.session_state[select_key] = 'depth' if 'depth' in available_dimensions else available_dimensions[0]
 
-            # Ensure the stored value is valid
+            if not available_dimensions:
+                st.warning("No dimensional data available for analysis.")
+                st.info("Please ensure both datasets have at least one of: depth, length, or width measurements.")
+                return
+
             if st.session_state[select_key] not in available_dimensions:
-                st.session_state[select_key] = available_dimensions[0]
+                st.session_state[select_key] = available_dimensions[0] 
 
             # Create the selectbox - Streamlit automatically syncs with st.session_state[select_key]
             selected_dimension = st.selectbox(
@@ -1593,13 +1597,27 @@ def render_remaining_life_analysis_integrated(comparison_results, earlier_year, 
                 if growth_df.empty:
                     st.warning("No growth data could be calculated")
                     return
-                
-                # Check for errors in the results
-                error_rows = growth_df[
-                    growth_df.get('error', '').notna() & #  type: ignore
-                    (growth_df.get('error', '') != '') & 
-                    (growth_df.get('error', '').astype(str) != 'nan') # type: ignore
-                ]
+
+                # AFTER:
+                def safe_filter_growth_errors(growth_df):
+                    """Safely filter error rows from growth analysis DataFrame."""
+                    if 'error' not in growth_df.columns:
+                        return pd.Series([False] * len(growth_df), index=growth_df.index)
+                    
+                    error_col = growth_df['error']
+                    try:
+                        return (
+                            error_col.notna() & 
+                            (error_col != '') & 
+                            (error_col.astype(str) != 'nan') &
+                            (error_col.astype(str) != 'None')
+                        )
+                    except Exception:
+                        return error_col.notna() & (error_col != '')
+
+                error_rows = growth_df[safe_filter_growth_errors(growth_df)]  # ✅ Safe
+
+
                 if not error_rows.empty:
                     st.warning(f"⚠️ {len(error_rows)} matches had errors during analysis")
                     with st.expander("Growth Analysis Errors"):
