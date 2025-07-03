@@ -13,6 +13,7 @@ from analysis.growth_analysis import correct_negative_growth_rates
 from visualization.comparison_viz import *
 from app.services.state_manager import *
 
+
 def display_comparison_visualization_tabs(comparison_results, earlier_year, later_year):
     """Display the consolidated visualization tabs for comparison results."""
     
@@ -57,11 +58,6 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             if select_key not in st.session_state:
                 st.session_state[select_key] = 'depth' if 'depth' in available_dimensions else available_dimensions[0]
 
-            if not available_dimensions:
-                st.warning("No dimensional data available for analysis.")
-                st.info("Please ensure both datasets have at least one of: depth, length, or width measurements.")
-                return
-
             if st.session_state[select_key] not in available_dimensions:
                 st.session_state[select_key] = available_dimensions[0] 
 
@@ -100,11 +96,6 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                         st.markdown(custom_metric("Negative Growth", f"{neg_count}"), unsafe_allow_html=True)
                     with col3:
                         st.markdown(custom_metric("Percentage", f"{pct:.1f}%"), unsafe_allow_html=True)
-                    
-                    if neg_count > 0:
-                        st.info("Negative depth growth rates are likely measurement errors and can be corrected using similar defects in the same joint.")
-                    else:
-                        st.success("No negative depth growth detected - no correction needed!")
                     
                     # Show corrected results if available
                     if st.session_state.corrected_results is not None:
@@ -427,7 +418,7 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                 operating_pressure_mpa = st.number_input(
                     "Operating Pressure (MPa)",
                     min_value=0.1,
-                    max_value=20.0,
+                    max_value=10.0,
                     value=5.0,
                     step=0.1,
                     format="%.2f",
@@ -491,7 +482,8 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                         joints_for_analysis,
                         operating_pressure_mpa,
                         pipe_diameter_mm,
-                        smys_mpa
+                        smys_mpa,
+                        safety_factor
                     )
                     st.session_state.remaining_life_results = enhanced_remaining_life_results
             
@@ -2083,7 +2075,7 @@ def display_enhanced_clustering_analysis(simulation_results, earlier_year, later
         # Key metrics
         total_clusters = len(enhanced_table)
         accelerated_failures = len(enhanced_table[enhanced_table['Impact Type'] == 'Accelerated Failure'])
-        total_defects_clustered = enhanced_table['Defects Involved'].str.extract('(\d+)').astype(int).sum().iloc[0]
+        total_defects_clustered = enhanced_table['Defects Involved'].str.extract(r'(\d+)').astype(int).sum().iloc[0]
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -2113,7 +2105,7 @@ def display_enhanced_clustering_analysis(simulation_results, earlier_year, later
             worst_case = enhanced_table[enhanced_table['Impact Type'] == 'Accelerated Failure'].copy()
             if not worst_case.empty:
                 # Extract years from impact string
-                worst_case['Impact_Years'] = worst_case['Impact'].str.extract('(\d+\.?\d*)').astype(float)
+                worst_case['Impact_Years'] = worst_case['Impact'].str.extract(r'(\d+\.?\d*)').astype(float)
                 worst_cluster = worst_case.loc[worst_case['Impact_Years'].idxmax()]
                 
                 st.error(f"""
