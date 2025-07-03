@@ -278,6 +278,15 @@ class FFSDefectInteraction:
         
         return vectors
     
+    
+    def _calculate_conservative_span(self, defect_vectors: List[Dict]) -> float:
+        """Calculate conservative span as distance between furthest defects."""
+        if len(defect_vectors) <= 1:
+            return defect_vectors[0]['length_mm'] if defect_vectors else 0.0
+        
+        positions = [v['center_position'][0] for v in defect_vectors]  # Axial positions
+        return max(positions) - min(positions) + max(v['length_mm'] for v in defect_vectors)
+
 
     def _calculate_vector_summed_length(self, defect_vectors: List[Dict]) -> float:
         if len(defect_vectors) == 1:
@@ -294,7 +303,9 @@ class FFSDefectInteraction:
                     continue
                 
                 theta = self._calculate_angle_between_defects(vector_i, vector_j)
-                interaction_factor = self._calculate_interaction_factor(...)
+                
+                distance = np.linalg.norm(vector_i['center_position'] - vector_j['center_position'])
+                interaction_factor = self._calculate_interaction_factor(distance, L1, L2)
                 
                 # CORRECTED: Apply interaction factor to the cos term
                 L1, L2 = vector_i['length_mm'], vector_j['length_mm']
