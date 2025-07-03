@@ -322,8 +322,6 @@ def estimate_single_file_growth_rates(
     growth_rates_dict = {}
     
     for idx, defect in defects_df.iterrows():
-        # Get wall thickness for depth calculation
-        joint_num = defect['joint number']
         
         # Estimate depth growth rate
         current_depth_pct = defect.get('depth [%]', 0)
