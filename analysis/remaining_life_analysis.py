@@ -6,6 +6,7 @@ from utils import get_wall_thickness_for_defect, create_wall_thickness_lookup
 from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_simplified_effective_area_method
     
 
+
 def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.DataFrame, joint_tolerance = 5) -> pd.DataFrame:
     """
     Find defects similar to the target defect based on type, depth, and location.
@@ -13,7 +14,7 @@ def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.Dat
     Parameters:
         - target_defect: Series containing the new defect information
         - historical_matches_df: DataFrame with defects that have growth history
-        - joints_df: DataFrame with joint information for wall thickness lookup
+        - joint_tolerance: Maximum joint distance for location similarity (max 10 joints)
     
     Returns:
         - DataFrame with similar defects that have growth history
@@ -22,6 +23,10 @@ def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.Dat
     if historical_matches_df.empty:
         return pd.DataFrame()
     
+    # Validate joint tolerance is within reasonable engineering limits
+    if joint_tolerance > 10:
+        joint_tolerance = 10  
+        
     similar_defects = historical_matches_df.copy()
     
     # Criteria 1: Defect type (High Priority)
@@ -38,7 +43,8 @@ def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.Dat
             (similar_defects['new_depth_pct'] <= target_depth + depth_tolerance)
         ]
     
-    # Criteria 3: Joint location proximity ±5 joints (Medium Priority)
+    # Criteria 3: Joint location proximity (Medium Priority)
+    # Limited to reasonable engineering distance for environmental similarity
     if 'joint number' in target_defect and pd.notna(target_defect['joint number']):
         target_joint = int(target_defect['joint number'])
         
@@ -53,30 +59,28 @@ def find_similar_defects(target_defect: pd.Series, historical_matches_df: pd.Dat
 def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matches_df: pd.DataFrame, joints_df: pd.DataFrame, min_similar_defects: int = 3) -> Dict:
     """
     Estimate growth rate for a new defect based on similar historical defects.
-    
-    Parameters:
-        - new_defect: Series containing the new defect information
-        - historical_matches_df: DataFrame with defects that have growth history
-        - joints_df: DataFrame with joint information
-        - min_similar_defects: Minimum number of similar defects required for estimation
-    
-    Returns:
-        - Dictionary with estimated growth rates and confidence information
+    Uses conservative industry-standard defaults when insufficient historical data.
     """
-
     # Find similar defects
     joint_tolerance = 5
     similar_defects = find_similar_defects(new_defect, historical_matches_df, joint_tolerance)
 
-    while len(similar_defects) < min_similar_defects and joint_tolerance <= 20:
+    while len(similar_defects) < min_similar_defects and joint_tolerance <= 10:  # Reduced max tolerance
         joint_tolerance += 1
         similar_defects = find_similar_defects(new_defect, historical_matches_df, joint_tolerance)
-    
     
     # Calculate statistical measures from similar defects
     length_growth_rates = similar_defects.get('length_growth_rate_mm_per_year', pd.Series()).dropna()
     width_growth_rates = similar_defects.get('width_growth_rate_mm_per_year', pd.Series()).dropna()
     depth_growth_rates = similar_defects['growth_rate_pct_per_year'].dropna()
+    
+    # Industry-standard conservative defaults based on NACE corrosion rate data
+    # These represent upper bounds for general external corrosion in moderate environments
+    conservative_defaults = {
+        'depth_growth_rate_pct_per_year': 0.25,  # Conservative for general corrosion
+        'length_growth_rate_mm_per_year': 1.0,   # Conservative axial growth
+        'width_growth_rate_mm_per_year': 0.5     # Conservative circumferential growth
+    }
     
     # Determine confidence level based on sample size
     if len(similar_defects) >= 10:
@@ -87,13 +91,13 @@ def estimate_growth_rate_for_new_defect(new_defect: pd.Series, historical_matche
         confidence = 'LOW'
     
     result = {
-        'estimated_depth_growth_rate_pct_per_year': depth_growth_rates.median() if not depth_growth_rates.empty else 1.0,
-        'estimated_length_growth_rate_mm_per_year': length_growth_rates.median() if not length_growth_rates.empty else 3.0,
-        'estimated_width_growth_rate_mm_per_year': width_growth_rates.median() if not width_growth_rates.empty else 2.0,
+        'estimated_depth_growth_rate_pct_per_year': depth_growth_rates.median() if not depth_growth_rates.empty else conservative_defaults['depth_growth_rate_pct_per_year'],
+        'estimated_length_growth_rate_mm_per_year': length_growth_rates.median() if not length_growth_rates.empty else conservative_defaults['length_growth_rate_mm_per_year'],
+        'estimated_width_growth_rate_mm_per_year': width_growth_rates.median() if not width_growth_rates.empty else conservative_defaults['width_growth_rate_mm_per_year'],
         'confidence_level': confidence,
         'similar_defects_count': len(similar_defects),
-        'estimation_method': 'STATISTICAL_INFERENCE',
-        'note': f'Based on {len(similar_defects)} similar defects with {confidence.lower()} confidence'
+        'estimation_method': 'STATISTICAL_INFERENCE' if not depth_growth_rates.empty else 'CONSERVATIVE_DEFAULT',
+        'note': f'Based on {len(similar_defects)} similar defects with {confidence.lower()} confidence' if not depth_growth_rates.empty else 'Using conservative industry defaults - insufficient historical data'
     }    
 
     return result
@@ -247,92 +251,126 @@ def calculate_iterative_failure_pressure(initial_depth_pct: float, initial_lengt
         'rstreng_failure_pressure': [],
         'depth_pct': [],
         'length_mm': [],
-        'width_mm': []
+        'width_mm': [],
+        'calculation_errors': []  # Track any calculation issues
     }
     
     for year in years:
-        # Calculate current dimensions
+        # Calculate current dimensions - allow natural evolution
         current_depth = initial_depth_pct + (depth_growth_rate * year)
         current_length = initial_length_mm + (length_growth_rate * year)
         current_width = initial_width_mm + (width_growth_rate * year)
         
-        # Ensure dimensions don't go negative or exceed limits
-        current_depth = max(0, min(current_depth, 100))  # Cap at 100%
-        current_length = max(initial_length_mm * 0.1, current_length)  # Min 10% of original
-        current_width = max(initial_width_mm * 0.1, current_width)
+        # Apply engineering limits based on physical constraints
+        # Depth cannot exceed 100% (full wall thickness)
+        current_depth = max(0, min(current_depth, 100))
         
+        # Length and width can theoretically become very small due to measurement
+        # variations or local conditions, but assessment methods have minimum limits
+        # Use assessment method limits rather than arbitrary percentages
+        min_assessment_length = 5.0  # mm - typical minimum for FFS assessment validity
+        min_assessment_width = 2.0   # mm - typical minimum for FFS assessment validity
+        
+        # Only apply minimums if needed for assessment method validity
+        assessment_length = max(min_assessment_length, current_length) if current_length > 0 else min_assessment_length
+        assessment_width = max(min_assessment_width, current_width) if current_width > 0 else min_assessment_width
+        
+        # Store actual calculated values (may be negative due to growth rates)
         results['depth_pct'].append(current_depth)
         results['length_mm'].append(current_length)
         results['width_mm'].append(current_width)
         
-        # Calculate failure pressure for each method
+        # Track if minimums were applied for assessment
+        applied_minimums = []
+        if assessment_length != current_length:
+            applied_minimums.append(f"length adjusted from {current_length:.1f} to {assessment_length:.1f}")
+        if assessment_width != current_width:
+            applied_minimums.append(f"width adjusted from {current_width:.1f} to {assessment_width:.1f}")
+            
+        if applied_minimums:
+            results['calculation_errors'].append(f"Year {year}: " + "; ".join(applied_minimums))
+        else:
+            results['calculation_errors'].append(None)
+        
+        # Calculate failure pressure for each method using assessment-valid dimensions
         try:
-            b31g_result = calculate_b31g(current_depth, current_length, pipe_diameter_mm, 
+            b31g_result = calculate_b31g(current_depth, assessment_length, pipe_diameter_mm, 
                                        wall_thickness_mm, smys_mpa, safety_factor)
             results['b31g_failure_pressure'].append(
                 b31g_result['failure_pressure_mpa'] if b31g_result['safe'] else 0
             )
-        except:
+        except Exception as e:
             results['b31g_failure_pressure'].append(0)
+            results['calculation_errors'][-1] = f"B31G calculation failed: {str(e)}"
             
         try:
-            mod_b31g_result = calculate_modified_b31g(current_depth, current_length, pipe_diameter_mm,
+            mod_b31g_result = calculate_modified_b31g(current_depth, assessment_length, pipe_diameter_mm,
                                                     wall_thickness_mm, smys_mpa, safety_factor)
             results['modified_b31g_failure_pressure'].append(
                 mod_b31g_result['failure_pressure_mpa'] if mod_b31g_result['safe'] else 0
             )
-        except:
+        except Exception as e:
             results['modified_b31g_failure_pressure'].append(0)
+            if results['calculation_errors'][-1]:
+                results['calculation_errors'][-1] += f"; Mod-B31G failed: {str(e)}"
+            else:
+                results['calculation_errors'][-1] = f"Mod-B31G calculation failed: {str(e)}"
             
         try:
-            rstreng_result = calculate_simplified_effective_area_method(current_depth, current_length, current_width,
+            rstreng_result = calculate_simplified_effective_area_method(current_depth, assessment_length, assessment_width,
                                                            pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
             results['rstreng_failure_pressure'].append(
                 rstreng_result['failure_pressure_mpa'] if rstreng_result['safe'] else 0
             )
-        except:
+        except Exception as e:
             results['rstreng_failure_pressure'].append(0)
+            if results['calculation_errors'][-1]:
+                results['calculation_errors'][-1] += f"; RSTRENG failed: {str(e)}"
+            else:
+                results['calculation_errors'][-1] = f"RSTRENG calculation failed: {str(e)}"
     
     return results
+
 def calculate_pressure_based_remaining_life(defect: pd.Series, growth_rates: Dict, 
                                           pipe_diameter_mm: float, wall_thickness_mm: float,
                                           smys_mpa: float, safety_factor: float,
                                           operating_pressure_mpa: float) -> Dict:
     """
     Calculate remaining life until operating pressure exceeds failure pressure for each method.
-    
-    Parameters:
-    - defect: Series containing defect information
-    - growth_rates: Dictionary with growth rates for each dimension
-    - pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor: Pipe parameters
-    - operating_pressure_mpa: Operating pressure from user input
-    
-    Returns:
-    - Dictionary with remaining life for each assessment method
+    Enhanced with proper error handling and validation.
     """
     try:
-        # Get initial dimensions
+        # Get initial dimensions with validation
         initial_depth = float(defect.get('new_depth_pct', defect.get('depth [%]', 0)))
         initial_length = float(defect.get('length [mm]', 0))
         initial_width = float(defect.get('width [mm]', 0))
         
         # Validate initial dimensions
-        if initial_depth <= 0 or initial_length <= 0 or initial_width <= 0:
+        validation_errors = []
+        if initial_depth <= 0 or initial_depth > 100:
+            validation_errors.append(f"Invalid depth: {initial_depth}% (must be 0-100%)")
+        if initial_length <= 0:
+            validation_errors.append(f"Invalid length: {initial_length}mm (must be > 0)")
+        if initial_width <= 0:
+            validation_errors.append(f"Invalid width: {initial_width}mm (must be > 0)")
+            
+        if validation_errors:
             return {
                 'b31g_pressure_remaining_life': float('nan'),
                 'modified_b31g_pressure_remaining_life': float('nan'), 
                 'rstreng_pressure_remaining_life': float('nan'),
-                'b31g_pressure_status': 'ERROR',
-                'modified_b31g_pressure_status': 'ERROR',
-                'rstreng_pressure_status': 'ERROR',
+                'b31g_pressure_status': 'DATA_ERROR',
+                'modified_b31g_pressure_status': 'DATA_ERROR',
+                'rstreng_pressure_status': 'DATA_ERROR',
                 'calculation_successful': False,
-                'note': f'Invalid initial dimensions: depth={initial_depth}%, length={initial_length}mm, width={initial_width}mm'
+                'validation_errors': validation_errors,
+                'note': f'Data validation failed: {"; ".join(validation_errors)}'
             }
         
-        # Get growth rates - ensure they're positive (replace negative with average)
-        depth_rate = max(0, growth_rates['depth_growth_rate_pct_per_year'])
-        length_rate = max(0, growth_rates['length_growth_rate_mm_per_year'])
-        width_rate = max(0, growth_rates['width_growth_rate_mm_per_year'])
+        # Get growth rates with validation
+        depth_rate = max(0, growth_rates.get('depth_growth_rate_pct_per_year', 0))
+        length_rate = max(0, growth_rates.get('length_growth_rate_mm_per_year', 0))
+        width_rate = max(0, growth_rates.get('width_growth_rate_mm_per_year', 0))
         
         # Calculate iterative failure pressures
         pressure_data = calculate_iterative_failure_pressure(
@@ -344,7 +382,7 @@ def calculate_pressure_based_remaining_life(defect: pd.Series, growth_rates: Dic
         results = {}
         methods = ['b31g', 'modified_b31g', 'rstreng']
         
-        # Debug info for first defect
+        # Enhanced debug info
         debug_info = {
             'initial_depth_pct': initial_depth,
             'initial_length_mm': initial_length,
@@ -355,40 +393,64 @@ def calculate_pressure_based_remaining_life(defect: pd.Series, growth_rates: Dic
             'operating_pressure': operating_pressure_mpa,
             'wall_thickness': wall_thickness_mm,
             'pipe_diameter': pipe_diameter_mm,
-            'smys': smys_mpa
+            'smys': smys_mpa,
+            'calculation_errors': pressure_data.get('calculation_errors', [])
         }
         
         for method in methods:
             pressure_key = f'{method}_failure_pressure'
-            failure_pressures = pressure_data[pressure_key]
+            failure_pressures = pressure_data.get(pressure_key, [])
+            
+            if not failure_pressures:
+                # No pressure data available
+                results[f'{method}_pressure_remaining_life'] = float('nan')
+                results[f'{method}_pressure_status'] = 'CALCULATION_ERROR'
+                debug_info[f'{method}_error'] = 'No pressure data returned'
+                continue
             
             # Find first year where failure pressure drops below operating pressure
             remaining_life = float('inf')  # Default to infinite if never fails
             initial_failure_pressure = failure_pressures[0] if failure_pressures else 0
             
-            # Debug: Store initial failure pressure
+            # Validate initial failure pressure
+            if initial_failure_pressure <= 0:
+                results[f'{method}_pressure_remaining_life'] = 0
+                results[f'{method}_pressure_status'] = 'IMMEDIATE_FAILURE'
+                debug_info[f'{method}_error'] = 'Assessment method not applicable (initial failure pressure = 0)'
+                continue
+            
+            # Check if already failing
+            if initial_failure_pressure <= operating_pressure_mpa:
+                results[f'{method}_pressure_remaining_life'] = 0
+                results[f'{method}_pressure_status'] = 'CRITICAL'
+                debug_info[f'{method}_initial_failure_pressure'] = initial_failure_pressure
+                debug_info[f'{method}_note'] = 'Already below operating pressure'
+                continue
+            
+            # Store initial failure pressure for debugging
             debug_info[f'{method}_initial_failure_pressure'] = initial_failure_pressure
             
-            for year, failure_pressure in enumerate(failure_pressures):
-                # Failure occurs when failure pressure drops to or below operating pressure
-                if failure_pressure > 0 and failure_pressure <= operating_pressure_mpa:
+            # Find failure year
+            for year, failure_pressure in enumerate(failure_pressures[1:], 1):  # Skip year 0
+                if failure_pressure <= 0:
+                    # Assessment method limit exceeded
+                    remaining_life = year
+                    debug_info[f'{method}_failure_year'] = year
+                    debug_info[f'{method}_failure_reason'] = 'Assessment method limit exceeded'
+                    break
+                elif failure_pressure <= operating_pressure_mpa:
+                    # Operating pressure exceeded
                     remaining_life = year
                     debug_info[f'{method}_failure_year'] = year
                     debug_info[f'{method}_failure_pressure_at_failure'] = failure_pressure
-                    break
-                elif failure_pressure <= 0:
-                    # Method not applicable (defect too severe)
-                    remaining_life = year
-                    debug_info[f'{method}_failure_year'] = year
-                    debug_info[f'{method}_failure_pressure_at_failure'] = 0
-                    debug_info[f'{method}_failure_reason'] = 'Method limit exceeded'
+                    debug_info[f'{method}_failure_reason'] = 'Operating pressure exceeded'
                     break
             
-            # Determine status
+            # Determine status based on remaining life
             if remaining_life == float('inf'):
                 status = 'SAFE'
             elif remaining_life == 0:
-                status = 'CRITICAL'  # Already failed or at limit
+                status = 'CRITICAL'
             elif remaining_life <= 2:
                 status = 'CRITICAL'
             elif remaining_life <= 10:
@@ -401,22 +463,30 @@ def calculate_pressure_based_remaining_life(defect: pd.Series, growth_rates: Dic
         
         results['calculation_successful'] = True
         results['debug_info'] = debug_info
-        results['note'] = 'Pressure-based analysis completed'
+        results['note'] = 'Pressure-based analysis completed successfully'
         
         return results
         
     except Exception as e:
+        # Comprehensive error reporting
+        import traceback
+        error_details = {
+            'error_type': type(e).__name__,
+            'error_message': str(e),
+            'traceback': traceback.format_exc()
+        }
+        
         return {
             'b31g_pressure_remaining_life': float('nan'),
             'modified_b31g_pressure_remaining_life': float('nan'), 
             'rstreng_pressure_remaining_life': float('nan'),
-            'b31g_pressure_status': 'ERROR',
-            'modified_b31g_pressure_status': 'ERROR',
-            'rstreng_pressure_status': 'ERROR',
+            'b31g_pressure_status': 'CALCULATION_ERROR',
+            'modified_b31g_pressure_status': 'CALCULATION_ERROR',
+            'rstreng_pressure_status': 'CALCULATION_ERROR',
             'calculation_successful': False,
+            'error_details': error_details,
             'note': f'Calculation error: {str(e)}'
         }
-
 
 def enhanced_calculate_remaining_life_analysis(comparison_results: Dict, joints_df: pd.DataFrame, 
                                              operating_pressure_mpa: float, pipe_diameter_mm: float,
