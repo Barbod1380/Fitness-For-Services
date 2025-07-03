@@ -142,12 +142,12 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
     
     # Generate Original B31G curve
     b31g_depths = _calculate_b31g_allowable_curve(
-        length_range, pipe_diameter_mm, avg_wall_thickness, smys_mpa, 'original'
+        length_range, pipe_diameter_mm, avg_wall_thickness, smys_mpa, 'original', safety_factor
     )
     
     # Generate Modified B31G curve
     modified_b31g_depths = _calculate_b31g_allowable_curve(
-        length_range, pipe_diameter_mm, avg_wall_thickness, smys_mpa, 'modified'
+        length_range, pipe_diameter_mm, avg_wall_thickness, smys_mpa, 'modified', safety_factor
     )
     
     # Add B31G curves
@@ -233,7 +233,7 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
 
 import numpy as np
 
-def _calculate_b31g_allowable_curve(length_range_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, method='original', safety_factor=1.39):
+def _calculate_b31g_allowable_curve(length_range_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, method, safety_factor):
     """
     Calculate the maximum allowable defect depth for a range of defect lengths
     based on B31G or Modified B31G methodology using flow stress and pressure equations.
