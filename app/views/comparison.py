@@ -13,7 +13,6 @@ from analysis.growth_analysis import correct_negative_growth_rates
 from visualization.comparison_viz import *
 from app.services.state_manager import *
 
-
 def display_comparison_visualization_tabs(comparison_results, earlier_year, later_year):
     """Display the consolidated visualization tabs for comparison results."""
     
