@@ -251,7 +251,7 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
         go.Bar(
             x=summary_df['Category'],
             y=summary_df['Count'],
-            text=[f"{count}" for count in summary_df['Count']],  # Just show count, clean
+            text=[f"{count}<br>({pct}%)" for count, pct in zip(summary_df['Count'], summary_df['Percentage'])],  # Show both count and percentage
             textposition='outside',
             textfont=dict(size=11, color='#2C3E50', family="Inter, Arial, sans-serif"),
             marker=dict(
@@ -265,7 +265,7 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
         ),
         row=1, col=2
     )
-    
+        
     # =============================================================================
     # Update Layout - Clean and Professional
     # =============================================================================
@@ -416,13 +416,7 @@ def create_defect_categorization_summary_table(defects_df, joints_df):
 def create_dimension_distribution_plots(defects_df, dimension_columns=None):
     """
     Create and display a combined Plotly figure with histograms and box plots for defect dimensions.
-
-    Parameters:
-    - defects_df: DataFrame containing defect information
-    - dimension_columns: dict mapping column names to display titles
-
-    Returns:
-    - Combined Plotly Figure object (or None if no valid data)
+    Now with optimized binning strategy for better engineering insight.
     """
     if dimension_columns is None:
         dimension_columns = {
@@ -430,6 +424,13 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
             'width [mm]': 'Defect Width (mm)',
             'depth [%]': 'Defect Depth (%)'
         }
+
+    # Define optimal bin counts for each dimension
+    optimal_bins = {
+        'length [mm]': 40,    # Increased from 20 - better resolution for small defects
+        'width [mm]': 40,     # Increased from 20 - better resolution for small defects  
+        'depth [%]': 40,      # Significantly increased - most critical for FFS assessment
+    }
 
     valid_dims = []
     for col, title in dimension_columns.items():
@@ -444,18 +445,21 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
         st.warning("No valid dimension data to plot.")
         return None
 
-    # 2) Create subplots with TWO rows, N columns
+    # Create subplots with TWO rows, N columns
     n = len(valid_dims)
     fig = make_subplots(
         rows=2,
         cols=n,
         subplot_titles=[title for _, title, _ in valid_dims],
-        vertical_spacing=0.08,  # Space between rows
-        row_heights=[0.3, 0.7]  # Box plots smaller, histograms larger
+        vertical_spacing=0.08,
+        row_heights=[0.3, 0.7]
     )
 
-    # 3) Add box plots in the top row and histograms in the bottom row
+    # Add box plots in the top row and histograms in the bottom row
     for idx, (col, title, series) in enumerate(valid_dims, start=1):
+        # Get optimal bin count for this dimension
+        nbins = optimal_bins.get(col, 25)  # Default to 25 if not specified
+        
         # Add box plot in top row
         fig.add_trace(
             go.Box(
@@ -464,35 +468,45 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
                 marker=dict(color='rgba(0,128,255,0.6)'),
                 showlegend=False
             ),
-            row=1,  # Top row
+            row=1,
             col=idx
         )
 
-        # Add histogram (row 2)
+        # Add histogram in bottom row with optimized binning
         fig.add_trace(
             go.Histogram(
                 x=series,
-                nbinsx=20,
+                nbinsx=nbins,  # Use dimension-specific bin count
                 marker=dict(color='rgba(0,128,255,0.6)'),
-                showlegend=False
+                showlegend=False,
+                name=f"{title} Distribution"
             ),
             row=2,
             col=idx
         )
 
-        # Axis label per subplot
+        # Update x-axis label per subplot
         fig.update_xaxes(title_text=title, row=2, col=idx)
 
-    # 4) Layout tweaks
+    # Enhanced layout
     fig.update_layout(
-        title_text="Distribution of Defect Dimensions",
-        height=600,  # Increased height for 2 rows
+        title_text="Distribution of Defect Dimensions - Enhanced Resolution",
+        height=600,
         width=300 * n,
         bargap=0.1,
-        showlegend=False
+        showlegend=False,
+        annotations=[
+            dict(
+                text="📊 Optimized binning: Depth (40 bins) | Length/Width (30 bins) for better FFS analysis",
+                showarrow=False,
+                xref="paper", yref="paper",
+                x=0.5, y=-0.1,
+                xanchor='center',
+                font=dict(size=10, color='gray')
+            )
+        ]
     )
     return {"combined_dimensions": fig} if fig else {}
-
 
 def create_combined_dimensions_plot(defects_df):
     """

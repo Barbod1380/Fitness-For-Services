@@ -1616,7 +1616,7 @@ def render_corrosion_assessment_view():
             max_value=3.0,
             value=pipe_diameter_stored,
             step=0.1,
-            format="%.3f",
+            format="%.4f",
             key="pipe_diameter_corrosion",
             help="Enter the OUTSIDE diameter (OD) of the pipeline in meters"
         )

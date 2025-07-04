@@ -171,14 +171,50 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         showlegend=True
     ))
     
-    # Add nominal wall thickness line
+    # Add wall thickness range (min and max)
+    min_wall_thickness = plot_df['wall_thickness_used_mm'].min()
     max_wall_thickness = plot_df['wall_thickness_used_mm'].max()
-    fig.add_hline(
-        y=max_wall_thickness,
-        line=dict(color='#2C3E50', width=3),
-        annotation_text="Nominal Wall Thickness",
-        annotation_position="top right"
-    )
+
+    if min_wall_thickness == max_wall_thickness:
+        # Single wall thickness across all joints
+        fig.add_hline(
+            y=max_wall_thickness,
+            line=dict(color='#2C3E50', width=3),
+            annotation_text=f"Wall Thickness: {max_wall_thickness:.1f}mm",
+            annotation_position="top right"
+        )
+    else:
+        # Variable wall thickness - show range
+        fig.add_hline(
+            y=max_wall_thickness,
+            line=dict(color='#2C3E50', width=2, dash='solid'),
+            annotation_text=f"Max WT: {max_wall_thickness:.1f}mm",
+            annotation_position="top right"
+        )
+        
+        fig.add_hline(
+            y=min_wall_thickness,
+            line=dict(color='#2C3E50', width=2, dash='dash'),
+            annotation_text=f"Min WT: {min_wall_thickness:.1f}mm",
+            annotation_position="bottom right"
+        )
+        
+        # Add a shaded area between min and max for better visualization
+        fig.add_hrect(
+            y0=min_wall_thickness,
+            y1=max_wall_thickness,
+            fillcolor="rgba(44, 62, 80, 0.1)",
+            line_width=0,
+            annotation_text=f"Wall Thickness Range: {min_wall_thickness:.1f}-{max_wall_thickness:.1f}mm",
+            annotation_position="middle right",
+            annotation=dict(
+                font=dict(size=10, color='#2C3E50'),
+                bgcolor="rgba(255,255,255,0.8)",
+                bordercolor="#2C3E50",
+                borderwidth=1
+            )
+        )
+
     
     # Update layout
     fig.update_layout(
@@ -209,8 +245,8 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
             ticks="outside",
             title_font=dict(size=12, color='#2C3E50'),
             tickfont=dict(size=10, color='#2C3E50'),
-            range=[0, max_wall_thickness * 1.1]
-        ),
+            range=[0, max_wall_thickness * 1.1]  # Keep the existing range logic
+            ),
         plot_bgcolor='white',
         paper_bgcolor='white',
         height=600,

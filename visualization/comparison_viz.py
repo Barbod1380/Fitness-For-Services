@@ -86,6 +86,8 @@ def create_new_defect_types_plot(comparison_results):
         ]
     )
 
+    
+
     fig.update_layout(
         title="Distribution of New Defect Types",
         xaxis_title="Defect Type",

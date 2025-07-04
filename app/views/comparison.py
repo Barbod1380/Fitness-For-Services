@@ -433,7 +433,7 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                     max_value=3.0,
                     value=1.0,
                     step=0.1,
-                    format="%.3f",
+                    format="%.4f",
                     key="pipe_diameter_remaining_life",
                     help="Outside diameter of the pipeline"
                 )

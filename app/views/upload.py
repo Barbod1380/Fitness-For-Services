@@ -127,7 +127,7 @@ def render_upload_view(uploaded_file, selected_year):
                 max_value=3.0,  # Reasonable range for pipeline diameters
                 step=0.1,
                 value=None,
-                format="%.3f",
+                format="%.4f",
                 help="Enter the pipeline diameter in meters"
             )
 

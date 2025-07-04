@@ -151,7 +151,7 @@ def render_failure_prediction_view():
                 max_value=3.0,
                 value=stored_diameter,
                 step=0.1,
-                format="%.3f"
+                format="%.4f"
             )
         
         with adv_col2:

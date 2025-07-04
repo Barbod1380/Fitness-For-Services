@@ -22,13 +22,13 @@ def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter=None,  col
     if pipe_diameter <= 0:
         raise ValueError(f"pipe_diameter must be positive, got {pipe_diameter}")
 
-    max_points = 7000  # WebGL performance threshold
+    max_points = 15000  # WebGL performance threshold
     
     if len(defects_df) > max_points:
         # Priority-based sampling: keep critical defects + representative sample
         
         # Always keep high-severity defects
-        critical_mask = defects_df['depth [%]'] > 80
+        critical_mask = defects_df['depth [%]'] > 50
         critical_defects = defects_df[critical_mask]
         
         # Sample remaining defects spatially distributed
