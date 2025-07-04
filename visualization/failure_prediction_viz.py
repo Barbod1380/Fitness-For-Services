@@ -99,11 +99,11 @@ def create_failure_prediction_chart(results: dict) -> go.Figure:
             line=dict(color='#2E86AB', width=3, dash='dash'),
             marker=dict(size=6),
             yaxis='y2',
-            hovertemplate=(
-                "<b>Year %{x}</b><br>"
-                "Total Depth Failures: %{y} joints<br>"
-                "<extra></extra>"
-            )
+            #hovertemplate=(
+            #    "<b>Year %{x}</b><br>"
+            #    "Total Depth Failures: %{y} joints<br>"
+            #    "<extra></extra>"
+            #)
         ),
         secondary_y=True
     )
@@ -323,12 +323,12 @@ def create_failure_comparison_chart(results_dict: dict) -> go.Figure:
                 name=method_names.get(method, method),
                 line=dict(width=3, color=colors.get(method, '#95A5A6')),
                 marker=dict(size=8),
-                hovertemplate=(
-                    f"<b>{method_names.get(method, method)}</b><br>"
-                    "Year: %{x}<br>"
-                    "Total Failures: %{y} joints<br>"
-                    "<extra></extra>"
-                )
+                #hovertemplate=(
+                #    f"<b>{method_names.get(method, method)}</b><br>"
+                #    "Year: %{x}<br>"
+                #    "Total Failures: %{y} joints<br>"
+                #    "<extra></extra>"
+                #)
             )
         )
     

@@ -87,18 +87,18 @@ def create_joint_defect_visualization(defects_df, joint_number, pipe_diameter_m)
                 fill="toself",
                 fillcolor=fill_color,
                 line=dict(color="black", width=1),
-                hoveron="fills+points",
-                hoverinfo="text",
-                customdata=[custom_data] * 5,
-                hovertemplate=(
-                    "<b>Defect Information</b><br>"
-                    "Distance: %{x:.3f} m<br>"
-                    "Clock: %{customdata[0]}<br>"
-                    "Depth: %{customdata[1]:.1f}%<br>"
-                    "Length: %{customdata[2]:.1f} mm<br>"
-                    "Width: %{customdata[3]:.1f} mm<br>"
-                    "Type: %{customdata[4]}<extra></extra>"
-                ),
+                #hoveron="fills+points",
+                #hoverinfo="text",
+                #customdata=[custom_data] * 5,
+                #hovertemplate=(
+                #    "<b>Defect Information</b><br>"
+                #    "Distance: %{x:.3f} m<br>"
+                #    "Clock: %{customdata[0]}<br>"
+                #    "Depth: %{customdata[1]:.1f}%<br>"
+                #    "Length: %{customdata[2]:.1f} mm<br>"
+                #    "Width: %{customdata[3]:.1f} mm<br>"
+                #    "Type: %{customdata[4]}<extra></extra>"
+                #),
                 showlegend=False,
             )
         )

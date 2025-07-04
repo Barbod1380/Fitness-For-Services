@@ -5,25 +5,11 @@ Defect assessment visualization showing defect population against B31G criteria.
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import warnings
 
 def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety_factor=1.39):
     """
-    Create defect assessment scatter plot showing:
-    - Defect population by surface location (length vs depth in mm)
-    - B31G and Modified B31G allowable defect curves
-    - Wall thickness limit line
-    
-    Parameters:
-    - enhanced_df: DataFrame with enhanced corrosion assessment results
-    - pipe_diameter_mm: Pipe diameter in mm
-    - smys_mpa: Specified Minimum Yield Strength in MPa
-    - safety_factor: Safety factor applied
-    
-    Returns:
-    - Plotly figure object
+    Create defect assessment scatter plot with performance optimization for large datasets.
+    Disables hover and uses WebGL rendering for datasets > 2000 points.
     """
     
     # Validate inputs
@@ -71,6 +57,23 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         )
         return fig
     
+    # PERFORMANCE OPTIMIZATION: Check dataset size
+    total_points = len(plot_df)
+    use_performance_mode = total_points > 2000
+    
+    # Sample data if too large (keep representative sample for visualization)
+    if use_performance_mode and total_points > 5000:
+        # Keep critical defects (high depth) + random sample
+        critical_mask = plot_df['depth [%]'] > 60  # Keep high-depth defects
+        critical_defects = plot_df[critical_mask]
+        
+        remaining_defects = plot_df[~critical_mask]
+        sample_size = min(3000, len(remaining_defects))  # Limit sample size
+        
+        if len(remaining_defects) > sample_size:
+            sampled_remaining = remaining_defects.sample(n=sample_size, random_state=42)
+            plot_df = pd.concat([critical_defects, sampled_remaining], ignore_index=True)
+    
     # Create figure
     fig = go.Figure()
     
@@ -92,11 +95,13 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
     # Determine surface location categories
     if 'surface location' in plot_df.columns:
         plot_df['surface_category'] = plot_df['surface location'].fillna('Unknown')
-        # Check if any defects are marked as combined (from FFS clustering)
         if 'is_combined' in plot_df.columns:
             plot_df.loc[plot_df['is_combined'] == True, 'surface_category'] = 'Combined'
     else:
         plot_df['surface_category'] = 'Unknown'
+    
+    # Choose scatter type based on performance mode
+    scatter_type = go.Scattergl if use_performance_mode else go.Scatter
     
     # Add scatter plots for each surface location category
     for category in plot_df['surface_category'].unique():
@@ -106,51 +111,66 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         category_data = plot_df[plot_df['surface_category'] == category]
         
         if len(category_data) > 0:
-            # Create hover text
-            hover_text = []
-            for _, row in category_data.iterrows():
-                hover_text.append(
-                    f"<b>Location:</b> {row['log dist. [m]']:.1f}m<br>"
-                    f"<b>Length:</b> {row['length [mm]']:.1f}mm<br>"
-                    f"<b>Depth:</b> {row['depth_mm']:.2f}mm ({row['depth [%]']:.1f}%)<br>"
-                    f"<b>Joint:</b> {row.get('joint number', 'N/A')}<br>"
-                    f"<b>Wall Thickness:</b> {row['wall_thickness_used_mm']:.1f}mm<br>"
-                    f"<b>Surface:</b> {category}"
-                )
+            if use_performance_mode:
+                # PERFORMANCE MODE: No hover, simplified markers
+                trace_config = {
+                    'x': category_data['length [mm]'],
+                    'y': category_data['depth_mm'],
+                    'mode': 'markers',
+                    'marker': dict(
+                        color=surface_colors.get(category, '#95A5A6'),
+                        size=4,  # Smaller markers for performance
+                        opacity=0.6,
+                        line=dict(color='white', width=0.5)
+                    ),
+                    'name': surface_labels.get(category, f'Features - {category}'),
+                    'hoverinfo': 'skip',  # Disable hover completely
+                    'showlegend': True
+                }
+            else:
+                # INTERACTIVE MODE: Full hover information
+                hover_text = []
+                for _, row in category_data.iterrows():
+                    hover_text.append(
+                        f"<b>Location:</b> {row['log dist. [m]']:.1f}m<br>"
+                        f"<b>Length:</b> {row['length [mm]']:.1f}mm<br>"
+                        f"<b>Depth:</b> {row['depth_mm']:.2f}mm ({row['depth [%]']:.1f}%)<br>"
+                        f"<b>Joint:</b> {row.get('joint number', 'N/A')}<br>"
+                        f"<b>Wall Thickness:</b> {row['wall_thickness_used_mm']:.1f}mm<br>"
+                        f"<b>Surface:</b> {category}"
+                    )
+                
+                trace_config = {
+                    'x': category_data['length [mm]'],
+                    'y': category_data['depth_mm'],
+                    'mode': 'markers',
+                    'marker': dict(
+                        color=surface_colors.get(category, '#95A5A6'),
+                        size=6,
+                        opacity=0.7,
+                        line=dict(color='white', width=0.5)
+                    ),
+                    'name': surface_labels.get(category, f'Features - {category}'),
+                    'text': hover_text,
+                    'hovertemplate': '%{text}<extra></extra>',
+                    'showlegend': True
+                }
             
-            fig.add_trace(go.Scatter(
-                x=category_data['length [mm]'],
-                y=category_data['depth_mm'],
-                mode='markers',
-                marker=dict(
-                    color=surface_colors.get(category, '#95A5A6'),
-                    size=6,
-                    opacity=0.7,
-                    line=dict(color='white', width=0.5)
-                ),
-                name=surface_labels.get(category, f'Features - {category}'),
-                text=hover_text,
-                hovertemplate='%{text}<extra></extra>',
-                showlegend=True
-            ))
+            fig.add_trace(scatter_type(**trace_config))
     
-    # Generate B31G allowable curves
-    length_range = np.logspace(0, 4, 200)  # 1mm to 10,000mm, logarithmic spacing
-    
-    # Calculate average wall thickness for curve generation
+    # Generate B31G curves (unchanged)
+    length_range = np.logspace(0, 4, 200)
     avg_wall_thickness = plot_df['wall_thickness_used_mm'].mean()
     
-    # Generate Original B31G curve
     b31g_depths = _calculate_b31g_allowable_curve(
         length_range, pipe_diameter_mm, avg_wall_thickness, smys_mpa, 'original', safety_factor
     )
     
-    # Generate Modified B31G curve
     modified_b31g_depths = _calculate_b31g_allowable_curve(
         length_range, pipe_diameter_mm, avg_wall_thickness, smys_mpa, 'modified', safety_factor
     )
     
-    # Add B31G curves
+    # Add B31G curves (these remain interactive since they're just 2 lines)
     fig.add_trace(go.Scatter(
         x=length_range,
         y=b31g_depths,
@@ -171,12 +191,11 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         showlegend=True
     ))
     
-    # Add wall thickness range (min and max)
+    # Add wall thickness indicators (from previous fix)
     min_wall_thickness = plot_df['wall_thickness_used_mm'].min()
     max_wall_thickness = plot_df['wall_thickness_used_mm'].max()
 
     if min_wall_thickness == max_wall_thickness:
-        # Single wall thickness across all joints
         fig.add_hline(
             y=max_wall_thickness,
             line=dict(color='#2C3E50', width=3),
@@ -184,7 +203,6 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
             annotation_position="top right"
         )
     else:
-        # Variable wall thickness - show range
         fig.add_hline(
             y=max_wall_thickness,
             line=dict(color='#2C3E50', width=2, dash='solid'),
@@ -198,35 +216,26 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
             annotation_text=f"Min WT: {min_wall_thickness:.1f}mm",
             annotation_position="bottom right"
         )
-        
-        # Add a shaded area between min and max for better visualization
-        fig.add_hrect(
-            y0=min_wall_thickness,
-            y1=max_wall_thickness,
-            fillcolor="rgba(44, 62, 80, 0.1)",
-            line_width=0,
-            annotation_text=f"Wall Thickness Range: {min_wall_thickness:.1f}-{max_wall_thickness:.1f}mm",
-            annotation_position="middle right",
-            annotation=dict(
-                font=dict(size=10, color='#2C3E50'),
-                bgcolor="rgba(255,255,255,0.8)",
-                bordercolor="#2C3E50",
-                borderwidth=1
-            )
-        )
-
     
-    # Update layout
+    # Performance indicator in title
+    performance_suffix = ""
+    if use_performance_mode:
+        if total_points != len(plot_df):
+            performance_suffix = f" - Optimized view ({len(plot_df):,} of {total_points:,} points)"
+        else:
+            performance_suffix = f" - Performance mode ({total_points:,} points)"
+    
+    # Update layout with performance considerations
     fig.update_layout(
         title=dict(
-            text="Defect Assessment: Population vs B31G Criteria",
+            text=f"Defect Assessment: Population vs B31G Criteria{performance_suffix}",
             font=dict(size=16, family="Inter, Arial, sans-serif"),
             x=0.02
         ),
         xaxis=dict(
             title="Axial Length (mm)",
             type="log",
-            range=[0, 4],  # 1mm to 10,000mm
+            range=[0, 4],
             showgrid=True,
             gridcolor='rgba(128,128,128,0.2)',
             showline=True,
@@ -245,8 +254,8 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
             ticks="outside",
             title_font=dict(size=12, color='#2C3E50'),
             tickfont=dict(size=10, color='#2C3E50'),
-            range=[0, max_wall_thickness * 1.1]  # Keep the existing range logic
-            ),
+            range=[0, max_wall_thickness * 1.1]
+        ),
         plot_bgcolor='white',
         paper_bgcolor='white',
         height=600,
@@ -262,12 +271,13 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
             borderwidth=1,
             font=dict(size=11)
         ),
-        hovermode='closest'
+        hovermode='closest' if not use_performance_mode else False,
+        # Performance optimizations
+        dragmode='pan' if use_performance_mode else 'zoom'
     )
     
     return fig
 
-import numpy as np
 
 def _calculate_b31g_allowable_curve(length_range_mm, pipe_diameter_mm, wall_thickness_mm, smys_mpa, method, safety_factor):
     """

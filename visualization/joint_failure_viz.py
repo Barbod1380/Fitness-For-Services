@@ -160,19 +160,19 @@ def _add_joint_defects_to_subplot(fig, defects_df, pipe_diameter_mm, col, title,
                 fillcolor=fill_color,
                 line=dict(color=line_color, width=line_width),
                 opacity=opacity,
-                hoveron="fills+points",
-                hoverinfo="text",
-                customdata=[custom_data] * 5,
-                hovertemplate=(
-                    "<b>Defect Information</b><br>"
-                    "Distance: %{x:.3f} m<br>"
-                    "Clock: %{customdata[0]}<br>"
-                    "Depth: %{customdata[1]:.1f}%<br>"
-                    "Length: %{customdata[2]:.1f} mm<br>"
-                    "Width: %{customdata[3]:.1f} mm<br>"
-                    "Type: %{customdata[4]}<br>"
-                    "Status: %{customdata[5]}<extra></extra>"
-                ),
+                #hoveron="fills+points",
+                #hoverinfo="text",
+                #customdata=[custom_data] * 5,
+                #hovertemplate=(
+                #    "<b>Defect Information</b><br>"
+                #    "Distance: %{x:.3f} m<br>"
+                #    "Clock: %{customdata[0]}<br>"
+                #    "Depth: %{customdata[1]:.1f}%<br>"
+                #    "Length: %{customdata[2]:.1f} mm<br>"
+                #    "Width: %{customdata[3]:.1f} mm<br>"
+                #   "Type: %{customdata[4]}<br>"
+                #    "Status: %{customdata[5]}<extra></extra>"
+                #),
                 showlegend=False,
             ),
             row=1, col=col
@@ -430,15 +430,15 @@ def create_joint_failure_timeline_chart(joint_timeline_data: dict) -> go.Figure:
                     line=dict(width=2, color='black')
                 ),
                 name=f"{mode} ({len(mode_data)})",
-                text=[
-                    f"Joint {row['joint_number']}<br>"
-                    f"Year {row['failure_year']}<br>"
-                    f"Location: {row['location_m']:.1f}m<br>"
-                    f"Defects: {row['defect_count']}<br>"
-                    f"Mode: {row['failure_mode']}"
-                    for _, row in mode_data.iterrows()
-                ],
-                hovertemplate="%{text}<extra></extra>"
+                #text=[
+                #    f"Joint {row['joint_number']}<br>"
+                #    f"Year {row['failure_year']}<br>"
+                #    f"Location: {row['location_m']:.1f}m<br>"
+                #    f"Defects: {row['defect_count']}<br>"
+                #    f"Mode: {row['failure_mode']}"
+                #    for _, row in mode_data.iterrows()
+                #],
+                #hovertemplate="%{text}<extra></extra>"
             )
         )
     

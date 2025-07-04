@@ -185,7 +185,7 @@ def render_upload_view(uploaded_file, selected_year):
                         defects_df["area_mm2"] = defects_df["length [mm]"] * defects_df["width [mm]"]
                     
                     if 'joint number' in defects_df.columns:
-                        defects_df["joint number"] = defects_df["joint number"].astype("Int64")
+                        defects_df["joint number"] = defects_df["joint number"].astype("Int64").ffill()
                     
                     try:
                         validate_pipeline_data(joints_df, defects_df)

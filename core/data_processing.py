@@ -57,6 +57,7 @@ def process_pipeline_data(df):
     if "joint number" in df_view.columns:
         df_view = df_view.copy()
         df_view["joint number"] = df_view["joint number"].ffill()
+
     
     # === Optimized defects DataFrame creation ===
     length_width_cols = ["length [mm]", "width [mm]"]
@@ -118,6 +119,10 @@ def validate_pipeline_data(joints_df, defects_df):
         missing_joints = defects_df[defects_df['joint number'].isna()]
         if not missing_joints.empty:
             errors.append(f"{len(missing_joints)} defects have no joint number")
+
+        print("HERERERERRERER")
+        print(missing_joints)
+        print("============================")
         
         # Check all defect joints exist in joints_df
         defect_joints = set(defects_df['joint number'].dropna().unique())

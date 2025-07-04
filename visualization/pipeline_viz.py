@@ -173,7 +173,7 @@ def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter=None,  col
             mode="markers",
             marker=marker_props,
             customdata=custom_data,
-            hovertemplate=hover_template,
+            #hovertemplate=hover_template,
             name="Defects",
         )
     )
