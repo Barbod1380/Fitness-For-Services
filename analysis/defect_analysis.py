@@ -5,10 +5,11 @@ import pandas as pd
 from plotly.subplots import make_subplots
 import streamlit as st
 
+
 def feature_cat_normalized(length_norm, width_norm):
     """
     Categorizes features based on normalized length and width (already divided by GeoParA).
-    Since data is normalized by A, we use 1 instead of GeoParA in conditions.
+    Follows ROSEN specifications exactly as defined in the PDF document.
     
     Parameters:
     - length_norm: Normalized length (length_mm / A)
@@ -17,24 +18,51 @@ def feature_cat_normalized(length_norm, width_norm):
     Returns:
     - Category string
     """
-    if length_norm == 0 or width_norm == 0:
+    # Handle invalid/zero dimensions
+    if length_norm <= 0 or width_norm <= 0:
         return ""
     
-    if (width_norm >= 3 and length_norm >= 3):
+    # Calculate L/W ratio for conditions that need it
+    l_w_ratio = length_norm / width_norm if width_norm > 0 else float('inf')
+    
+    # Apply categorization rules EXACTLY as per ROSEN PDF:
+    
+    # General: [W ≥ 3A] and [L ≥ 3A]
+    if width_norm >= 3 and length_norm >= 3:
         return "General"
-    elif (width_norm < 1 and length_norm < 1):
+    
+    # Pinhole: [0 < W < 1A] and [0 < L < 1A]
+    elif (0 < width_norm < 1) and (0 < length_norm < 1):
         return "PinHole"
-    elif (width_norm >= 1 and width_norm <= 3 and (length_norm / width_norm >= 2)):
+    
+    # Axial grooving: [1A ≤ W < 3A] and [L/W ≥ 2]
+    elif (1 <= width_norm < 3) and (l_w_ratio >= 2):
         return "AxialGroove"
-    elif (width_norm < 1 and length_norm >= 1):
-        return "AxialSlot"
-    elif ((length_norm / width_norm) <= 0.5 and (length_norm > 1 and length_norm < 3)):
+    
+    # Circumferential grooving: [L/W ≤ 0.5] and [1A ≤ L < 3A]
+    elif (l_w_ratio <= 0.5) and (1 <= length_norm < 3):
         return "CircGroove"
-    elif (width_norm >= 1 and length_norm < 1):
+    
+    # Axial slotting: [0 < W < 1A] and [L ≥ 1A]
+    elif (0 < width_norm < 1) and (length_norm >= 1):
+        return "AxialSlot"
+    
+    # Circumferential slotting: [W ≥ 1A] and [0 < L < 1A]
+    elif (width_norm >= 1) and (0 < length_norm < 1):
         return "CircSlot"
-    else:
+    
+    # Pitting: {([1A ≤ W < 6A] and [1A ≤ L < 6A] and [0.5 < L/W < 2]) 
+    #          and not ([W ≥ 3A] and [L ≥ 3A])}
+    elif ((1 <= width_norm < 6) and 
+          (1 <= length_norm < 6) and 
+          (0.5 < l_w_ratio < 2) and 
+          not (width_norm >= 3 and length_norm >= 3)):
         return "Pitting"
-
+    
+    # If none of the above conditions are met, return empty string
+    else:
+        return ""
+    
 
 def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
     """

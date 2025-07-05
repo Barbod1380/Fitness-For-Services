@@ -22,34 +22,7 @@ def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter=None,  col
     if pipe_diameter <= 0:
         raise ValueError(f"pipe_diameter must be positive, got {pipe_diameter}")
 
-    max_points = 15000  # WebGL performance threshold
-    
-    if len(defects_df) > max_points:
-        # Priority-based sampling: keep critical defects + representative sample
-        
-        # Always keep high-severity defects
-        critical_mask = defects_df['depth [%]'] > 50
-        critical_defects = defects_df[critical_mask]
-        
-        # Sample remaining defects spatially distributed
-        remaining_defects = defects_df[~critical_mask]
-        
-        if len(remaining_defects) > 0:
-            # Spatial binning for representative sampling
-            n_bins = min(50, len(remaining_defects) // 10)
-            remaining_defects['spatial_bin'] = pd.cut(remaining_defects['log dist. [m]'], 
-                                                    bins=n_bins, labels=False)
-            
-            # Sample from each bin
-            samples_per_bin = max(1, (max_points - len(critical_defects)) // n_bins)
-            sampled_remaining = (remaining_defects.groupby('spatial_bin', group_keys=False)
-                               .apply(lambda x: x.sample(min(len(x), samples_per_bin))))
-            
-            plot_data = pd.concat([critical_defects, sampled_remaining], ignore_index=True)
-        else:
-            plot_data = critical_defects
-    else:
-        plot_data = defects_df
+    plot_data = defects_df
 
     # Extract axial values (X-axis) - unchanged
     x_vals = plot_data["log dist. [m]"].values

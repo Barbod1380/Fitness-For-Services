@@ -57,23 +57,6 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         )
         return fig
     
-    # PERFORMANCE OPTIMIZATION: Check dataset size
-    total_points = len(plot_df)
-    use_performance_mode = total_points > 2000
-    
-    # Sample data if too large (keep representative sample for visualization)
-    if use_performance_mode and total_points > 5000:
-        # Keep critical defects (high depth) + random sample
-        critical_mask = plot_df['depth [%]'] > 60  # Keep high-depth defects
-        critical_defects = plot_df[critical_mask]
-        
-        remaining_defects = plot_df[~critical_mask]
-        sample_size = min(3000, len(remaining_defects))  # Limit sample size
-        
-        if len(remaining_defects) > sample_size:
-            sampled_remaining = remaining_defects.sample(n=sample_size, random_state=42)
-            plot_df = pd.concat([critical_defects, sampled_remaining], ignore_index=True)
-    
     # Create figure
     fig = go.Figure()
     
@@ -101,7 +84,7 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         plot_df['surface_category'] = 'Unknown'
     
     # Choose scatter type based on performance mode
-    scatter_type = go.Scattergl if use_performance_mode else go.Scatter
+    scatter_type = go.Scatter
     
     # Add scatter plots for each surface location category
     for category in plot_df['surface_category'].unique():
@@ -111,51 +94,21 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         category_data = plot_df[plot_df['surface_category'] == category]
         
         if len(category_data) > 0:
-            if use_performance_mode:
-                # PERFORMANCE MODE: No hover, simplified markers
-                trace_config = {
-                    'x': category_data['length [mm]'],
-                    'y': category_data['depth_mm'],
-                    'mode': 'markers',
-                    'marker': dict(
-                        color=surface_colors.get(category, '#95A5A6'),
-                        size=4,  # Smaller markers for performance
-                        opacity=0.6,
-                        line=dict(color='white', width=0.5)
-                    ),
-                    'name': surface_labels.get(category, f'Features - {category}'),
-                    'hoverinfo': 'skip',  # Disable hover completely
-                    'showlegend': True
-                }
-            else:
-                # INTERACTIVE MODE: Full hover information
-                hover_text = []
-                for _, row in category_data.iterrows():
-                    hover_text.append(
-                        f"<b>Location:</b> {row['log dist. [m]']:.1f}m<br>"
-                        f"<b>Length:</b> {row['length [mm]']:.1f}mm<br>"
-                        f"<b>Depth:</b> {row['depth_mm']:.2f}mm ({row['depth [%]']:.1f}%)<br>"
-                        f"<b>Joint:</b> {row.get('joint number', 'N/A')}<br>"
-                        f"<b>Wall Thickness:</b> {row['wall_thickness_used_mm']:.1f}mm<br>"
-                        f"<b>Surface:</b> {category}"
-                    )
-                
-                trace_config = {
-                    'x': category_data['length [mm]'],
-                    'y': category_data['depth_mm'],
-                    'mode': 'markers',
-                    'marker': dict(
-                        color=surface_colors.get(category, '#95A5A6'),
-                        size=6,
-                        opacity=0.7,
-                        line=dict(color='white', width=0.5)
-                    ),
-                    'name': surface_labels.get(category, f'Features - {category}'),
-                    'text': hover_text,
-                    'hovertemplate': '%{text}<extra></extra>',
-                    'showlegend': True
-                }
-            
+            # PERFORMANCE MODE: No hover, simplified markers
+            trace_config = {
+                'x': category_data['length [mm]'],
+                'y': category_data['depth_mm'],
+                'mode': 'markers',
+                'marker': dict(
+                    color=surface_colors.get(category, '#95A5A6'),
+                    size=4,  # Smaller markers for performance
+                    opacity=0.6,
+                    line=dict(color='white', width=0.5)
+                ),
+                'name': surface_labels.get(category, f'Features - {category}'),
+                'hoverinfo': 'skip',  # Disable hover completely
+                'showlegend': True
+            }
             fig.add_trace(scatter_type(**trace_config))
     
     # Generate B31G curves (unchanged)
@@ -217,18 +170,10 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
             annotation_position="bottom right"
         )
     
-    # Performance indicator in title
-    performance_suffix = ""
-    if use_performance_mode:
-        if total_points != len(plot_df):
-            performance_suffix = f" - Optimized view ({len(plot_df):,} of {total_points:,} points)"
-        else:
-            performance_suffix = f" - Performance mode ({total_points:,} points)"
-    
     # Update layout with performance considerations
     fig.update_layout(
         title=dict(
-            text=f"Defect Assessment: Population vs B31G Criteria{performance_suffix}",
+            text=f"Defect Assessment: Population vs B31G Criteria",
             font=dict(size=16, family="Inter, Arial, sans-serif"),
             x=0.02
         ),
@@ -271,9 +216,6 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
             borderwidth=1,
             font=dict(size=11)
         ),
-        hovermode='closest' if not use_performance_mode else False,
-        # Performance optimizations
-        dragmode='pan' if use_performance_mode else 'zoom'
     )
     
     return fig
