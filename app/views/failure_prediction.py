@@ -1,18 +1,17 @@
 # app/views/failure_prediction.py - FIXED VERSION
 
 import traceback
-import streamlit as st
 import numpy as np
 import pandas as pd
+import streamlit as st
+from typing import Dict
 from app.ui_components.charts import create_metrics_row
 from app.services.state_manager import get_state
 
-# Import the analysis and visualization functions
 from analysis.failure_prediction import predict_joint_failures_over_time
 from visualization.failure_prediction_viz import create_failure_prediction_chart, create_failure_summary_metrics, create_failure_details_table
-
-# NEW: Import joint failure visualization functions
 from visualization.joint_failure_viz import create_joint_failure_visualization, create_joint_failure_timeline_chart
+
 
 def render_failure_prediction_view():
     """Display the failure prediction view with timeline analysis and joint visualization."""
@@ -242,20 +241,26 @@ def render_failure_prediction_view():
                         if new_defect_indices:
                             st.info(f"🔍 Found {len(new_defect_indices)} new defects without measured growth rates. Applying realistic estimates...")
                             
-                            # FIXED: Use realistic growth rates instead of overly conservative ones
+                            # FIXED: Use more realistic growth rates for new defects
                             if matches_df is not None and not matches_df.empty:
                                 # Use 75th percentile but ensure minimum realistic values
-                                conservative_depth_growth = max(1.5, matches_df['growth_rate_pct_per_year'].quantile(0.75))
-                                conservative_length_growth = max(2.0, matches_df.get('length_growth_rate_mm_per_year', pd.Series([4.0])).quantile(0.75))
-                                conservative_width_growth = max(1.5, matches_df.get('width_growth_rate_mm_per_year', pd.Series([2.5])).quantile(0.75))
+                                # FIXED: Increased minimum thresholds to be more realistic
+                                conservative_depth_growth = max(2.0, matches_df['growth_rate_pct_per_year'].quantile(0.75))
+                                conservative_length_growth = max(3.0, matches_df.get('length_growth_rate_mm_per_year', pd.Series([5.0])).quantile(0.75))
+                                conservative_width_growth = max(2.0, matches_df.get('width_growth_rate_mm_per_year', pd.Series([3.0])).quantile(0.75))
                                 
-                                st.info(f"📊 Using realistic statistical rates: Depth {conservative_depth_growth:.2f}%/yr, "
+                                # FIXED: Cap at reasonable maximums to avoid extreme predictions
+                                conservative_depth_growth = min(conservative_depth_growth, 6.0)
+                                conservative_length_growth = min(conservative_length_growth, 12.0)
+                                conservative_width_growth = min(conservative_width_growth, 8.0)
+                                
+                                st.info(f"📊 Using calibrated statistical rates: Depth {conservative_depth_growth:.2f}%/yr, "
                                         f"Length {conservative_length_growth:.2f}mm/yr, Width {conservative_width_growth:.2f}mm/yr")
                             else:
-                                # FIXED: Use realistic industry-standard defaults instead of overly conservative ones
-                                conservative_depth_growth = 2.0  # Realistic for moderate corrosion
-                                conservative_length_growth = 4.0  # Realistic axial growth
-                                conservative_width_growth = 2.5   # Realistic circumferential growth
+                                # FIXED: Use more realistic industry-standard defaults
+                                conservative_depth_growth = 2.5  # Realistic for moderate corrosion
+                                conservative_length_growth = 5.0  # Realistic axial growth
+                                conservative_width_growth = 3.0   # Realistic circumferential growth
                                 
                                 st.info("⚠️ Using realistic industry-standard growth rates for new defects.")
                             
@@ -283,6 +288,20 @@ def render_failure_prediction_view():
                         current_year=current_year
                     )
                     
+                    # FIXED: Add validation of results to catch ERF logic errors
+                    validation_results = validate_failure_prediction_results(results, operating_pressure_mpa)
+                    
+                    if validation_results['has_warnings']:
+                        st.warning("⚠️ Validation warnings detected in failure predictions:")
+                        for warning in validation_results['warnings']:
+                            st.warning(f"  • {warning}")
+                    
+                    if validation_results['has_errors']:
+                        st.error("❌ Critical errors detected in failure predictions:")
+                        for error in validation_results['errors']:
+                            st.error(f"  • {error}")
+                        return  # Don't proceed with invalid results
+                    
                 except Exception as e:
                     st.error(f"Error during failure analysis: {str(e)}")
                     with st.expander("Error Details"):
@@ -306,7 +325,7 @@ def render_failure_prediction_view():
             except Exception as e:
                 st.error(f"Error during failure prediction analysis: {str(e)}")
                 with st.expander("Error Details"):
-                    st.code(traceback.format_exc())
+                    st.code(traceback.format_exc())     
     
     st.markdown('</div>', unsafe_allow_html=True)  # Close analysis container
     
@@ -316,11 +335,26 @@ def render_failure_prediction_view():
 
 
 def display_failure_prediction_results():
-    """Display the failure prediction results with charts, tables, and joint visualization."""
+    """Display the failure prediction results with enhanced validation information."""
     
     results = st.session_state.failure_prediction_results
     config = st.session_state.failure_prediction_config
     
+    # ADDED: Display validation summary at top
+    validation_summary = validate_failure_prediction_results(results, config['operating_pressure_mpa'])
+    
+    if validation_summary['has_errors'] or validation_summary['has_warnings']:
+        with st.expander("⚠️ Prediction Validation Results", expanded=True):
+            if validation_summary['has_errors']:
+                st.error("**Critical Issues Found:**")
+                for error in validation_summary['errors']:
+                    st.error(f"• {error}")
+            
+            if validation_summary['has_warnings']:
+                st.warning("**Warnings:**")
+                for warning in validation_summary['warnings']:
+                    st.warning(f"• {warning}")
+
     # Summary metrics
     st.markdown("<div class='section-header'>📊 Prediction Summary</div>", unsafe_allow_html=True)
     
@@ -603,10 +637,10 @@ def display_failure_prediction_results():
         """)
 
 
-# FIXED: Enhanced single-file growth rate estimation  
 def estimate_realistic_single_file_growth_rates(defects_df, joints_df, pipe_creation_year, current_year):
     """
     FIXED: Enhanced growth rate estimation with realistic industry-standard values.
+    This replaces the previous unrealistic linear assumption.
     """
     
     growth_rates_dict = {}
@@ -621,38 +655,50 @@ def estimate_realistic_single_file_growth_rates(defects_df, joints_df, pipe_crea
             current_length_mm = defect.get('length [mm]', 0)
             current_width_mm = defect.get('width [mm]', 0)
             
-            # FIXED: More realistic defect initiation time estimation
-            if current_depth_pct < 5:
-                estimated_active_years = min(3, pipe_age * 0.2)
-            elif current_depth_pct < 15:
-                estimated_active_years = min(6, pipe_age * 0.4)
-            elif current_depth_pct < 30:
-                estimated_active_years = min(10, pipe_age * 0.6)
-            elif current_depth_pct < 50:
-                estimated_active_years = min(15, pipe_age * 0.8)
+            # FIXED: More realistic defect age estimation
+            # Based on detection limits and corrosion physics
+            detection_limit_pct = 10.0  # Typical ILI detection threshold
+            
+            if current_depth_pct <= detection_limit_pct:
+                # Recently detectable defect
+                estimated_active_years = min(2.0, pipe_age * 0.3)
+            elif current_depth_pct <= 25:
+                # Early stage defect
+                estimated_active_years = min(5.0, pipe_age * 0.5)
+            elif current_depth_pct <= 50:
+                # Mature defect
+                estimated_active_years = min(10.0, pipe_age * 0.7)
             else:
-                estimated_active_years = min(20, pipe_age * 0.9)
+                # Advanced defect - likely been growing for most of pipe life
+                estimated_active_years = min(pipe_age * 0.9, pipe_age - 2)
             
-            estimated_active_years = max(1, estimated_active_years)
+            estimated_active_years = max(1.0, estimated_active_years)
             
-            # Calculate base growth rates
+            # Calculate base growth rates using power law principles
             if estimated_active_years > 0:
-                base_depth_growth = current_depth_pct / estimated_active_years
+                # Use power law: depth(t) = a * t^1.3
+                a = current_depth_pct / (estimated_active_years ** 1.3)
+                # Current growth rate = derivative = 1.3 * a * t^0.3
+                base_depth_growth = 1.3 * a * (estimated_active_years ** 0.3)
+                
+                # Geometric growth rates
                 base_length_growth = max(1.0, current_length_mm / estimated_active_years)
                 base_width_growth = max(0.5, current_width_mm / estimated_active_years)
             else:
-                # FIXED: Use realistic industry defaults instead of overly conservative ones
-                base_depth_growth = 2.0  # 2%/year is realistic for moderate corrosion
-                base_length_growth = 4.0  # 4mm/year axial growth
-                base_width_growth = 2.5   # 2.5mm/year circumferential growth
+                # Fallback to industry standards
+                base_depth_growth = 2.0
+                base_length_growth = 4.0
+                base_width_growth = 2.5
             
-            # Apply environmental factor (moderate corrosion environment)
-            environmental_factor = 1.2
+            # Apply stress concentration for deep defects
+            if current_depth_pct > 50:
+                stress_factor = 1 + 0.02 * (current_depth_pct - 50)
+                base_depth_growth *= min(stress_factor, 2.0)
             
-            # Apply reasonable bounds based on industry data (NACE recommendations)
-            final_depth_growth = np.clip(base_depth_growth * environmental_factor, 0.5, 8.0)
-            final_length_growth = np.clip(base_length_growth * environmental_factor, 1.0, 15.0)
-            final_width_growth = np.clip(base_width_growth * environmental_factor, 0.5, 10.0)
+            # Apply engineering bounds (based on NACE data)
+            final_depth_growth = np.clip(base_depth_growth, 0.5, 8.0)
+            final_length_growth = np.clip(base_length_growth, 1.0, 15.0)
+            final_width_growth = np.clip(base_width_growth, 0.5, 10.0)
             
             growth_rates_dict[idx] = {
                 'depth_growth_pct_per_year': final_depth_growth,
@@ -661,11 +707,78 @@ def estimate_realistic_single_file_growth_rates(defects_df, joints_df, pipe_crea
             }
             
         except Exception as e:
-            # FIXED: Realistic fallback values instead of overly conservative ones
+            # Realistic fallback values
             growth_rates_dict[idx] = {
-                'depth_growth_pct_per_year': 2.0,  # Realistic default
+                'depth_growth_pct_per_year': 2.0,
                 'length_growth_mm_per_year': 4.0,
                 'width_growth_mm_per_year': 2.5
             }
     
     return growth_rates_dict
+
+
+def validate_failure_prediction_results(results: Dict, operating_pressure_mpa: float) -> Dict:
+    """
+    ADDED: Validate failure prediction results for engineering reasonableness.
+    
+    Parameters:
+    - results: Failure prediction results dictionary
+    - operating_pressure_mpa: Operating pressure used in analysis
+    
+    Returns:
+    - Dictionary with validation results
+    """
+    validation = {
+        'has_errors': False,
+        'has_warnings': False,
+        'errors': [],
+        'warnings': []
+    }
+    
+    try:
+        # Check 1: Reasonable failure timeline
+        if results.get('earliest_failure_time', float('inf')) < 0.5:
+            validation['errors'].append(
+                "Failure predicted in less than 6 months - check growth rates and ERF calculations"
+            )
+            validation['has_errors'] = True
+        
+        # Check 2: ERF logic validation
+        failing_joints = results.get('failing_joints_summary', [])
+        erf_failures = [j for j in failing_joints if j['failure_mode'] in ['ERF', 'Both']]
+        
+        if len(erf_failures) > len(failing_joints) * 0.8:  # >80% ERF failures
+            validation['warnings'].append(
+                f"High proportion of ERF failures ({len(erf_failures)}/{len(failing_joints)}). "
+                "Verify operating pressure and ERF calculation logic."
+            )
+            validation['has_warnings'] = True
+        
+        # Check 3: Growth rate reasonableness
+        total_joints = results.get('total_joints', 1)
+        max_failures = max(results.get('cumulative_erf_failures', [0]))
+        
+        if max_failures > total_joints * 0.5:  # >50% failure rate
+            validation['warnings'].append(
+                f"High failure rate predicted ({max_failures}/{total_joints} joints). "
+                "Consider reviewing growth rate assumptions."
+            )
+            validation['has_warnings'] = True
+        
+        # Check 4: Immediate failures
+        first_year_failures = 0
+        if results.get('erf_failures_by_year') and len(results['erf_failures_by_year']) > 0:
+            first_year_failures = results['erf_failures_by_year'][0]
+        
+        if first_year_failures > 0:
+            validation['warnings'].append(
+                f"{first_year_failures} joints predicted to fail in first year. "
+                "Verify current defect assessment and operating pressure."
+            )
+            validation['has_warnings'] = True
+            
+    except Exception as e:
+        validation['errors'].append(f"Validation failed: {str(e)}")
+        validation['has_errors'] = True
+    
+    return validation
