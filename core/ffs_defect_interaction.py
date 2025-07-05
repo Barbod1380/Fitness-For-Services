@@ -304,16 +304,18 @@ class FFSDefectInteraction:
                 
                 theta = self._calculate_angle_between_defects(vector_i, vector_j)
                 
-                distance = np.linalg.norm(vector_i['center_position'] - vector_j['center_position'])
-                interaction_factor = self._calculate_interaction_factor(distance, L1, L2)
-                
-                # CORRECTED: Apply interaction factor to the cos term
+                # FIXED: Define L1, L2 BEFORE using them
                 L1, L2 = vector_i['length_mm'], vector_j['length_mm']
+                
+                distance = np.linalg.norm(vector_i['center_position'] - vector_j['center_position'])
+                interaction_factor = self._calculate_interaction_factor(distance, L1, L2)  # Now L1, L2 are defined!
+                
+                # Apply interaction factor to the cos term
                 vector_sum = np.sqrt(L1**2 + L2**2 + 2*L1*L2*np.cos(theta)*interaction_factor)
                 max_vector_sum = max(max_vector_sum, vector_sum)
         
         return max(span_length, max_vector_sum)
-    
+        
 
     def _calculate_vector_summed_width(self, defect_vectors: List[Dict], pipe_diameter_mm: float) -> float:
         """

@@ -1,26 +1,18 @@
 # app/views/failure_prediction.py - Enhanced with joint failure visualization
 
+import traceback
 import streamlit as st
+import numpy as np
 import pandas as pd
 from app.ui_components.charts import create_metrics_row
 from app.services.state_manager import get_state
-from app.ui_components.ui_elements import info_box
 
 # Import the analysis and visualization functions
 from analysis.failure_prediction import predict_joint_failures_over_time
-from visualization.failure_prediction_viz import (
-    create_failure_prediction_chart,
-    create_failure_summary_metrics, 
-    create_failure_details_table,
-    create_failure_comparison_chart
-)
+from visualization.failure_prediction_viz import create_failure_prediction_chart, create_failure_summary_metrics, create_failure_details_table
 
 # NEW: Import joint failure visualization functions
-from visualization.joint_failure_viz import (
-    create_joint_failure_visualization,
-    create_failure_summary_card,
-    create_joint_failure_timeline_chart
-)
+from visualization.joint_failure_viz import create_joint_failure_visualization, create_joint_failure_timeline_chart
 
 def render_failure_prediction_view():
     """Display the failure prediction view with timeline analysis and joint visualization."""
@@ -225,35 +217,212 @@ def render_failure_prediction_view():
                 
                 # Prepare growth rates
                 growth_rates_dict = None
+    
                 if analysis_mode == "multi_year":
                     comparison_results = get_state('comparison_results')
                     if comparison_results and 'matches_df' in comparison_results:
                         matches_df = comparison_results['matches_df']
                         growth_rates_dict = {}
                         
+                        # Extract growth rates for matched defects
                         for idx, match in matches_df.iterrows():
-                            # Map matches to defect indices in the later year dataset
                             new_defect_id = match.get('new_defect_id', idx)
                             growth_rates_dict[new_defect_id] = {
                                 'depth_growth_pct_per_year': match.get('growth_rate_pct_per_year', 2.0),
                                 'length_growth_mm_per_year': match.get('length_growth_rate_mm_per_year', 3.0),
                                 'width_growth_mm_per_year': match.get('width_growth_rate_mm_per_year', 2.0)
                             }
+                        
+                        # CRITICAL FIX: Handle new defects that don't have measured growth rates
+                        defects_df = datasets[selected_year]['defects_df']
+                        all_defect_indices = set(range(len(defects_df)))
+                        matched_indices = set(growth_rates_dict.keys())
+                        new_defect_indices = all_defect_indices - matched_indices
+                        
+                        if new_defect_indices:
+                            st.info(f"🔍 Found {len(new_defect_indices)} new defects without measured growth rates. Applying statistical inference...")
+                            
+                            # Calculate statistical growth rates from matched defects
+                            if matches_df is not None and not matches_df.empty:
+                                # Use 75th percentile for conservative estimation (not median)
+                                conservative_depth_growth = matches_df['growth_rate_pct_per_year'].quantile(0.75)
+                                conservative_length_growth = matches_df.get('length_growth_rate_mm_per_year', pd.Series([4.0])).quantile(0.75)
+                                conservative_width_growth = matches_df.get('width_growth_rate_mm_per_year', pd.Series([2.5])).quantile(0.75)
+                                
+                                # Apply environmental acceleration factor for new defects
+                                # (new defects might be in more aggressive environments)
+                                acceleration_factor = 1.3
+                                
+                                st.info(f"📊 Using conservative statistical rates: Depth {conservative_depth_growth:.2f}%/yr, "
+                                        f"Length {conservative_length_growth:.2f}mm/yr (with {acceleration_factor}x acceleration factor)")
+                            else:
+                                # Enhanced fallback rates based on industry data
+                                conservative_depth_growth = 2.5  # More realistic than 2.0
+                                conservative_length_growth = 4.0  # Increased from 3.0
+                                conservative_width_growth = 2.5   # Increased from 2.0
+                                acceleration_factor = 1.0
+                                
+                                st.warning("⚠️ No measured growth data available. Using enhanced industry-standard defaults.")
+                            
+                            # Apply rates to all new defects
+                            for new_idx in new_defect_indices:
+                                growth_rates_dict[new_idx] = {
+                                    'depth_growth_pct_per_year': conservative_depth_growth * acceleration_factor,
+                                    'length_growth_mm_per_year': conservative_length_growth * acceleration_factor,
+                                    'width_growth_mm_per_year': conservative_width_growth * acceleration_factor
+                                }
+
+
                 
                 # Run enhanced prediction analysis
-                results = predict_joint_failures_over_time(
-                    defects_df=defects_df,
-                    joints_df=joints_df,
-                    pipe_diameter_mm=pipe_diameter_mm,
-                    smys_mpa=smys_mpa,
-                    operating_pressure_mpa=operating_pressure_mpa,
-                    assessment_method=assessment_method,
-                    window_years=window_years,
-                    safety_factor=safety_factor,
-                    growth_rates_dict=growth_rates_dict,    # type: ignore
-                    pipe_creation_year=pipe_creation_year,  # type: ignore
-                    current_year=current_year               # type: ignore
-                )
+                try:
+                    # Step 1: Apply FFS clustering to get realistic combined defect sizes
+                    st.info("🔗 Applying FFS defect clustering analysis...")
+                    
+                    from core.ffs_defect_interaction import FFSDefectInteraction
+                    
+                    # Initialize FFS interaction rules
+                    ffs_rules = FFSDefectInteraction(
+                        axial_interaction_distance_mm=25.4,  # API 579-1 standard
+                        circumferential_interaction_method='sqrt_dt'
+                    )
+                    
+                    # Apply clustering to combine interacting defects
+                    clustered_defects_df = ffs_rules.combine_interacting_defects_enhanced(
+                        defects_df, joints_df, pipe_diameter_mm
+                    )
+                    
+                    # Report clustering results
+                    original_count = len(defects_df)
+                    clustered_count = len(clustered_defects_df)
+                    combined_count = len(clustered_defects_df[clustered_defects_df.get('is_combined', False) == True])
+                    
+                    st.success(f"✅ FFS Clustering: {original_count} → {clustered_count} defects "
+                            f"({combined_count} combined clusters, {clustered_count - combined_count} individual)")
+                    
+                    # Step 2: Adjust growth rates for clustered defects
+                    if analysis_mode == "single_file":
+                        # Use enhanced single-file estimation
+                        adjusted_growth_rates = estimate_realistic_single_file_growth_rates(
+                            clustered_defects_df, joints_df, pipe_creation_year, current_year
+                        )
+                        
+                        st.info(f"📈 Applied realistic growth rate estimation to {len(adjusted_growth_rates)} clustered defects")
+                        
+                    else:
+                        # For multi-year mode, map growth rates to clustered defects
+                        adjusted_growth_rates = {}
+                        
+                        for idx, clustered_defect in clustered_defects_df.iterrows():
+                            if clustered_defect.get('is_combined', False):
+                                # For combined defects, use accelerated growth rates
+                                original_indices = clustered_defect.get('original_indices', [])
+                                if original_indices and len(original_indices) > 0:
+                                    # Take average of original growth rates and apply interaction factor
+                                    avg_depth_growth = np.mean([growth_rates_dict.get(orig_idx, {}).get('depth_growth_pct_per_year', 2.5) 
+                                                            for orig_idx in original_indices])
+                                    avg_length_growth = np.mean([growth_rates_dict.get(orig_idx, {}).get('length_growth_mm_per_year', 4.0) 
+                                                            for orig_idx in original_indices])
+                                    avg_width_growth = np.mean([growth_rates_dict.get(orig_idx, {}).get('width_growth_mm_per_year', 2.5) 
+                                                            for orig_idx in original_indices])
+                                    
+                                    # Apply interaction acceleration factor (defects interact and accelerate each other)
+                                    interaction_factor = 1.0 + 0.1 * np.log(len(original_indices))  # Logarithmic acceleration
+                                    interaction_factor = min(interaction_factor, 1.5)  # Cap at 50% acceleration
+                                    adjusted_growth_rates[idx] = {
+                                        'depth_growth_pct_per_year': avg_depth_growth * interaction_factor,
+                                        'length_growth_mm_per_year': avg_length_growth * interaction_factor,
+                                        'width_growth_mm_per_year': avg_width_growth * interaction_factor,
+                                        'interaction_factor': interaction_factor,
+                                        'combined_from': len(original_indices)
+                                    }
+                                else:
+                                    # Fallback for combined defects without original indices
+                                    adjusted_growth_rates[idx] = {
+                                        'depth_growth_pct_per_year': 3.0,  # Conservative high rate
+                                        'length_growth_mm_per_year': 5.0,
+                                        'width_growth_mm_per_year': 3.0
+                                    }
+                            else:
+                                # For individual defects, use original growth rates if available
+                                original_idx = clustered_defect.get('defect_id', idx)
+                                if original_idx in growth_rates_dict:
+                                    adjusted_growth_rates[idx] = growth_rates_dict[original_idx]
+                                else:
+                                    # Use the enhanced defaults we calculated earlier
+                                    adjusted_growth_rates[idx] = {
+                                        'depth_growth_pct_per_year': 2.5,
+                                        'length_growth_mm_per_year': 4.0,
+                                        'width_growth_mm_per_year': 2.5
+                                    }
+                    
+                    # Step 3: Run enhanced prediction analysis with clustered defects
+                    st.info(f"🔮 Running failure prediction with {len(clustered_defects_df)} clustered defects...")
+                    
+                    results = predict_joint_failures_over_time(
+                        defects_df=clustered_defects_df,  # Use clustered defects instead of original
+                        joints_df=joints_df,
+                        pipe_diameter_mm=pipe_diameter_mm,
+                        smys_mpa=smys_mpa,
+                        operating_pressure_mpa=operating_pressure_mpa,
+                        assessment_method=assessment_method,
+                        window_years=window_years,
+                        safety_factor=safety_factor,
+                        growth_rates_dict=adjusted_growth_rates,  # Use adjusted growth rates
+                        pipe_creation_year=pipe_creation_year,    # type: ignore
+                        current_year=current_year                 # type: ignore
+                    )
+                    
+                    # Add clustering information to results
+                    results['clustering_applied'] = True
+                    results['original_defect_count'] = original_count
+                    results['clustered_defect_count'] = clustered_count
+                    results['combined_cluster_count'] = combined_count
+
+                    st.session_state.failure_prediction_config.update({
+                        'clustering_applied': results.get('clustering_applied', False),
+                        'original_defect_count': results.get('original_defect_count', len(defects_df)),
+                        'clustered_defect_count': results.get('clustered_defect_count', len(defects_df)),
+                        'analysis_enhancements': {
+                            'ffs_clustering': results.get('clustering_applied', False),
+                            'realistic_growth_estimation': analysis_mode == "single_file",
+                            'new_defect_inference': analysis_mode == "multi_year"
+                        }
+                    })
+                    
+                except ImportError:
+                    st.warning("⚠️ FFS clustering module not available. Running without clustering...")
+                    # Fallback to original analysis without clustering
+                    
+                    if analysis_mode == "single_file":
+                        growth_rates_dict = estimate_realistic_single_file_growth_rates(
+                            defects_df, joints_df, pipe_creation_year, current_year
+                        )
+                    
+                    results = predict_joint_failures_over_time(
+                        defects_df=defects_df,
+                        joints_df=joints_df,
+                        pipe_diameter_mm=pipe_diameter_mm,
+                        smys_mpa=smys_mpa,
+                        operating_pressure_mpa=operating_pressure_mpa,
+                        assessment_method=assessment_method,
+                        window_years=window_years,
+                        safety_factor=safety_factor,
+                        growth_rates_dict=growth_rates_dict,
+                        pipe_creation_year=pipe_creation_year,  # type: ignore
+                        current_year=current_year               # type: ignore
+                    )
+                    
+                    results['clustering_applied'] = False
+
+                except Exception as e:
+                    st.error(f"Error during enhanced failure analysis: {str(e)}")
+                    with st.expander("Error Details"):
+                        st.code(traceback.format_exc())
+                    return
+
+
+
                 
                 # Store results in session state
                 st.session_state.failure_prediction_results = results
@@ -271,7 +440,6 @@ def render_failure_prediction_view():
                 
             except Exception as e:
                 st.error(f"Error during failure prediction analysis: {str(e)}")
-                import traceback
                 with st.expander("Error Details"):
                     st.code(traceback.format_exc())
     
@@ -568,3 +736,95 @@ def display_failure_prediction_results():
         - Failing Joints CSV contains summary of all joints that will fail
         - Data can be used for further analysis or reporting
         """)
+
+
+# ADD THIS NEW FUNCTION:
+def estimate_realistic_single_file_growth_rates(defects_df, joints_df, pipe_creation_year, current_year):
+    """
+    Enhanced growth rate estimation that considers realistic defect initiation timing.
+    
+    FIXES THE CRITICAL FLAW: Instead of assuming defects started growing from pipe installation,
+    estimates when defects likely initiated based on their current severity.
+    """
+    
+    growth_rates_dict = {}
+    pipe_age = current_year - pipe_creation_year
+    
+    # Create wall thickness lookup for depth calculations
+    wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
+    
+    for idx, defect in defects_df.iterrows():
+        try:
+            current_depth_pct = defect.get('depth [%]', 0)
+            current_length_mm = defect.get('length [mm]', 0)
+            current_width_mm = defect.get('width [mm]', 0)
+            
+            # CRITICAL FIX: Estimate realistic defect initiation time
+            # Shallow defects likely initiated recently, deep defects started earlier
+            
+            if current_depth_pct < 5:
+                # Very shallow - likely recent initiation (last 2-4 years)
+                estimated_active_years = min(3, pipe_age * 0.2)
+            elif current_depth_pct < 15:
+                # Shallow - initiated in recent years
+                estimated_active_years = min(6, pipe_age * 0.4)
+            elif current_depth_pct < 30:
+                # Moderate - been growing for a while
+                estimated_active_years = min(10, pipe_age * 0.6)
+            elif current_depth_pct < 50:
+                # Deep - been active for significant time
+                estimated_active_years = min(15, pipe_age * 0.8)
+            else:
+                # Very deep - long-term active corrosion
+                estimated_active_years = min(20, pipe_age * 0.9)
+            
+            # Ensure minimum realistic timeframe
+            estimated_active_years = max(1, estimated_active_years)
+            
+            # Calculate base growth rates
+            if estimated_active_years > 0:
+                base_depth_growth = current_depth_pct / estimated_active_years
+                base_length_growth = max(1.0, current_length_mm / estimated_active_years)
+                base_width_growth = max(0.5, current_width_mm / estimated_active_years)
+            else:
+                # Fallback for edge cases
+                base_depth_growth = 2.5
+                base_length_growth = 4.0
+                base_width_growth = 2.5
+            
+            # Apply environmental and defect-specific factors
+            environmental_factor = 1.2  # Default conservative factor
+            
+            # Adjust for defect severity (deeper defects may accelerate)
+            if current_depth_pct > 40:
+                severity_factor = 1.3  # Accelerated growth for deep defects
+            elif current_depth_pct > 20:
+                severity_factor = 1.1  # Slight acceleration
+            else:
+                severity_factor = 1.0  # No acceleration for shallow defects
+            
+            # Apply reasonable bounds based on industry data
+            final_depth_growth = np.clip(base_depth_growth * environmental_factor * severity_factor, 0.5, 8.0)
+            final_length_growth = np.clip(base_length_growth * environmental_factor, 1.0, 15.0)
+            final_width_growth = np.clip(base_width_growth * environmental_factor, 0.5, 10.0)
+            
+            growth_rates_dict[idx] = {
+                'depth_growth_pct_per_year': final_depth_growth,
+                'length_growth_mm_per_year': final_length_growth,
+                'width_growth_mm_per_year': final_width_growth,
+                'estimation_method': 'realistic_initiation_timing',
+                'estimated_active_years': estimated_active_years,
+                'severity_factor': severity_factor
+            }
+            
+        except Exception as e:
+            # Robust fallback for any calculation errors
+            growth_rates_dict[idx] = {
+                'depth_growth_pct_per_year': 2.5,  # Conservative default
+                'length_growth_mm_per_year': 4.0,
+                'width_growth_mm_per_year': 2.5,
+                'estimation_method': 'fallback_due_to_error',
+                'error': str(e)
+            }
+    
+    return growth_rates_dict
