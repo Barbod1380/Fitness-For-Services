@@ -208,13 +208,29 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
     }
     
     # Create frequency data
-    summary_df = valid_defects['defect_category'].value_counts().reset_index()
-    summary_df.columns = ['Category', 'Count']
-    summary_df['Percentage'] = (summary_df['Count'] / summary_df['Count'].sum() * 100).round(1)
+    all_categories = ["PinHole", "AxialSlot", "CircSlot", "AxialGroove", "CircGroove", "Pitting", "General"]
+    
+    # Create frequency data with all categories
+    category_counts = valid_defects['defect_category'].value_counts()
+    
+    # Create complete summary with all categories (including 0 counts)
+    summary_data = []
+    for category in all_categories:
+        count = category_counts.get(category, 0)  # Get count or 0 if category doesn't exist
+        summary_data.append({'Category': category, 'Count': count})
+    
+    summary_df = pd.DataFrame(summary_data)
+    
+    # Calculate percentages (handle case where total is 0)
+    total_count = summary_df['Count'].sum()
+    if total_count > 0:
+        summary_df['Percentage'] = (summary_df['Count'] / total_count * 100).round(1)
+    else:
+        summary_df['Percentage'] = 0.0
+    
+    # Sort by count descending, but keep all categories
     summary_df = summary_df.sort_values('Count', ascending=False)
-    
-    total_defects = len(valid_defects)
-    
+
     # Create subplots
     fig = make_subplots(
         rows=1, cols=2,
@@ -247,29 +263,55 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
     )
     
     # Add actual defect data points (no hover, clean)
-    for category in valid_defects['defect_category'].unique():
-        if category and category in color_discrete_map:
+    all_categories = ["PinHole", "AxialSlot", "CircSlot", "AxialGroove", "CircGroove", "Pitting", "General"]
+    
+    # Add traces for ALL categories (even those with 0 defects)
+    for category in all_categories:
+        if category in color_discrete_map:
+            # Get data for this category
             cat_data = valid_defects[valid_defects['defect_category'] == category]
             
-            fig.add_trace(
-                go.Scattergl(
-                    x=cat_data['length_normalized'],
-                    y=cat_data['width_normalized'],
-                    mode='markers',
-                    marker=dict(
-                        color=color_discrete_map[category],
-                        size=7,  # Small markers for clean look
-                        symbol='circle',
-                        line=dict(color='white', width=1),
-                        opacity=0.7
+            if len(cat_data) > 0:
+                # Category has data - add normal trace
+                fig.add_trace(
+                    go.Scattergl(
+                        x=cat_data['length_normalized'],
+                        y=cat_data['width_normalized'],
+                        mode='markers',
+                        marker=dict(
+                            color=color_discrete_map[category],
+                            size=7,
+                            symbol='circle',
+                            line=dict(color='white', width=1),
+                            opacity=0.7
+                        ),
+                        name=f'{category}',
+                        hoverinfo='skip',
+                        showlegend=True
                     ),
-                    name=f'{category}',
-                    hoverinfo='skip',  # No hover
-                    showlegend=True
-                ),
-                row=1, col=1
-            )
-    
+                    row=1, col=1
+                )
+            else:
+                # Category has no data - add invisible trace for legend only
+                fig.add_trace(
+                    go.Scattergl(
+                        x=[None],  # No data points
+                        y=[None],  # No data points
+                        mode='markers',
+                        marker=dict(
+                            color=color_discrete_map[category],
+                            size=7,
+                            symbol='circle',
+                            line=dict(color='white', width=1),
+                            opacity=0.7
+                        ),
+                        name=f'{category}',
+                        hoverinfo='skip',
+                        showlegend=True,
+                        visible='legendonly'  # Only show in legend, not on plot
+                    ),
+                    row=1, col=1
+                )
     # =============================================================================
     # RIGHT SUBPLOT: Frequency Bar Chart
     # =============================================================================

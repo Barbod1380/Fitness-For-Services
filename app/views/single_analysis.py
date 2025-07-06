@@ -485,7 +485,7 @@ def render_single_analysis_view():
                     # Check if data is valid for selected parameters
                     if not missing_columns:
                         # Filter out rows with missing data for selected parameters
-                        plot_data = filtered_defects.dropna(subset=required_columns).copy()
+                        plot_data = filtered_defects #.dropna(subset=required_columns).copy()
                         
                         if plot_data.empty:
                             st.warning("No valid data available for the selected parameters.")
@@ -532,22 +532,17 @@ def render_single_analysis_view():
                 for j in available_joints
             }
 
-            jcol1, jcol2 = st.columns([3, 1])
+            jcol1, _ = st.columns([3, 1])
             with jcol1:
                 selected_label = st.selectbox(
                     "Select Joint to Visualize",
-                    options=list(joint_labels.keys()),
+                    options = list(joint_labels.keys()),
                     key="joint_selector_single_analysis"
                 )
-            with jcol2:
-                _ = st.radio("View Mode", ["2D Unwrapped"], key="joint_view_mode")
 
-            joint_id = joint_labels[selected_label]
-            if st.button(
-                "Generate Joint Visualization",
-                key="show_joint_single_analysis",
-                use_container_width=True
-            ):
+            if st.button("Generate Joint Visualization", key="show_joint_single_analysis", use_container_width=True):
+                joint_id = joint_labels[selected_label]
+            
                 st.markdown(
                     f"<div class='section-header'>Defect Map for {selected_label}</div>",
                     unsafe_allow_html=True
@@ -601,5 +596,6 @@ def render_single_analysis_view():
                 with st.spinner("Generating joint visualization..."):
                     fig = create_joint_defect_visualization(defects_df, joint_id, pipe_diameter)
                     st.plotly_chart(fig, use_container_width=True, config={"responsive": True})
+
 
     st.markdown('</div>', unsafe_allow_html=True)
