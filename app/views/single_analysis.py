@@ -70,7 +70,7 @@ def render_single_analysis_view():
 
         with left_col:
             st.subheader(f"{selected_year} Joints")
-            st.dataframe(joints_df.head(10), use_container_width = True)
+            st.dataframe(joints_df.head(5), use_container_width = True)
             st.markdown(
                 create_data_download_links(joints_df, "joints", selected_year),
                 unsafe_allow_html = True
@@ -78,7 +78,7 @@ def render_single_analysis_view():
 
         with right_col:
             st.subheader(f"{selected_year} Defects")
-            st.dataframe(defects_df.head(10), use_container_width = True)
+            st.dataframe(defects_df.head(5), use_container_width = True)
             st.markdown(
                 create_data_download_links(defects_df, "defects", selected_year),
                 unsafe_allow_html = True
@@ -128,7 +128,7 @@ def render_single_analysis_view():
                 unsafe_allow_html = True
             )
             
-            combined_fig = create_combined_dimensions_plot(defects_df)
+            combined_fig = create_combined_dimensions_plot(defects_df, joints_df)
             st.plotly_chart(combined_fig, use_container_width = True)
         
         else:

@@ -159,13 +159,15 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
     )
     
     # Create the theoretical grid for background
-    length_values = np.linspace(0, 10, 150)  # Optimized for performance
-    width_values = np.linspace(0, 10, 150)
+    length_values = np.linspace(0, 10, 100)  # Optimized for performance
+    width_values = np.linspace(0, 10, 100)
     L, W = np.meshgrid(length_values, width_values)
     
     # Calculate categories for each point
-    categories_grid = np.vectorize(feature_cat_normalized)(L, W)
-    
+    L_flat, W_flat = L.flatten(), W.flatten()
+    categories_flat = np.array([feature_cat_normalized(l, w) for l, w in zip(L_flat, W_flat)])
+    categories_grid = categories_flat.reshape(L.shape)
+        
     # Define category mapping and modern color palette
     category_map = {
         "PinHole": 0,
@@ -222,7 +224,7 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
         ],
         specs=[[{"type": "xy"}, {"type": "xy"}]],
         horizontal_spacing=0.05,
-        column_widths=[0.5, 0.5]
+        column_widths=[0.55, 0.45]
     )
     
     # =============================================================================
@@ -250,7 +252,7 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
             cat_data = valid_defects[valid_defects['defect_category'] == category]
             
             fig.add_trace(
-                go.Scatter(
+                go.Scattergl(
                     x=cat_data['length_normalized'],
                     y=cat_data['width_normalized'],
                     mode='markers',
@@ -438,8 +440,8 @@ def create_defect_categorization_summary_table(defects_df, joints_df):
     
     # Reorder columns for better presentation
     summary = summary[['Rank', 'Category', 'Description', 'Count', 'Percentage']]
-    
     return summary
+
 
 def create_dimension_distribution_plots(defects_df, dimension_columns=None):
     """
@@ -536,149 +538,205 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
     )
     return {"combined_dimensions": fig} if fig else {}
 
-def create_combined_dimensions_plot(defects_df):
+
+def create_combined_dimensions_plot(defects_df, joints_df):
     """
-    Create a scatter plot showing the relationship between length, width, and depth.
+    Create a scatter plot showing Defect Aspect Ratio vs Volume Loss.
+    More informative for engineering analysis than simple length vs width.
 
     Parameters:
     - defects_df: DataFrame containing defect information
+    - joints_df: DataFrame containing joint information with wall thickness
 
     Returns:
     - Plotly figure object
     """
-    required_cols = ['length [mm]', 'width [mm]']
-    has_depth = 'depth [%]' in defects_df.columns
-
-    # Check if required columns exist
-    if not all(col in defects_df.columns for col in required_cols):
+    # Step 1: Check required columns
+    required_defect_cols = ['length [mm]', 'width [mm]', 'depth [%]', 'joint number']
+    required_joint_cols = ['joint number', 'wt nom [mm]']
+    
+    missing_defect_cols = [col for col in required_defect_cols if col not in defects_df.columns]
+    missing_joint_cols = [col for col in required_joint_cols if col not in joints_df.columns]
+    
+    if missing_defect_cols or missing_joint_cols:
         fig = go.Figure()
+        error_message = f"Missing columns: {missing_defect_cols + missing_joint_cols}"
         fig.add_annotation(
-            text='Required dimension columns not available',
-            xref='paper',
-            yref='paper',
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=20)
+            text=error_message,
+            xref='paper', yref='paper',
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=16, color='#2C3E50')
+        )
+        fig.update_layout(
+            title='Defect Aspect Ratio vs Volume Loss - Missing Data',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            height=600
         )
         return fig
 
-    # Filter out invalid or NaN values for required columns
+    # Step 2: Filter valid data and create wall thickness lookup
     valid_data = defects_df.copy()
-    for col in required_cols:
-        valid_data = valid_data[
-            pd.to_numeric(valid_data[col], errors='coerce').notna()
-        ]
-
-    if has_depth:
-        valid_data = valid_data[
-            pd.to_numeric(valid_data['depth [%]'], errors='coerce').notna()
-        ]
-
+    
+    # Remove rows with invalid dimensions
+    for col in ['length [mm]', 'width [mm]', 'depth [%]']:
+        valid_data = valid_data[pd.to_numeric(valid_data[col], errors='coerce').notna()]
+        valid_data = valid_data[pd.to_numeric(valid_data[col], errors='coerce') > 0]
+    
     if valid_data.empty:
         fig = go.Figure()
         fig.add_annotation(
-            text='No valid dimension data available',
-            xref='paper',
-            yref='paper',
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=20)
+            text='No valid defect dimension data available',
+            xref='paper', yref='paper',
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=16, color='#2C3E50')
+        )
+        fig.update_layout(
+            title='Defect Aspect Ratio vs Volume Loss - No Valid Data',
+            height=600
         )
         return fig
 
-    # Calculate defect area
-    valid_data['area [mm²]'] = (
-        valid_data['length [mm]'] * valid_data['width [mm]']
+    # Create wall thickness lookup
+    wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
+    
+    # Step 3: Calculate engineering parameters
+    def get_wall_thickness(joint_number):
+        """Get wall thickness with fallback to 10mm if missing"""
+        wt = wt_lookup.get(joint_number, 10.0)
+        if pd.isna(wt) or wt <= 0:
+            wt = 10.0  # Fallback value
+        return wt
+    
+    # Add wall thickness to data
+    valid_data['wall_thickness'] = valid_data['joint number'].apply(get_wall_thickness)
+    
+    # Calculate Aspect Ratio (Length/Width) with zero-division protection
+    valid_data['aspect_ratio'] = valid_data.apply(
+        lambda row: row['length [mm]'] / max(row['width [mm]'], 0.1),  # Prevent division by zero
+        axis=1
+    )
+    
+    # Calculate Volume Loss = Length × Width × (Depth%/100) × Wall_Thickness
+    valid_data['volume_loss_mm3'] = (
+        valid_data['length [mm]'] * 
+        valid_data['width [mm]'] * 
+        (valid_data['depth [%]'] / 100.0) * 
+        valid_data['wall_thickness']
+    )
+    
+    # Step 4: Calculate defect categories using existing function
+    def get_geo_para(joint_number):
+        """Calculate GeoParA = max(wall_thickness, 10mm)"""
+        wt = wt_lookup.get(joint_number, 10.0)
+        if pd.isna(wt):
+            wt = 10.0
+        return max(wt, 10.0)
+    
+    valid_data['geo_para_A'] = valid_data['joint number'].apply(get_geo_para)
+    valid_data['length_normalized'] = valid_data['length [mm]'] / valid_data['geo_para_A']
+    valid_data['width_normalized'] = valid_data['width [mm]'] / valid_data['geo_para_A']
+    
+    # Apply defect categorization
+    valid_data['defect_category'] = valid_data.apply(
+        lambda row: feature_cat_normalized(row['length_normalized'], row['width_normalized']), 
+        axis=1
+    )
+    
+    # Filter out uncategorized defects for cleaner visualization
+    categorized_data = valid_data[valid_data['defect_category'] != ''].copy()
+    
+    if categorized_data.empty:
+        # Fall back to using all data if no categories found
+        categorized_data = valid_data.copy()
+        categorized_data['defect_category'] = 'Unclassified'
+    
+    # Step 5: Create color mapping for categories
+    color_discrete_map = {
+        "PinHole": "#00BCD4",     # Cyan
+        "AxialSlot": "#E91E63",   # Pink
+        "CircSlot": "#FF9800",    # Orange
+        "AxialGroove": "#2196F3", # Blue
+        "CircGroove": "#9C27B0",  # Purple
+        "Pitting": "#F44336",     # Red
+        "General": "#4CAF50",     # Green
+        "Unclassified": "#95A5A6" # Gray
+    }
+    
+    # Step 6: Create the enhanced scatter plot
+    fig = px.scatter(
+        categorized_data,
+        x='aspect_ratio',
+        y='volume_loss_mm3',
+        color='defect_category',
+        color_discrete_map=color_discrete_map,
+        hover_data={
+            'length [mm]': ':.1f',
+            'width [mm]': ':.1f', 
+            'depth [%]': ':.1f',
+            'wall_thickness': ':.1f',
+            'aspect_ratio': ':.2f',
+            'volume_loss_mm3': ':.1f'
+        },
+        title='Defect Aspect Ratio vs Volume Loss Analysis',
+        labels={
+            'aspect_ratio': 'Aspect Ratio (Length ÷ Width)',
+            'volume_loss_mm3': 'Volume Loss (mm³)',
+            'defect_category': 'Defect Category'
+        },
+        opacity = 0.7
     )
 
-    # Create scatter plot
-    if has_depth:
-        fig = px.scatter(
-            valid_data,
-            x='length [mm]',
-            y='width [mm]',
-            color='depth [%]',
-            size='area [mm²]',
-            hover_name='component / anomaly identification',
-            color_continuous_scale=px.colors.sequential.Viridis,
-            title='Defect Dimensions Relationship',
-            labels={
-                'length [mm]': 'Length (mm)',
-                'width [mm]': 'Width (mm)',
-                'depth [%]': 'Depth (%)',
-                'area [mm²]': 'Area (mm²)'
-            }
-        )
-    else:
-        hover_field = (
-            'component / anomaly identification'
-            if 'component / anomaly identification' in valid_data.columns
-            else None
-        )
-        fig = px.scatter(
-            valid_data,
-            x='length [mm]',
-            y='width [mm]',
-            size='area [mm²]',
-            hover_name=hover_field,
-            title='Defect Dimensions Relationship',
-            labels={
-                'length [mm]': 'Length (mm)',
-                'width [mm]': 'Width (mm)',
-                'area [mm²]': 'Area (mm²)'
-            }
-        )
-
-    # Add buttons to control marker size
+    # Step 7: Enhanced layout with engineering context
     fig.update_layout(
-        updatemenus=[
-            dict(
-                type='buttons',
-                direction='left',
-                buttons=[
-                    dict(
-                        args=[{'marker.size': valid_data['area [mm²]'] * 1}],
-                        label='Small',
-                        method='restyle'
-                    ),
-                    dict(
-                        args=[{'marker.size': valid_data['area [mm²]'] * 2}],
-                        label='Medium',
-                        method='restyle'
-                    ),
-                    dict(
-                        args=[{'marker.size': valid_data['area [mm²]'] * 4}],
-                        label='Large',
-                        method='restyle'
-                    )
-                ],
-                pad={'r': 10, 't': 10},
-                showactive=True,
-                x=0.11,
-                xanchor='left',
-                y=1.1,
-                yanchor='top'
-            )
-        ]
+        width=1000,
+        height=600,
+        plot_bgcolor='white',
+        font=dict(family="Inter, Arial, sans-serif"),
+        margin=dict(l=50, r=50, t=80, b=80),
+        legend=dict(
+            title="Defect Categories",
+            yanchor="top",
+            y=0.98,
+            xanchor="left",
+            x=1.02,
+            bgcolor="rgba(255,255,255,0.95)",
+            bordercolor="rgba(0,0,0,0.1)",
+            borderwidth=1
+        )
     )
-
-    # Add explanation for bubble size and color
-    legend_text = 'Bubble size represents defect area (mm²)'
-    if has_depth:
-        legend_text += ', color represents depth (%)'
-
+    
+    # Update axes with engineering context
+    fig.update_xaxes(
+        title_text="Aspect Ratio (Length ÷ Width)<br>",
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(128,128,128,0.2)'
+    )
+    
+    fig.update_yaxes(
+        title_text="Volume Loss (mm³)<br><sub>Material removed by corrosion</sub>",
+        type="log", 
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(128,128,128,0.2)'
+    )
+    
+    # Add summary statistics
+    avg_aspect = categorized_data['aspect_ratio'].mean()
+    
     fig.add_annotation(
-        text=legend_text,
-        x=-0.0,
-        y=-0.25,
-        xref='paper',
-        yref='paper',
+        x=0.02, y=0.98,
+        xref='paper', yref='paper',
+        text=f"Average Aspect Ratio: {avg_aspect:.2f}",
         showarrow=False,
-        font=dict(size=12)
+        font=dict(size=10, color="#2C3E50"),
+        bgcolor="rgba(255,255,255,0.9)",
+        bordercolor="rgba(0,0,0,0.1)",
+        borderwidth=1,
+        align="left"
     )
-
+    
     return fig
 
 
