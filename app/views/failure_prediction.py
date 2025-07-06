@@ -359,19 +359,19 @@ def display_failure_prediction_results():
     st.markdown("<div class='section-header'>📊 Prediction Summary</div>", unsafe_allow_html=True)
     
     # Create and display metrics
-    metrics_data = create_failure_summary_metrics(results)
-    metrics_list = [
-        (metrics_data['total_joints']['label'], metrics_data['total_joints']['value'], 
-         metrics_data['total_joints']['description']),
-        (metrics_data['joints_with_defects']['label'], metrics_data['joints_with_defects']['value'],
-         metrics_data['joints_with_defects']['description']),
-        (metrics_data['max_erf_failures']['label'], metrics_data['max_erf_failures']['value'],
-         metrics_data['max_erf_failures']['description']),
-        (metrics_data['first_failure_year']['label'], metrics_data['first_failure_year']['value'],
-         metrics_data['first_failure_year']['description'])
-    ]
+    #metrics_data = create_failure_summary_metrics(results)
+    #metrics_list = [
+    #    (metrics_data['total_joints']['label'], metrics_data['total_joints']['value'], 
+    #     metrics_data['total_joints']['description']),
+    #    (metrics_data['joints_with_defects']['label'], metrics_data['joints_with_defects']['value'],
+    #     metrics_data['joints_with_defects']['description']),
+    #    (metrics_data['max_erf_failures']['label'], metrics_data['max_erf_failures']['value'],
+    #     metrics_data['max_erf_failures']['description']),
+    #    (metrics_data['first_failure_year']['label'], metrics_data['first_failure_year']['value'],
+    #     metrics_data['first_failure_year']['description'])
+    #]
     
-    create_metrics_row(metrics_list)
+    #create_metrics_row(metrics_list)
     st.markdown('</div>', unsafe_allow_html=True)
     
     # Main visualization
