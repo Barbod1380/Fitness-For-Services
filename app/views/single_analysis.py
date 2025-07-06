@@ -39,9 +39,11 @@ def render_single_analysis_view():
             key="year_selector_single_analysis"
         )
 
+
     # --- Load Datasets ---
     joints_df = st.session_state.datasets[selected_year]["joints_df"]
     defects_df = st.session_state.datasets[selected_year]["defects_df"]
+
 
     # --- Summary Metrics ---
     with col2:
@@ -57,8 +59,10 @@ def render_single_analysis_view():
         ]
         create_metrics_row(metrics_data)
 
+
     # --- Analysis Tabs ---
     tabs = st.tabs(["Data Preview", "Defect Dimensions", "Visualizations"])
+
 
     # Tab 1: Data Preview
     with tabs[0]:
@@ -66,43 +70,41 @@ def render_single_analysis_view():
 
         with left_col:
             st.subheader(f"{selected_year} Joints")
-            #st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
-            st.dataframe(joints_df.head(5), use_container_width=True)
-            #st.markdown('</div>', unsafe_allow_html=True)
+            st.dataframe(joints_df.head(10), use_container_width = True)
             st.markdown(
                 create_data_download_links(joints_df, "joints", selected_year),
-                unsafe_allow_html=True
+                unsafe_allow_html = True
             )
 
         with right_col:
             st.subheader(f"{selected_year} Defects")
-            #st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
-            st.dataframe(defects_df.head(5), use_container_width=True)
-            #st.markdown('</div>', unsafe_allow_html=True)
+            st.dataframe(defects_df.head(10), use_container_width = True)
             st.markdown(
                 create_data_download_links(defects_df, "defects", selected_year),
-                unsafe_allow_html=True
+                unsafe_allow_html = True
             )
+
 
     # Tab 2: Defect Dimensions Analysis
     with tabs[1]:
-        st.markdown("<div class='section-header'>Dimension Statistics</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-header'>Dimension Statistics</div>", unsafe_allow_html = True)
         stats_df = create_dimension_statistics_table(defects_df)
-        if not stats_df.empty:
-            st.dataframe(stats_df, use_container_width=True)
-        else:
+        
+        if stats_df.empty:
             info_box("No dimension data available for analysis.", "warning")
+        else:
+            st.dataframe(stats_df, use_container_width=True)
 
         dimension_figs = create_dimension_distribution_plots(defects_df)
         if dimension_figs:
             st.markdown(
                 "<div class='section-header' style='margin-top:20px;'>"
                 "Dimension Distributions</div>",
-                unsafe_allow_html=True
+                unsafe_allow_html = True
             )
             
-            # Since we now have a single combined figure, just display it once
-            combined_fig = list(dimension_figs.values())[0]  # Get the combined figure
+            # Since we now have a single combined figure, just display it once (Get combined figures)
+            combined_fig = list(dimension_figs.values())[0] 
             st.plotly_chart(
                 combined_fig, 
                 use_container_width=True, 
@@ -123,26 +125,24 @@ def render_single_analysis_view():
             st.markdown(
                 "<div class='section-header' style='margin-top:20px;'>"
                 "Defect Dimensions Relationship</div>",
-                unsafe_allow_html=True
+                unsafe_allow_html = True
             )
+            
             combined_fig = create_combined_dimensions_plot(defects_df)
-            st.plotly_chart(combined_fig, use_container_width=True)
+            st.plotly_chart(combined_fig, use_container_width = True)
+        
         else:
             info_box("No dimension data available for plotting distributions.", "warning")
 
 
-        # ========================================================================
-        # NEW: Clean Combined FFS Defect Categorization (Map + Bar Chart)
-        # ========================================================================
         st.markdown(
             "<div class='section-header' style='margin-top:30px;'>"
             "🔍 FFS Defect Categorization Analysis</div>",
-            unsafe_allow_html=True
+            unsafe_allow_html = True
         )
         
         # Check if surface location data is available
-        has_surface_location = ('surface location' in defects_df.columns and 
-                               not defects_df['surface location'].isna().all())
+        has_surface_location = ('surface location' in defects_df.columns and not defects_df['surface location'].isna().all())
         
         if has_surface_location:
             # Count defects by surface location
@@ -159,15 +159,15 @@ def render_single_analysis_view():
             ]
             
             # User selection
-            categorization_col1, categorization_col2 = st.columns([3, 1])
+            categorization_col1, _ = st.columns([3, 1])
             
             with categorization_col1:
                 selected_surface_filter = st.selectbox(
                     "Select defect surface location to analyze:",
-                    options=plot_options,
-                    index=0,
-                    key="categorization_surface_filter",
-                    help="Choose which defects to include in the FFS categorization analysis"
+                    options = plot_options,
+                    index = 0,
+                    key = "categorization_surface_filter",
+                    help = "Choose which defects to include in the FFS categorization analysis"
                 )
             
             # Filter defects based on selection
@@ -189,6 +189,7 @@ def render_single_analysis_view():
                 st.warning(f"No defects found for the selected filter: {selected_surface_filter}")
             else:
                 st.caption(analysis_note)
+
         else:
             # No surface location data available - use all defects
             filtered_defects_cat = defects_df.copy()
@@ -266,11 +267,6 @@ def render_single_analysis_view():
         if not summary_df.empty:
             st.markdown("#### 📋 Detailed Category Summary")
             
-            # Create metrics row
-            total_defects = summary_df['Count'].sum()
-            most_common = summary_df.iloc[0]
-            categories_found = len(summary_df)
-            
             # Enhanced table display
             st.dataframe(
                 summary_df, 
@@ -279,12 +275,10 @@ def render_single_analysis_view():
                 column_config={
                     "Rank": st.column_config.NumberColumn("🏆 Rank", width="small"),
                     "Category": st.column_config.TextColumn("📂 Category", width="medium"),
-                    "Description": st.column_config.TextColumn("📝 Description", width="large"),
                     "Count": st.column_config.NumberColumn("🔢 Count", width="small"),
                     "Percentage": st.column_config.NumberColumn("📊 %", format="%.1f%%", width="small")
                 }
             )
-
         else:
             info_box("Unable to create category summary - insufficient data.", "warning")
 
@@ -292,14 +286,14 @@ def render_single_analysis_view():
     # Tab 3: Pipeline Visualizations
     with tabs[2]:
         st.subheader("Pipeline Visualization")
-        viz_col1, viz_col2 = st.columns([2, 2])
+        viz_col1, _ = st.columns([2, 2])
 
         with viz_col1:
             viz_type = st.radio(
                 "Select Visualization Type",
                 ["Complete Pipeline", "Joint-by-Joint"],
-                horizontal=True,
-                key="viz_type_single_analysis"
+                horizontal = True,
+                key = "viz_type_single_analysis"
             )
 
         if viz_type == "Complete Pipeline":
@@ -422,10 +416,7 @@ def render_single_analysis_view():
                         ]
                         filters_applied.append(f"Width: {min_width}mm to {max_width}mm")
 
-                    if (
-                        "component / anomaly identification" in defects_df.columns
-                        and selected_defect_type != "All Types"
-                    ):
+                    if ("component / anomaly identification" in defects_df.columns and selected_defect_type != "All Types"):
                         filtered_defects = filtered_defects[
                             filtered_defects["component / anomaly identification"] == selected_defect_type
                         ]
