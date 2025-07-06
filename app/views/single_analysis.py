@@ -366,6 +366,26 @@ def render_single_analysis_view():
                 color_col1, color_col2 = st.columns(2)
                 
                 with color_col1:
+                    # Y-axis selector - NEW ADDITION
+                    y_axis_options = {
+                        "Clock Position": "Clock Position",
+                        "Defect Depth (%)": "Depth [%]", 
+                        "Defect Length (mm)": "Length [mm]",
+                        "Defect Width (mm)": "Width [mm]",
+                        "Distance from Upstream Weld (m)": "Distance from USGW [m]"
+                    }
+                    
+                    selected_y_display = st.selectbox(
+                        "Y-Axis Parameter:",
+                        options=list(y_axis_options.keys()),
+                        index=0,  # Default to Clock Position
+                        key="y_axis_selector_single",
+                        help="Choose what parameter to display on the Y-axis"
+                    )
+                    
+                    y_axis_column = y_axis_options[selected_y_display]
+                
+                with color_col2:
                     # Check if surface location data is available
                     has_surface_location = 'surface location' in defects_df.columns and not defects_df['surface location'].isna().all()
                     
@@ -375,12 +395,41 @@ def render_single_analysis_view():
                         color_options = ["Depth (%)"]
                         
                     color_by = st.selectbox(
-                        "Color defects by:",
+                        "Color/Shape Coding:",
                         options=color_options,
                         index=0,
                         key="pipeline_color_method",
-                        help="Choose how to color the defects on the pipeline visualization"
+                        help="Choose how to color-code the defects"
                     )
+
+            required_columns = ["log dist. [m]"]
+            
+            if y_axis_column == "Clock Position":
+                required_columns.append("clock_float")
+            elif y_axis_column == "Depth [%]":
+                required_columns.append("depth [%]")
+            elif y_axis_column == "Length [mm]":
+                required_columns.append("length [mm]")
+            elif y_axis_column == "Width [mm]":
+                required_columns.append("width [mm]")
+            elif y_axis_column == "Distance from USGW [m]":
+                required_columns.append("up weld dist. [m]")
+            
+            if color_by == "Surface Location (Internal/External)":
+                required_columns.append("surface location")
+            else:
+                required_columns.append("depth [%]")
+            
+            # Check for missing columns
+            missing_columns = [col for col in required_columns if col not in defects_df.columns]
+            
+            if missing_columns:
+                st.error(f"Missing required columns for this visualization: {missing_columns}")
+                st.info("Please ensure your dataset contains all necessary columns.")
+            else:
+                # Show info about current selection
+                st.info(f"📊 **Displaying**: {selected_y_display} vs Axial Distance | **Coded by**: {color_by}")
+
 
             if st.button(
                 "Generate Pipeline Visualization",
@@ -432,26 +481,48 @@ def render_single_analysis_view():
                         )
 
                     pipe_diameter = st.session_state.datasets[selected_year]['pipe_diameter']
-                    fig = create_unwrapped_pipeline_visualization(filtered_defects, pipe_diameter, color_by)
                     
-                    st.plotly_chart(fig, use_container_width=True, config={"responsive": True})
-                    if color_by == "Surface Location (Internal/External)":
-                        st.info(
-                            "**Visualization Guide:**\n"
-                            "- Each point represents a defect\n"
-                            "- X-axis: distance along pipeline (m)\n"
-                            "- Y-axis: clock position\n"
-                            "- Color: Blue = Internal defects, Red = External defects"
-                        )
-                    else:
-                        st.info(
-                            "**Visualization Guide:**\n"
-                            "- Each point represents a defect\n"
-                            "- X-axis: distance along pipeline (m)\n"
-                            "- Y-axis: clock position\n"
-                            "- Color: defect depth percentage"
-                        )
+                    # Check if data is valid for selected parameters
+                    if not missing_columns:
+                        # Filter out rows with missing data for selected parameters
+                        plot_data = filtered_defects.dropna(subset=required_columns).copy()
                         
+                        if plot_data.empty:
+                            st.warning("No valid data available for the selected parameters.")
+                        else:
+                            # Show data summary if filtered
+                            if len(plot_data) < len(filtered_defects):
+                                st.warning(f"Data filtered: Showing {len(plot_data):,} of {len(filtered_defects):,} defects (missing data excluded)")
+                            
+                            # Create enhanced visualization
+                            fig = create_unwrapped_pipeline_visualization(
+                                defects_df=plot_data,
+                                pipe_diameter=pipe_diameter,
+                                color_by=color_by,
+                                y_axis_column=y_axis_column
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True, config={"responsive": True})
+                            
+                            # Enhanced visualization guide
+                            if color_by == "Surface Location (Internal/External)":
+                                st.info(
+                                    f"**Visualization Guide:**\n"
+                                    f"- Each symbol represents a defect\n"
+                                    f"- X-axis: Distance along pipeline (m)\n"
+                                    f"- Y-axis: {selected_y_display}\n"
+                                    f"- ❌ Red X: Internal defects | 🔵 Blue Circle: External defects | 💎 Gray Diamond: Unknown"
+                                )
+                            else:
+                                st.info(
+                                    f"**Visualization Guide:**\n"
+                                    f"- Each point represents a defect\n"
+                                    f"- X-axis: Distance along pipeline (m)\n"
+                                    f"- Y-axis: {selected_y_display}\n"
+                                    f"- Color: Defect depth percentage"
+                                )
+                    else:
+                        st.error("Cannot generate visualization due to missing required columns.")
 
         else:
             # --- Joint‐by‐Joint Visualization ---
