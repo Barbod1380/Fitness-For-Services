@@ -14,7 +14,7 @@ from core.ffs_defect_interaction import *
 from visualization.defect_assessment_viz import create_defect_assessment_scatter_plot, create_defect_assessment_summary_table
 
 
-def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, maop_mpa, smys_mpa, safety_factor=1.39):
+def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, maop_mpa, smys_mpa, safety_factor = 1.39):
     """
     Calculate remaining strength and failure pressure using the
     Original ASME B31G Level-1 method (2012 edition), with defect depth given as a percentage.
@@ -143,8 +143,7 @@ def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_th
     }
 
 
-
-def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, maop_mpa, smys_mpa, safety_factor=1.39):
+def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_thickness_mm, maop_mpa, smys_mpa, safety_factor = 1.39):
     """
     Calculate remaining strength and failure pressure using the Modified B31G
     Level-1 method (often referred to as the 0.85dL method).
@@ -176,7 +175,7 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
     d_t = defect_depth_mm / wall_thickness_mm
 
     # Applicability Limit: If depth is greater than 80% of wall thickness
-    if d_t > 0.85:
+    if d_t > 0.8:
         return {
             "method": "Modified B31G (0.85dL)", "safe": False, "failure_pressure_mpa": 0.0,
             "safe_pressure_mpa": 0.0, "remaining_strength_factor_pct": 0.0,
@@ -273,49 +272,13 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
     }
 
 
-
-def create_plot_download_button(plot_func, plot_args, filename_prefix, button_label, year, help_text=None):
-    """
-    Create a download button for a plotly figure without displaying it.
-    """
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        st.markdown(f"**{button_label}**")
-        if help_text:
-            st.caption(help_text)
-    
-    with col2:
-        if st.button(f"📊 Generate", key=f"gen_{filename_prefix}", use_container_width=True):
-            with st.spinner("Generating plot..."):
-                try:
-                    fig = plot_func(*plot_args)
-                    if fig:
-                        html_content = fig.to_html(include_plotlyjs='cdn')
-                        st.download_button(
-                            label="💾 Download Plot",
-                            data=html_content.encode('utf-8'),
-                            file_name=f"{filename_prefix}_{year}.html",
-                            mime="text/html",
-                            use_container_width=True
-                        )
-                        st.success("✅ Ready!")
-                    else:
-                        st.error("Could not generate plot")
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-
-
-def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, smys_mpa, 
-                                     safety_factor, analysis_pressure_mpa, max_allowable_pressure_mpa):
+def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, analysis_pressure_mpa, max_allowable_pressure_mpa):
     """
     Enhanced version of compute_corrosion_metrics_for_dataframe with pressure-based assessment and ERF.
     """
     
     # First run the standard corrosion assessment
-    enhanced_df = compute_corrosion_metrics_for_dataframe(
-        defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor
-    )
+    enhanced_df = compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor)
     
     # Add pressure analysis parameters
     enhanced_df['analysis_pressure_mpa'] = analysis_pressure_mpa
@@ -1717,15 +1680,7 @@ def render_corrosion_assessment_view():
             )
             
             if assessment_plot:
-            # Download button for defect assessment plot
-                create_plot_download_button(
-                    plot_func=create_defect_assessment_scatter_plot,
-                    plot_args=(enhanced_df, pipe_diameter_mm, smys_mpa, safety_factor),
-                    filename_prefix="defect_assessment_population",
-                    button_label="Defect Population vs B31G Criteria",
-                    year=selected_year,
-                    help_text="Log-scale scatter plot with B31G allowable envelopes"
-                )
+                st.plotly_chart(assessment_plot, use_container_width=True)
                 
                 st.markdown("---")  # Add separator
                 
@@ -1863,14 +1818,9 @@ def render_corrosion_assessment_view():
                 
                 # Visualization
                 st.markdown("#### Pressure Assessment Visualization")
-                create_plot_download_button(
-                    plot_func=create_pressure_assessment_visualization,
-                    plot_args=(enhanced_df, method),
-                    filename_prefix=f"pressure_assessment_{method}",
-                    button_label=f"{method_name} Pressure Assessment",
-                    year=selected_year,
-                    help_text="Defect locations colored by operational status with pressure reference lines"
-                ) 
+                pressure_plot = create_pressure_assessment_visualization(enhanced_df, method)
+                if(pressure_plot):
+                    st.plotly_chart(pressure_plot, use_container_width=True)
 
         st.markdown('</div>', unsafe_allow_html=True)  # Close pressure results container
         
