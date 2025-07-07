@@ -84,7 +84,7 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         plot_df['surface_category'] = 'Unknown'
     
     # Choose scatter type based on performance mode
-    scatter_type = go.Scatter
+    scatter_type = go.Scattergl
     
     # Add scatter plots for each surface location category
     for category in plot_df['surface_category'].unique():
@@ -124,7 +124,7 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
     )
     
     # Add B31G curves (these remain interactive since they're just 2 lines)
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Scattergl(
         x=length_range,
         y=b31g_depths,
         mode='lines',
@@ -134,7 +134,7 @@ def create_defect_assessment_scatter_plot(enhanced_df, pipe_diameter_mm, smys_mp
         showlegend=True
     ))
     
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Scattergl(
         x=length_range,
         y=modified_b31g_depths,
         mode='lines',

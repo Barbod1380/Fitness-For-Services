@@ -61,7 +61,7 @@ def create_pressure_assessment_visualization(enhanced_df, method='b31g'):
         else:
             trace_params['hoverinfo'] = 'skip'
         
-        fig.add_trace(go.Scatter(**trace_params))
+        fig.add_trace(go.Scattergl(**trace_params))
     
     # Add horizontal lines for pressure references
     analysis_pressure = enhanced_df['analysis_pressure_mpa'].iloc[0]
