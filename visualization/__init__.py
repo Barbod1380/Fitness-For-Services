@@ -27,3 +27,5 @@ from .defect_assessment_viz import (
     create_defect_assessment_scatter_plot,
     create_defect_assessment_summary_table
 )
+
+from .pressure_assessment_viz import create_pressure_assessment_visualization
