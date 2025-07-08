@@ -279,8 +279,7 @@ def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, 
     """
     
     # First run the standard corrosion assessment
-    enhanced_df = compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor)
-    
+    enhanced_df = compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, max_allowable_pressure_mpa)
     # Add pressure analysis parameters
     enhanced_df['analysis_pressure_mpa'] = analysis_pressure_mpa
     enhanced_df['max_allowable_pressure_mpa'] = max_allowable_pressure_mpa
@@ -311,8 +310,8 @@ def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, 
                     analysis_pressure_mpa, max_allowable_pressure_mpa
                 )
                 
-                # Calculate ERF = MAOP / Safe Working Pressure
-                erf_value = max_allowable_pressure_mpa / safe_pressure if safe_pressure > 0 else float('inf')
+                # Calculate ERF = Safe Working Pressure / MAOP 
+                erf_value = safe_pressure / max_allowable_pressure_mpa if max_allowable_pressure_mpa > 0 else float('inf')
                 
                 # Direct assignment of all assessment results
                 enhanced_df.loc[idx, f'{method}_pressure_status'] = pressure_assessment['pressure_status']
@@ -640,7 +639,8 @@ def calculate_simplified_effective_area_method(defect_depth_pct, defect_length_m
         "note": f"Modified B31G: d/t={d_t:.3f}, M={folias_factor:.3f}"
     }
 
-def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor):
+
+def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, maop_mpa=0.0):
     """
     Compute B31G, Modified B31G, and Effective Area metrics for all defects in the dataframe.
     Wall thickness is extracted from joints_df based on each defect's joint number.
@@ -652,6 +652,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
     - pipe_diameter_mm: Outside diameter of pipe in millimeters
     - smys_mpa: Specified Minimum Yield Strength in MPa
     - safety_factor: Safety factor to apply to all calculations
+    - maop_mpa: Maximum Allowable Operating Pressure in MPa (optional, default 0.0)
     
     Returns:
     - DataFrame with additional columns for corrosion assessment metrics
@@ -785,7 +786,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         
         # Calculate B31G
         try:
-            b31g_result = calculate_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, 0.0, smys_mpa, safety_factor) 
+            b31g_result = calculate_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, maop_mpa, smys_mpa, safety_factor) 
             enhanced_df.loc[idx, 'b31g_safe'] = b31g_result['safe']
             enhanced_df.loc[idx, 'b31g_failure_pressure_mpa'] = b31g_result['failure_pressure_mpa']
             enhanced_df.loc[idx, 'b31g_safe_pressure_mpa'] = b31g_result['safe_pressure_mpa']
@@ -799,7 +800,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         
         # Calculate Modified B31G
         try:
-            mod_b31g_result = calculate_modified_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, 0.0, smys_mpa, safety_factor)
+            mod_b31g_result = calculate_modified_b31g(depth_pct, length_mm, pipe_diameter_mm, wall_thickness_mm, maop_mpa, smys_mpa, safety_factor)
             enhanced_df.loc[idx, 'modified_b31g_safe'] = mod_b31g_result['safe']
             enhanced_df.loc[idx, 'modified_b31g_failure_pressure_mpa'] = mod_b31g_result['failure_pressure_mpa']
             enhanced_df.loc[idx, 'modified_b31g_safe_pressure_mpa'] = mod_b31g_result['safe_pressure_mpa']
@@ -914,6 +915,7 @@ def create_assessment_summary_stats(enhanced_df):
     
     return summary
 
+
 def create_enhanced_csv_download_link(enhanced_df, year):
     """
     Create a download link for the enhanced dataframe with corrosion metrics.
@@ -930,368 +932,6 @@ def create_enhanced_csv_download_link(enhanced_df, year):
     filename = f"defects_with_corrosion_assessment_{year}.csv"
     href = f'<a href="data:file/csv;base64,{b64}" download="{filename}" class="custom-button" style="display:inline-block;text-decoration:none;margin-top:10px;font-size:0.9em;padding:8px 15px;background-color:#27AE60;color:white;border-radius:5px;">📊 Download Enhanced CSV with Corrosion Metrics</a>'
     return href
-
-def create_joint_assessment_visualization(joint_summary, method='b31g', metric='remaining_strength_pct', 
-                                        aggregation='min', pipe_diameter=1.0):
-    """
-    Optimized pipeline visualization using bar traces
-    """
-    # Build column name
-    color_col = f'{method}_{metric}_{aggregation}'
-    defect_count_col = f'{method}_total_defects'
-    safe_defects_col = f'{method}_safe_defects'
-    
-    # Check if column exists
-    if color_col not in joint_summary.columns:
-        fig = go.Figure()
-        fig.add_annotation(
-            text=f"Data not available: {color_col}",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(size=20)
-        )
-        return fig
-    
-    # Create a copy for processing
-    viz_data = joint_summary.copy()
-    
-    # Calculate joint positions
-    viz_data = viz_data.sort_values('log dist. [m]')
-    viz_data['joint_start'] = viz_data['log dist. [m]']
-    viz_data['joint_end'] = viz_data['joint_start'] + viz_data['joint length [m]']
-    
-    # Prepare color data
-    color_values = viz_data[color_col]
-    
-    # Set up visualization parameters
-    method_name = {'b31g': 'B31G Original', 'modified_b31g': 'Modified B31G', 'simplified_eff_area': 'Simplified Eff. Area'}[method]
-    
-    if 'pressure' in metric:
-        colorscale = [
-            [0.0, 'red'],      # low values → red
-            [0.5, 'yellow'],   # mid values → yellow
-            [1.0, 'green']     # high values → green
-        ]
-        if 'failure' in metric:
-            metric_label = 'Failure Pressure'
-            unit = 'MPa'
-        else:
-            metric_label = 'Safe Operating Pressure'
-            unit = 'MPa'
-    else:  # remaining strength
-        colorscale = [
-            [0.0, 'red'],      # low values → red
-            [0.5, 'yellow'],   # mid values → yellow
-            [1.0, 'green']     # high values → green
-        ]
-        metric_label = 'Remaining Strength'
-        unit = '%'
-    
-    color_title = f"{metric_label} ({unit})<br>{method_name} - {aggregation.title()}"
-    
-    # Hover template
-    hover_template = (
-        "<b>Joint %{customdata[0]}</b><br>"
-        "Distance: %{customdata[1]:.1f} m<br>"
-        "Length: %{customdata[2]:.2f} m<br>"
-        f"{metric_label}: %{{customdata[3]:.1f}} {unit}<br>"
-        "Total Defects: %{customdata[4]:.0f}<br>"
-        "Safe Defects: %{customdata[5]:.0f}<br>"
-        "Wall Thickness: %{customdata[6]:.1f} mm<br>"
-        "<extra></extra>"
-    )
-    
-    # Prepare custom data
-    custom_data = np.stack([
-        viz_data['joint number'].astype(str),
-        viz_data['joint_start'],
-        viz_data['joint length [m]'],
-        viz_data[color_col].fillna(0),
-        viz_data.get(defect_count_col, 0).fillna(0),
-        viz_data.get(safe_defects_col, 0).fillna(0),
-        viz_data.get('wt nom [mm]', 10.0).fillna(10.0)
-    ], axis=-1)
-    
-    # Create the figure
-    fig = go.Figure()
-    
-    # Add pipeline segments as bars
-    fig.add_trace(go.Bar(
-        x=viz_data['joint_start'],
-        y=[50] * len(viz_data), 
-        width=viz_data['joint length [m]'],
-        base=0,  
-        marker=dict(
-            color=color_values,
-            colorscale=colorscale,
-            cmin=color_values.min(),
-            cmax=color_values.max(),
-            line=dict(color='black', width=1)
-        ),
-        customdata=custom_data,
-        #hovertemplate=hover_template,
-        #showlegend=False,
-        name="Pipeline Joints",
-        # CRITICAL: Enable hover on entire bar area
-        #hoverlabel=dict(namelength=0)
-    ))
-    
-    # Add colorbar
-    fig.update_traces(marker_showscale=True,
-                      selector=dict(type='bar'),
-                      marker_colorbar=dict(
-                          title=color_title,
-                          thickness=15,
-                          len=0.7,
-                          tickformat=".1f"
-                      ))
-    
-    # Simple layout
-    fig.update_layout(
-        title=f"Pipeline Assessment - {method_name}<br><sub>{metric_label} ({aggregation.title()})</sub>",
-        xaxis_title="Distance Along Pipeline (m)",
-        yaxis_title=f"Pipeline Representation (Actual Ø: {pipe_diameter:.2f} m)",
-        plot_bgcolor="white",
-        height=400,
-        hovermode='x unified',
-        yaxis=dict(
-            range=[0, 55],
-            showgrid=False,
-            zeroline=False,
-            showticklabels=False
-        ),
-        xaxis=dict(
-            showgrid=True,
-            gridcolor="rgba(200,200,200,0.3)"
-        ),
-        bargap=0  # No gap between bars
-    )
-    return fig
-
-
-def calculate_intact_pipe_values(pipe_diameter_mm, wall_thickness_mm, smys_mpa):
-    """
-    Calculate theoretical values for an intact pipe (no defects) using the same methods.
-    
-    Parameters:
-    - pipe_diameter_mm: Pipe diameter in mm
-    - wall_thickness_mm: Wall thickness in mm  
-    - smys_mpa: SMYS in MPa
-    
-    Returns:
-    - Dictionary with intact pipe values for each method
-    """
-    # For an intact pipe (0% defect depth), calculate theoretical values
-    intact_values = {}
-    
-    try:
-        # Calculate for each method using 0% depth (intact condition)
-        for method_name, calc_func in [
-            ('b31g', calculate_b31g),
-            ('modified_b31g', calculate_modified_b31g),
-            ('rstreng', calculate_simplified_effective_area_method)
-        ]:
-            if method_name == 'rstreng':
-                # RSTRENG needs width parameter, use a small nominal value
-                result = calc_func(0.01, 1.0, 1.0, pipe_diameter_mm, wall_thickness_mm, smys_mpa)
-            else:
-                # B31G methods only need depth and length
-                result = calc_func(0.01, 1.0, pipe_diameter_mm, wall_thickness_mm, smys_mpa)
-            
-            if result['safe']:
-                intact_values[method_name] = {
-                    'failure_pressure_mpa': result['failure_pressure_mpa'],
-                    'safe_pressure_mpa': result['safe_pressure_mpa'],
-                    'remaining_strength_pct': 100.0  # Intact pipe has 100% strength
-                }
-            else:
-                # Fallback to theoretical calculation if methods fail
-                # Use Barlow's formula: P = 2*SMYS*t/D  
-                theoretical_pressure = (2.0 * smys_mpa * wall_thickness_mm) / pipe_diameter_mm
-                intact_values[method_name] = {
-                    'failure_pressure_mpa': theoretical_pressure,
-                    'safe_pressure_mpa': theoretical_pressure / 1.39,  # Apply safety factor
-                    'remaining_strength_pct': 100.0
-                }
-                
-    except Exception as e:
-        # Ultimate fallback using Barlow's formula
-        theoretical_pressure = (2.0 * smys_mpa * wall_thickness_mm) / pipe_diameter_mm
-        for method_name in ['b31g', 'modified_b31g', 'rstreng']:
-            intact_values[method_name] = {
-                'failure_pressure_mpa': theoretical_pressure,
-                'safe_pressure_mpa': theoretical_pressure / 1.39,
-                'remaining_strength_pct': 100.0
-            }
-    
-    return intact_values
-
-
-def aggregate_assessment_results_by_joint(enhanced_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor=1.39):
-    """
-    Enhanced aggregation that includes wall thickness data for visualization.
-    NEVER uses defaults for critical parameters - all data must be provided.
-    
-    Parameters:
-    - enhanced_df: DataFrame with computed corrosion metrics
-    - joints_df: DataFrame with joint information including wall thickness
-    - pipe_diameter_mm: Pipe diameter in mm (REQUIRED - no defaults)
-    - smys_mpa: SMYS in MPa (REQUIRED - no defaults)
-    - safety_factor: Safety factor used in calculations
-    
-    Returns:
-    - DataFrame with joint-level aggregated assessment results including wall thickness
-    
-    Raises:
-    - ValueError if required parameters are missing or invalid
-    """
-    # Validate critical parameters
-    if pipe_diameter_mm is None or pipe_diameter_mm <= 0:
-        raise ValueError(f"Invalid pipe diameter: {pipe_diameter_mm}. Must be positive value in mm.")
-    
-    if smys_mpa is None or smys_mpa <= 0:
-        raise ValueError(f"Invalid SMYS: {smys_mpa}. Must be positive value in MPa.")
-    
-    # Validate joints_df has required columns
-    required_joint_cols = ['joint number', 'log dist. [m]', 'joint length [m]', 'wt nom [mm]']
-    missing_cols = [col for col in required_joint_cols if col not in joints_df.columns]
-    if missing_cols:
-        raise ValueError(f"joints_df missing required columns: {missing_cols}")
-    
-    # Check for any missing wall thickness values
-    missing_wt_joints = joints_df[joints_df['wt nom [mm]'].isna()]
-    if not missing_wt_joints.empty:
-        raise ValueError(
-            f"CRITICAL: {len(missing_wt_joints)} joints have missing wall thickness values. "
-            f"Joint numbers: {missing_wt_joints['joint number'].tolist()[:10]}... "
-            f"Cannot proceed without complete wall thickness data."
-        )
-    
-    # Check for invalid wall thickness values
-    invalid_wt = joints_df[joints_df['wt nom [mm]'] <= 0]
-    if not invalid_wt.empty:
-        raise ValueError(
-            f"CRITICAL: {len(invalid_wt)} joints have invalid wall thickness (≤0). "
-            f"Joint numbers: {invalid_wt['joint number'].tolist()[:10]}"
-        )
-    
-    # Start with joints dataframe to ensure all joints are included
-    joint_summary = joints_df[required_joint_cols].copy()
-    
-    # Focus only on the 3 core metrics
-    methods = ['b31g', 'modified_b31g', 'simplified_eff_area']
-    metrics = ['failure_pressure_mpa', 'safe_pressure_mpa', 'remaining_strength_pct']
-    
-    # Initialize columns for each method and metric
-    for method in methods:
-        # Initialize columns for the 3 core metrics
-        for metric in metrics:
-            joint_summary[f'{method}_{metric}_defect_count'] = 0
-            joint_summary[f'{method}_{metric}_min'] = np.nan
-            joint_summary[f'{method}_{metric}_max'] = np.nan
-            joint_summary[f'{method}_{metric}_avg'] = np.nan
-        
-        # Initialize safety columns (needed for enhanced hover info)
-        joint_summary[f'{method}_total_defects'] = 0
-        joint_summary[f'{method}_safe_defects'] = 0
-    
-    # Process defects by joint if enhanced_df has data
-    if len(enhanced_df) > 0:
-        # Group enhanced_df by joint number
-        for joint_num in joint_summary['joint number'].unique():
-            joint_defects = enhanced_df[enhanced_df['joint number'] == joint_num]
-            
-            if len(joint_defects) == 0:
-                continue  # No defects in this joint
-            
-            # Get the row index for this joint in joint_summary
-            joint_idx = joint_summary[joint_summary['joint number'] == joint_num].index[0]
-            
-            # Calculate statistics for each method
-            for method in methods:
-                # Count total and safe defects
-                safe_col = f'{method}_safe'
-                if safe_col in joint_defects.columns:
-                    total_defects = len(joint_defects)
-                    safe_defects = joint_defects[safe_col].sum()
-                    
-                    joint_summary.loc[joint_idx, f'{method}_total_defects'] = total_defects
-                    joint_summary.loc[joint_idx, f'{method}_safe_defects'] = safe_defects
-                
-                # Calculate statistics for each metric
-                for metric in metrics:
-                    col_name = f'{method}_{metric}'
-                    if col_name in joint_defects.columns:
-                        # Get valid (non-null) values
-                        valid_values = joint_defects[col_name].dropna()
-                        
-                        if len(valid_values) > 0:
-                            joint_summary.loc[joint_idx, f'{col_name}_defect_count'] = len(valid_values)
-                            joint_summary.loc[joint_idx, f'{col_name}_min'] = valid_values.min()
-                            joint_summary.loc[joint_idx, f'{col_name}_max'] = valid_values.max()
-                            joint_summary.loc[joint_idx, f'{col_name}_avg'] = valid_values.mean()
-    
-    # Calculate intact pipe values for joints without defects
-    # Each joint may have different wall thickness, so calculate per joint
-    for idx, joint in joint_summary.iterrows():
-        joint_wt = joint['wt nom [mm]']
-        
-        # Validate wall thickness for this specific joint
-        if pd.isna(joint_wt) or joint_wt <= 0:
-            raise ValueError(f"Invalid wall thickness {joint_wt} for joint {joint['joint number']}")
-        
-        # For joints with no defects, calculate intact pipe values
-        for method in methods:
-            if joint_summary.loc[idx, f'{method}_total_defects'] == 0:
-                # Calculate theoretical intact pipe values for this specific joint
-                # Using the actual wall thickness for THIS joint
-                
-                if method == 'b31g':
-                    # B31G uses flow stress = 1.1 * SMYS
-                    flow_stress = 1.1 * smys_mpa
-                    theoretical_pressure = (2.0 * flow_stress * joint_wt) / pipe_diameter_mm
-                elif method == 'modified_b31g':
-                    # Modified B31G uses flow stress = SMYS + 69 MPa
-                    flow_stress = smys_mpa + 69.0
-                    theoretical_pressure = (2.0 * flow_stress * joint_wt) / pipe_diameter_mm
-                elif method == 'effective_area':
-                    # Effective area method (simplified RSTRENG) similar to Modified B31G
-                    flow_stress = smys_mpa + 69.0
-                    theoretical_pressure = (2.0 * flow_stress * joint_wt) / pipe_diameter_mm
-                
-                safe_pressure = theoretical_pressure / safety_factor
-                
-                # Set all statistics to intact pipe values
-                for metric in metrics:
-                    if metric == 'failure_pressure_mpa':
-                        value = theoretical_pressure
-                    elif metric == 'safe_pressure_mpa':
-                        value = safe_pressure
-                    elif metric == 'remaining_strength_pct':
-                        value = 100.0
-                    
-                    joint_summary.loc[idx, f'{method}_{metric}_min'] = value
-                    joint_summary.loc[idx, f'{method}_{metric}_max'] = value
-                    joint_summary.loc[idx, f'{method}_{metric}_avg'] = value
-    
-    # Add a summary column for quick reference
-    joint_summary['has_defects'] = joint_summary['b31g_total_defects'] > 0
-    
-    # Validate output
-    # Ensure no NaN values in critical columns for joints without defects
-    for method in methods:
-        for metric in metrics:
-            col_min = f'{method}_{metric}_min'
-            intact_joints = joint_summary[~joint_summary['has_defects']]
-            if not intact_joints.empty:
-                nan_count = intact_joints[col_min].isna().sum()
-                if nan_count > 0:
-                    raise ValueError(
-                        f"Internal error: {nan_count} intact joints have NaN values "
-                        f"for {col_min}. This should not happen."
-                    )
-    
-    return joint_summary
 
 
 def render_corrosion_assessment_view():
@@ -1757,10 +1397,10 @@ def render_corrosion_assessment_view():
         # Add ERF interpretation guide
         st.markdown("#### 📊 ERF (Estimated Repair Factor) Interpretation")
         st.markdown("""
-        **ERF = Max Allowable Pressure / Safe Working Pressure**
-        - **ERF ≤ 1.0**: ✅ Defect acceptable for normal operations
-        - **ERF > 1.0**: ⚠️ Repair required or pressure reduction needed
-        - **Higher ERF values**: More severe defects requiring immediate attention
+        **ERF = Safe Working Pressure / Max Allowable Pressure**
+        - **ERF ≥ 1.0**: ✅ Defect acceptable for normal operations
+        - **ERF < 1.0**: ⚠️ Repair required or pressure reduction needed
+        - **Higher ERF values**: Better condition, more safety margin
         """)
 
         # Export Section
@@ -1780,63 +1420,3 @@ def render_corrosion_assessment_view():
         """)
 
         st.markdown('</div>', unsafe_allow_html=True)  # Close export container
-
-
-# Add this section in the Enhanced Dataset Preview area of render_corrosion_assessment_view()
-
-def display_erf_info():
-    """
-    Display information about Estimated Repair Factor (ERF) for users.
-    """
-    with st.expander("ℹ️ About Estimated Repair Factor (ERF)", expanded=False):
-        st.markdown("""
-        **Estimated Repair Factor (ERF)** is a key metric in pipeline integrity assessment:
-        
-        **Formula:** `ERF = MAOP / Safe Working Pressure`
-        
-        **Interpretation:**
-        - **ERF ≤ 1.0**: ✅ Defect is acceptable, normal operations can continue
-        - **ERF > 1.0**: ⚠️ Repair required or MAOP must be reduced
-        
-        **Physical Meaning:**
-        - ERF represents how much the pipeline's operating capacity has been reduced due to corrosion
-        - Higher ERF values indicate more severe defects requiring immediate attention
-        - ERF is another way of expressing ASME B31G assessment results
-        
-        **Examples:**
-        - ERF = 0.8: Pipeline can safely operate at 80% of MAOP
-        - ERF = 1.2: Pipeline requires repair or 20% pressure reduction
-        """)
-
-# Add this to the Enhanced Dataset Preview section after the enhanced_df is displayed
-def add_erf_summary_metrics(enhanced_df, pressure_summary):
-    """
-    Display ERF summary metrics for quick assessment.
-    """
-    st.subheader("📊 ERF Summary Statistics")
-    
-    methods = ['b31g', 'modified_b31g', 'simplified_eff_area']
-    method_names = ['B31G', 'Modified B31G', 'Simplified Eff. Area']
-    
-    cols = st.columns(3)
-    
-    for i, (method, name) in enumerate(zip(methods, method_names)):
-        with cols[i]:
-            st.metric(
-                f"{name} - Max ERF",
-                f"{pressure_summary[method]['erf_max']:.2f}",
-                delta=f"Avg: {pressure_summary[method]['erf_mean']:.2f}"
-            )
-            
-            total_defects = pressure_summary[method]['total_valid_defects']
-            requires_action = pressure_summary[method]['defects_erf_greater_than_1']
-            
-            if total_defects > 0:
-                pct_requires_action = (requires_action / total_defects * 100)
-                st.metric(
-                    "Requires Action",
-                    f"{requires_action}/{total_defects}",
-                    f"{pct_requires_action:.1f}%"
-                )
-            else:
-                st.metric("Requires Action", "0/0", "N/A")

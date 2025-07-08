@@ -294,8 +294,7 @@ def calculate_iterative_failure_pressure(initial_depth_pct: float, initial_lengt
         
         # Calculate failure pressure for each method using assessment-valid dimensions
         try:
-            b31g_result = calculate_b31g(current_depth, assessment_length, pipe_diameter_mm, 
-                                       wall_thickness_mm, smys_mpa, safety_factor)
+            b31g_result = calculate_b31g(current_depth, assessment_length, pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor)
             results['b31g_failure_pressure'].append(
                 b31g_result['failure_pressure_mpa'] if b31g_result['safe'] else 0
             )
