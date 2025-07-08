@@ -6,7 +6,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import math
-import plotly.graph_objects as go
 import base64
 from app.ui_components import create_metrics_row
 from app.services.state_manager import get_state
@@ -311,7 +310,7 @@ def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, 
                 )
                 
                 # Calculate ERF = Safe Working Pressure / MAOP 
-                erf_value = safe_pressure / max_allowable_pressure_mpa if max_allowable_pressure_mpa > 0 else float('inf')
+                erf_value = max_allowable_pressure_mpa / safe_pressure if max_allowable_pressure_mpa > 0 else float('inf')
                 
                 # Direct assignment of all assessment results
                 enhanced_df.loc[idx, f'{method}_pressure_status'] = pressure_assessment['pressure_status']
@@ -1388,18 +1387,12 @@ def render_corrosion_assessment_view():
             'simplified_eff_area_erf'
         ]
 
-        # Combine all columns
-        preview_cols = display_cols + assessment_cols + pressure_cols + erf_cols
-
-        # Only include columns that actually exist
-        available_preview_cols = [col for col in preview_cols if col in enhanced_df.columns]
-
         # Add ERF interpretation guide
         st.markdown("#### 📊 ERF (Estimated Repair Factor) Interpretation")
         st.markdown("""
         **ERF = Safe Working Pressure / Max Allowable Pressure**
-        - **ERF ≥ 1.0**: ✅ Defect acceptable for normal operations
-        - **ERF < 1.0**: ⚠️ Repair required or pressure reduction needed
+        - **ERF ⩽ 0.9**: ✅ Defect acceptable for normal operations
+        - **ERF > 0.9**: ⚠️ Repair required or pressure reduction needed
         - **Higher ERF values**: Better condition, more safety margin
         """)
 
