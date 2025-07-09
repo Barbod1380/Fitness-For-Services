@@ -20,18 +20,6 @@ DEFAULT_KNN_NEIGHBORS = 3  # Default number of neighbors for KNN algorithm
 DEFAULT_DISTANCE_TOLERANCE = 0.01  # Default distance tolerance for matching defects (meters)
 DEFAULT_CLOCK_TOLERANCE = 20  # Default clock position tolerance for matching defects (minutes)
 
-# NEW: Clustering settings
-CLUSTERING_CONFIG = {
-    'min_defects_for_clustering': 5,
-    'max_clusters_kmeans': 15,
-    'default_kmeans_clusters': 5,
-    'default_dbscan_eps': 0.5,
-    'default_dbscan_min_samples': 5,
-    'silhouette_threshold_good': 0.5,
-    'silhouette_threshold_excellent': 0.7,
-    'max_optimization_iterations': 50
-}
-
 # UI settings
 SINGLE_YEAR_TAB_LABEL = "Single Year Analysis"
 MULTI_YEAR_TAB_LABEL = "Multi-Year Comparison"

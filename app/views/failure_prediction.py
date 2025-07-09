@@ -5,11 +5,10 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from typing import Dict
-from app.ui_components.charts import create_metrics_row
 from app.services.state_manager import get_state
 
 from analysis.failure_prediction import predict_joint_failures_over_time
-from visualization.failure_prediction_viz import create_failure_prediction_chart, create_failure_summary_metrics, create_failure_details_table
+from visualization.failure_prediction_viz import create_failure_prediction_chart, create_failure_details_table
 from visualization.joint_failure_viz import create_joint_failure_visualization, create_joint_failure_timeline_chart
 
 

@@ -16,384 +16,417 @@ from app.services.state_manager import *
 def display_comparison_visualization_tabs(comparison_results, earlier_year, later_year):
     """Display the consolidated visualization tabs for comparison results."""
     
-    # Create visualization tabs
-    viz_tabs = st.tabs([
-        "New vs Common", "New Defect Types", "Negative Growth Correction", "Growth Rate Analysis", "Remaining Life Analysis", "Dynamic Clustering Simulation"
-    ])
-    
+    viz_tabs = st.tabs(["Defect Overview", "Growth Analysis & Correction", "Remaining Life Analysis"])
+
     with viz_tabs[0]:
-        # Pie chart of common vs new defects
-        pie_fig = create_comparison_stats_plot(comparison_results)
-        st.plotly_chart(pie_fig, use_container_width=True, config={'displayModeBar': False})
+        # Combined overview showing both pie chart and defect types
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            pie_fig = create_comparison_stats_plot(comparison_results)
+            st.plotly_chart(pie_fig, use_container_width=True, config={'displayModeBar': False})
+        
+        with col2:
+            bar_fig = create_new_defect_types_plot(comparison_results)
+            st.plotly_chart(bar_fig, use_container_width=True, config={'displayModeBar': False})
     
+    # Growth Analysis & Correction tab
     with viz_tabs[1]:
-        # Bar chart of new defect types
-        bar_fig = create_new_defect_types_plot(comparison_results)
-        st.plotly_chart(bar_fig, use_container_width=True, config={'displayModeBar': False})
-    
-    # Negative Growth Correction tab
-    with viz_tabs[2]:
-        st.subheader("Growth Analysis with Correction")
+        st.markdown("""
+        <div style="background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%); 
+                    padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+            <h2 style="color: white; margin: 0; font-size: 1.5rem;">
+                🔬 Growth Analysis & Automated Correction
+            </h2>
+            <p style="color: #e2e8f0; margin: 5px 0 0 0; font-size: 0.9rem;">
+                Analyze defect growth patterns with intelligent negative growth correction
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Add dimension selection to this tab
-        st.markdown("#### Select Dimension for Analysis")
-        
-        # Get available dimensions
-        available_dimensions = []
-        if comparison_results.get('has_depth_data', False):
-            available_dimensions.append('depth')
-        if comparison_results.get('has_length_data', False):
-            available_dimensions.append('length')
-        if comparison_results.get('has_width_data', False):
-            available_dimensions.append('width')
-        
-        if not available_dimensions:
-            st.warning("No growth data available for any dimension.")
-        else:
-            # Create a unique key for the selectbox
-            select_key = f"correction_dimension_{earlier_year}_{later_year}"
-
-            # Initialize the selectbox state if it doesn't exist
-            if select_key not in st.session_state:
-                st.session_state[select_key] = 'depth' if 'depth' in available_dimensions else available_dimensions[0]
-
-            if st.session_state[select_key] not in available_dimensions:
-                st.session_state[select_key] = available_dimensions[0] 
-
-            # Create the selectbox - Streamlit automatically syncs with st.session_state[select_key]
-            selected_dimension = st.selectbox(
-                "Choose dimension to analyze",
-                options=available_dimensions,
-                key=select_key,
-                help="Select which defect dimension to analyze for growth patterns"
-            )
+        # === STEP 1: DIMENSION SELECTION ===
+        with st.container():
+            st.markdown("### 📊 Step 1: Select Analysis Dimension")
             
-            # Show growth plot for selected dimension
-            st.markdown(f"#### {selected_dimension.title()} Growth Data")
+            # Get available dimensions
+            available_dimensions = []
+            if comparison_results.get('has_depth_data', False):
+                available_dimensions.append('depth')
+            if comparison_results.get('has_length_data', False):
+                available_dimensions.append('length')
+            if comparison_results.get('has_width_data', False):
+                available_dimensions.append('width')
             
-            # Show the selected dimension plot
-            original_plot = create_negative_growth_plot(comparison_results, dimension=selected_dimension)
-            st.plotly_chart(original_plot, use_container_width=True, config={'displayModeBar': False})
+            if not available_dimensions:
+                st.error("❌ **No growth data available**")
+                st.info("Please ensure both datasets have dimension measurements (depth, length, or width).")
+                return
             
-            # Only show correction controls for depth dimension
-            if selected_dimension == 'depth':
-                # Check if depth data is available for correction
-                if not (comparison_results.get('has_depth_data', False) and 'is_negative_growth' in comparison_results['matches_df'].columns):
-                    st.warning("No depth growth data available for correction. Make sure both datasets have depth measurements.")
-                else:
-                    # Display negative depth growth summary
-                    neg_count = comparison_results['matches_df']['is_negative_growth'].sum()
-                    total_count = len(comparison_results['matches_df'])
-                    pct = (neg_count / total_count) * 100 if total_count > 0 else 0
-                    
-                    st.markdown("#### Negative Depth Growth Summary")
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.markdown(custom_metric("Total Defects", f"{total_count}"), unsafe_allow_html=True)
-                    with col2:
-                        st.markdown(custom_metric("Negative Growth", f"{neg_count}"), unsafe_allow_html=True)
-                    with col3:
-                        st.markdown(custom_metric("Percentage", f"{pct:.1f}%"), unsafe_allow_html=True)
-                    
-                    # Show corrected results if available
-                    if st.session_state.corrected_results is not None:
-                        corrected_results = st.session_state.corrected_results
-                        correction_info = corrected_results.get('correction_info', {})
-                        
-                        if correction_info.get("success", False):
-                            st.markdown("#### Correction Results")
-                            st.success(f"Successfully corrected {correction_info['corrected_count']} out of {correction_info['total_negative']} negative depth growth defects.")
-                            
-                            if correction_info['uncorrected_count'] > 0:
-                                st.warning(f"Could not correct {correction_info['uncorrected_count']} defects in {len(correction_info['uncorrected_joints'])} joints due to insufficient similar defects.")
-                            
-                            # Show corrected growth plot
-                            st.markdown("#### Corrected Depth Growth Data")
-                            corrected_plot = create_negative_growth_plot(corrected_results, dimension='depth')
-                            st.plotly_chart(corrected_plot, use_container_width=True, config={'displayModeBar': False})
-                            
-                            # Legend
-                            st.markdown("""
-                            **Legend:**
-                            - Blue circles: Positive growth (unchanged)
-                            - Red triangles: Negative growth (uncorrected)
-                            - Green diamonds: Corrected growth (formerly negative)
-                            """)
-                    
-                    # Show KNN correction controls only if there are negative growth defects
-                    if neg_count > 0:
-                        # Check if joint numbers are available for KNN correction
-                        has_joint_num = comparison_results.get('has_joint_num', False)
-                        if not has_joint_num:
-                            st.warning("""
-                            **Joint numbers not available for correction**
-                            
-                            The KNN correction requires the 'joint number' column to be present in your defect data.
-                            Please ensure both datasets have this column properly mapped.
-                            """)
+            # Dimension selection with enhanced UI
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                select_key = f"analysis_dimension_{earlier_year}_{later_year}"
+                if select_key not in st.session_state:
+                    st.session_state[select_key] = 'depth' if 'depth' in available_dimensions else available_dimensions[0]
+                
+                if st.session_state[select_key] not in available_dimensions:
+                    st.session_state[select_key] = available_dimensions[0]
+                
+                selected_dimension = st.selectbox(
+                    "Choose dimension for analysis",
+                    options=available_dimensions,
+                    key=select_key,
+                    help="Select which defect dimension to analyze for growth patterns",
+                    format_func=lambda x: f"🔍 {x.title()} Growth Analysis"
+                )
+            
+            with col2:
+                # Show dimension status badges
+                status_badges = []
+                for dim in ['depth', 'length', 'width']:
+                    if dim in available_dimensions:
+                        if dim == selected_dimension:
+                            status_badges.append(f"🟢 {dim.title()} (Active)")
                         else:
-                            # KNN correction controls
-                            st.markdown("#### Apply KNN Correction to Depth")
+                            status_badges.append(f"🔵 {dim.title()} (Available)")
+                    else:
+                        status_badges.append(f"⚪ {dim.title()} (N/A)")
+                
+                st.markdown("**Available Dimensions:**")
+                for badge in status_badges:
+                    st.markdown(f"- {badge}")
+        
+        st.markdown("---")
+        
+        # === STEP 2: VISUAL DATA PRESENTATION ===
+        with st.container():
+            st.markdown(f"### 📈 Step 2: {selected_dimension.title()} Growth Visualization")
+            
+            # Show the growth plot in a nice container
+            with st.expander(f"📊 {selected_dimension.title()} Growth Data Plot", expanded=True):
+                original_plot = create_negative_growth_plot(comparison_results, dimension=selected_dimension)
+                st.plotly_chart(original_plot, use_container_width=True, config={'displayModeBar': False})
+        
+        st.markdown("---")
+        
+        # === STEP 3: ANALYSIS & CORRECTION (DEPTH ONLY) ===
+        if selected_dimension == 'depth':
+            # Check if depth data is available for correction
+            if not (comparison_results.get('has_depth_data', False) and 'is_negative_growth' in comparison_results['matches_df'].columns):
+                st.error("❌ **Depth Analysis Unavailable**")
+                st.warning("No depth growth data available for correction. Make sure both datasets have depth measurements.")
+            else:
+                st.markdown("### 🎯 Step 3: Depth Analysis & Intelligent Correction")
+                
+                # Calculate key metrics
+                neg_count = comparison_results['matches_df']['is_negative_growth'].sum()
+                total_count = len(comparison_results['matches_df'])
+                pct = (neg_count / total_count) * 100 if total_count > 0 else 0
+                
+                # === ANALYSIS SUMMARY ===
+                st.markdown("#### 📋 Analysis Summary")
+                
+                # Enhanced metrics display
+                metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+                
+                with metric_col1:
+                    st.markdown(f"""
+                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6;">
+                        <div style="font-size: 2rem; font-weight: bold; color: #1e40af;">{total_count}</div>
+                        <div style="color: #64748b; font-size: 0.9rem;">Total Defects</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with metric_col2:
+                    color = "#ef4444" if neg_count > 0 else "#10b981"
+                    st.markdown(f"""
+                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid {color};">
+                        <div style="font-size: 2rem; font-weight: bold; color: {color};">{neg_count}</div>
+                        <div style="color: #64748b; font-size: 0.9rem;">Negative Growth</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with metric_col3:
+                    color = "#ef4444" if pct > 10 else "#f59e0b" if pct > 5 else "#10b981"
+                    st.markdown(f"""
+                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid {color};">
+                        <div style="font-size: 2rem; font-weight: bold; color: {color};">{pct:.1f}%</div>
+                        <div style="color: #64748b; font-size: 0.9rem;">Anomaly Rate</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with metric_col4:
+                    # Correction status
+                    corrected = st.session_state.corrected_results is not None
+                    if corrected:
+                        correction_info = st.session_state.corrected_results.get('correction_info', {})
+                        corrected_count = correction_info.get('corrected_count', 0)
+                        status_text = f"{corrected_count}"
+                        status_color = "#10b981"
+                        label = "Corrected"
+                    else:
+                        status_text = "Pending"
+                        status_color = "#f59e0b"
+                        label = "Status"
+                    
+                    st.markdown(f"""
+                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid {status_color};">
+                        <div style="font-size: 2rem; font-weight: bold; color: {status_color};">{status_text}</div>
+                        <div style="color: #64748b; font-size: 0.9rem;">{label}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # === CORRECTION WORKFLOW ===
+                if neg_count > 0:
+                    st.markdown("#### 🔧 KNN Correction Workflow")
+                    
+                    # Check if joint numbers are available
+                    has_joint_num = comparison_results.get('has_joint_num', False)
+                    if not has_joint_num:
+                        st.error("""
+                        ❌ **Prerequisites Missing**
+                        
+                        KNN correction requires 'joint number' column in your defect data.
+                        Please ensure both datasets have this column properly mapped.
+                        """)
+                    else:
+                        # Show correction status and controls
+                        if st.session_state.corrected_results is None:
+                            # Pre-correction state
+                            st.info("""
+                            🤖 **Intelligent KNN Correction Ready**
                             
-                            k_neighbors = st.slider(
-                                "Number of Similar Defects (K) for Correction",
-                                min_value=1,
-                                max_value=5,
-                                value=3,  # Default value
-                                key=f"k_neighbors_{earlier_year}_{later_year}",
-                                help="Number of similar defects with positive growth to use for estimating corrected depth growth rates"
-                            )
+                            - **Algorithm**: K-Nearest Neighbors (K=5)
+                            - **Method**: Match negative growth defects to similar nearby defects
+                            - **Criteria**: Defect type, depth, dimensions, and location
+                            - **Safety**: Conservative engineering approach using measured data
+                            """)
                             
-                            # Correction form
-                            with st.form(key=f"depth_correction_form_{earlier_year}_{later_year}"):
-                                st.write("Click the button below to apply KNN correction to negative depth growth:")
-                                submit_correction = st.form_submit_button("Apply Depth Correction", use_container_width=True)
-                                
-                                if submit_correction:
-                                    with st.spinner("Correcting negative depth growth rates using KNN..."):
+                            # Correction button with enhanced styling
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            
+                            button_col1, button_col2, button_col3 = st.columns([1, 2, 1])
+                            with button_col2:
+                                if st.button(
+                                    "🚀 Apply KNN Correction (K=5)", 
+                                    use_container_width=True, 
+                                    type="primary",
+                                    help="Apply intelligent correction to negative depth growth anomalies"
+                                ):
+                                    with st.spinner("🔄 Applying KNN correction with K=5 neighbors..."):
                                         try:
                                             corrected_results = st.session_state.comparison_results.copy()
                                             
-                                            # Apply the correction
+                                            # Apply correction
                                             corrected_df, correction_info = correct_negative_growth_rates(
                                                 st.session_state.comparison_results['matches_df'], 
-                                                k=k_neighbors
+                                                k=5
                                             )
                                             
                                             corrected_results['matches_df'] = corrected_df
                                             corrected_results['correction_info'] = correction_info
                                             
-                                            # Update growth stats if correction was successful
+                                            # Update growth stats
                                             if correction_info.get("updated_growth_stats"):
                                                 corrected_results['growth_stats'] = correction_info['updated_growth_stats']
                                             
                                             st.session_state.corrected_results = corrected_results
                                             
                                             if correction_info.get("success", False):
-                                                st.success(f"Successfully corrected {correction_info['corrected_count']} out of {correction_info['total_negative']} negative depth growth defects.")
-                                                
+                                                st.success(f"✅ Successfully corrected {correction_info['corrected_count']} out of {correction_info['total_negative']} defects!")
                                                 if correction_info['uncorrected_count'] > 0:
-                                                    st.warning(f"Could not correct {correction_info['uncorrected_count']} defects in {len(correction_info['uncorrected_joints'])} joints due to insufficient similar defects.")
-                                                
+                                                    st.warning(f"⚠️ {correction_info['uncorrected_count']} defects couldn't be corrected (insufficient similar defects)")
                                                 st.rerun()
                                             else:
-                                                st.error(f"Could not apply correction: {correction_info.get('error', 'Unknown error')}")
+                                                st.error(f"❌ Correction failed: {correction_info.get('error', 'Unknown error')}")
                                         except Exception as e:
-                                            st.error(f"Error during correction: {str(e)}")
-                                            st.info("This could be due to missing sklearn library or incompatible data. Please check that your data has all required fields: joint number, length, width, and depth.")
-            else:
-                # For length and width dimensions, show analysis but no correction
-                st.info(f"""
-                **{selected_dimension.title()} Growth Analysis**
-                
-                You are viewing {selected_dimension} growth analysis. The plot above shows how {selected_dimension} measurements 
-                changed between inspections. 
-                
-                **Note**: KNN correction is only available for depth measurements. Switch to 'depth' dimension 
-                to access correction features.
-                """)
-                
-                # Show basic stats for length/width
-                matches_df = comparison_results['matches_df']
-                
-                if selected_dimension == 'length' and comparison_results.get('has_length_data', False):
-                    if 'is_negative_length_growth' in matches_df.columns:
-                        neg_count = matches_df['is_negative_length_growth'].sum()
-                        total_count = len(matches_df)
-                        pct = (neg_count / total_count) * 100 if total_count > 0 else 0
-                        
-                        st.markdown("#### Length Growth Summary")
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.markdown(custom_metric("Total Defects", f"{total_count}"), unsafe_allow_html=True)
-                        with col2:
-                            st.markdown(custom_metric("Negative Growth", f"{neg_count}"), unsafe_allow_html=True)
-                        with col3:
-                            st.markdown(custom_metric("Percentage", f"{pct:.1f}%"), unsafe_allow_html=True)
-                
-                elif selected_dimension == 'width' and comparison_results.get('has_width_data', False):
-                    if 'is_negative_width_growth' in matches_df.columns:
-                        neg_count = matches_df['is_negative_width_growth'].sum()
-                        total_count = len(matches_df)
-                        pct = (neg_count / total_count) * 100 if total_count > 0 else 0
-                        
-                        st.markdown("#### Width Growth Summary")
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.markdown(custom_metric("Total Defects", f"{total_count}"), unsafe_allow_html=True)
-                        with col2:
-                            st.markdown(custom_metric("Negative Growth", f"{neg_count}"), unsafe_allow_html=True)
-                        with col3:
-                            st.markdown(custom_metric("Percentage", f"{pct:.1f}%"), unsafe_allow_html=True)
-    
-    # Growth Rate Analysis tab
-    with viz_tabs[3]:
-        st.subheader("Growth Rate Analysis")
-        
-        # Add dimension selection to this tab
-        st.markdown("#### Select Dimension for Growth Rate Analysis")        
-
-        # Get current dimension from session state
-        current_dimension = get_state('growth_analysis_dimension', 'depth')
-        
-        # All available dimensions
-        dimensions = ['depth', 'length', 'width']
-        
-        # Create a unique key
-        select_key = f"growth_dimension_{earlier_year}_{later_year}"
-
-        # Initialize if needed
-        if select_key not in st.session_state:
-            st.session_state[select_key] = 'depth'
-
-        # Ensure valid
-        if st.session_state[select_key] not in ['depth', 'length', 'width']:
-            st.session_state[select_key] = 'depth'
-
-        # Create the selectbox
-        growth_dimension = st.selectbox(
-            "Choose dimension for growth rate analysis",
-            options=['depth', 'length', 'width'],
-            key=select_key,
-            help="Select which defect dimension to analyze for growth rate statistics"
-        )
-        
-        # Check if selection changed
-        if growth_dimension != current_dimension:
-            # Update session state
-            update_state('growth_analysis_dimension', growth_dimension)
-
-        st.session_state.growth_analysis_dimension = growth_dimension
-        
-        # Use the comparison_results parameter directly, check for corrected results in session state
-        results_to_use = (
-            st.session_state.corrected_results 
-            if st.session_state.get("corrected_results") is not None 
-            else st.session_state.get("comparison_results")
-        )
-        
-        if results_to_use is None:
-            st.info("No comparison data available.")
-        else:
-            matches_df = results_to_use.get('matches_df', pd.DataFrame())
-            
-            if matches_df.empty:
-                st.warning("No comparison data available in the results.")
-            else:
-                # Define dimension-specific column names and check if they exist in the dataframe
-                dimension_columns = {
-                    'depth': {
-                        'negative_flag': 'is_negative_growth',
-                        'growth_rate_cols': ['growth_rate_mm_per_year', 'growth_rate_pct_per_year']
-                    },
-                    'length': {
-                        'negative_flag': 'is_negative_length_growth', 
-                        'growth_rate_cols': ['length_growth_rate_mm_per_year']
-                    },
-                    'width': {
-                        'negative_flag': 'is_negative_width_growth',
-                        'growth_rate_cols': ['width_growth_rate_mm_per_year']
-                    }
-                }
-                
-                # Check if the selected dimension has the required columns
-                dim_config = dimension_columns.get(growth_dimension)
-                if not dim_config:
-                    st.warning(f"Invalid dimension selected: {growth_dimension}")
-                else:
-                    negative_flag = dim_config['negative_flag']
-                    growth_rate_cols = dim_config['growth_rate_cols']
-                    
-                    # Find which growth rate column exists in the dataframe
-                    available_growth_col = None
-                    for col in growth_rate_cols:
-                        if col in matches_df.columns:
-                            available_growth_col = col
-                            break
-                    
-                    # Check if we have the minimum required columns
-                    if negative_flag not in matches_df.columns or available_growth_col is None:
-                        st.warning(f"""
-                        **No {growth_dimension} growth data available**
-                        
-                        Required columns missing from comparison results:
-                        - Negative flag: {'✅' if negative_flag in matches_df.columns else '❌'} `{negative_flag}`
-                        - Growth rate: {'✅' if available_growth_col else '❌'} `{' or '.join(growth_rate_cols)}`
-                        
-                        Make sure both datasets have {growth_dimension} measurements and valid year values.
-                        
-                        Available columns in matches_df: {list(matches_df.columns)}
-                        """)
-                    else:
-                        # Show correction status if applicable
-                        if growth_dimension == 'depth' and 'correction_info' in results_to_use and results_to_use['correction_info'].get('success', False):
-                            st.success("Showing analysis with corrected depth growth rates. The negative growth defects have been adjusted based on similar defects.")
-                        
-                        # Display growth rate statistics
-                        st.markdown(f"#### {growth_dimension.title()} Growth Statistics")
-                        
-                        # Determine the unit based on the column name
-                        if 'mm_per_year' in available_growth_col:
-                            unit = 'mm/year'
-                        elif 'pct_per_year' in available_growth_col:
-                            unit = '%/year'
+                                            st.error(f"❌ Error during correction: {str(e)}")
+                                            st.info("💡 Check data requirements: joint number, length, width, and depth columns")
                         else:
-                            unit = 'units/year'
-                        
-                        # Calculate statistics dynamically (ensures they show immediately after comparison)
-                        negative_count = matches_df[negative_flag].sum()
-                        total_count = len(matches_df)
-                        pct_negative = (negative_count / total_count) * 100 if total_count > 0 else 0
-                        
-                        # Calculate positive growth statistics
-                        positive_growth = matches_df[~matches_df[negative_flag]]
-                        avg_growth = positive_growth[available_growth_col].mean() if len(positive_growth) > 0 else 0
-                        max_growth = positive_growth[available_growth_col].max() if len(positive_growth) > 0 else 0
-                        
-                        # Display statistics
-                        stats_cols = st.columns(3)
-                        
-                        with stats_cols[0]:
-                            st.markdown(
-                                custom_metric(
-                                    f"Avg {growth_dimension.title()} Growth Rate", 
-                                    f"{avg_growth:.3f} {unit}"
-                                ), 
-                                unsafe_allow_html=True
-                            )
-                        
-                        with stats_cols[1]:
-                            st.markdown(
-                                custom_metric(
-                                    f"Max {growth_dimension.title()} Growth Rate", 
-                                    f"{max_growth:.3f} {unit}"
-                                ), 
-                                unsafe_allow_html=True
-                            )
-                        
-                        with stats_cols[2]:
-                            st.markdown(
-                                custom_metric(
-                                    "Negative Growth", 
-                                    f"{negative_count} ({pct_negative:.1f}%)"
-                                ), 
-                                unsafe_allow_html=True
-                            )
-                        
-                        # Show histogram for selected dimension
-                        st.markdown(f"#### {growth_dimension.title()} Growth Rate Distribution")
+                            # Post-correction state
+                            correction_info = st.session_state.corrected_results.get('correction_info', {})
+                            
+                            if correction_info.get("success", False):
+                                st.success(f"""
+                                ✅ **Correction Complete**
+                                
+                                - **Corrected**: {correction_info['corrected_count']} out of {correction_info['total_negative']} negative growth defects
+                                - **Method**: K-Nearest Neighbors (K=5)
+                                - **Success Rate**: {(correction_info['corrected_count']/correction_info['total_negative']*100):.1f}%
+                                """)
+                                
+                                if correction_info['uncorrected_count'] > 0:
+                                    st.warning(f"""
+                                    ⚠️ **Partial Correction**
+                                    
+                                    {correction_info['uncorrected_count']} defects in {len(correction_info['uncorrected_joints'])} joints 
+                                    could not be corrected due to insufficient similar defects for reliable estimation.
+                                    """)
+                                
+                                # Show corrected visualization
+                                st.markdown("#### 🎨 Corrected Growth Visualization")
+                                with st.expander("📊 View Corrected Data Plot", expanded=True):
+                                    corrected_plot = create_negative_growth_plot(st.session_state.corrected_results, dimension='depth')
+                                    st.plotly_chart(corrected_plot, use_container_width=True, config={'displayModeBar': False})
+                                    
+                                    # Legend
+                                    st.markdown("""
+                                    **Legend:**
+                                    - 🔵 **Blue Circles**: Natural positive growth (unchanged)
+                                    - 🔴 **Red Triangles**: Negative growth (uncorrected anomalies)
+                                    - 🟢 **Green Diamonds**: Corrected growth (formerly negative)
+                                    """)
+                else:
+                    st.success("""
+                    ✅ **Excellent Data Quality**
+                    
+                    No negative depth growth detected! Your data shows consistent, realistic growth patterns.
+                    """)
+                
+                # === GROWTH STATISTICS ===
+                st.markdown("#### 📊 Growth Rate Statistics")
+                
+                # Use corrected data if available
+                results_to_use = st.session_state.corrected_results if st.session_state.corrected_results is not None else comparison_results
+                matches_df = results_to_use.get('matches_df', pd.DataFrame())
+                
+                if not matches_df.empty and 'growth_rate_pct_per_year' in matches_df.columns:
+                    # Calculate statistics
+                    negative_count = matches_df['is_negative_growth'].sum()
+                    positive_growth = matches_df[~matches_df['is_negative_growth']]
+                    avg_growth = positive_growth['growth_rate_pct_per_year'].mean() if len(positive_growth) > 0 else 0
+                    max_growth = positive_growth['growth_rate_pct_per_year'].max() if len(positive_growth) > 0 else 0
+                    
+                    # Statistics display
+                    stats_col1, stats_col2, stats_col3 = st.columns(3)
+                    
+                    unit = '%/year' if not comparison_results.get('has_wt_data', False) else 'mm/year'
+                    
+                    with stats_col1:
+                        st.markdown(f"""
+                        <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #0369a1;">{avg_growth:.3f}</div>
+                            <div style="color: #0284c7; font-size: 0.9rem;">Average Growth ({unit})</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with stats_col2:
+                        st.markdown(f"""
+                        <div style="background: #fef3c7; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #d97706;">{max_growth:.3f}</div>
+                            <div style="color: #ea580c; font-size: 0.9rem;">Maximum Growth ({unit})</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with stats_col3:
+                        remaining_neg = matches_df['is_negative_growth'].sum()
+                        color = "#ef4444" if remaining_neg > 0 else "#10b981"
+                        st.markdown(f"""
+                        <div style="background: #f1f5f9; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: {color};">{remaining_neg}</div>
+                            <div style="color: #64748b; font-size: 0.9rem;">Remaining Anomalies</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Growth distribution histogram
+                    st.markdown("#### 📈 Growth Rate Distribution")
+                    with st.expander("📊 View Distribution Histogram", expanded=False):
                         try:
-                            growth_hist_fig = create_growth_rate_histogram(results_to_use, dimension=growth_dimension)
+                            growth_hist_fig = create_growth_rate_histogram(results_to_use, dimension='depth')
                             st.plotly_chart(growth_hist_fig, use_container_width=True, config={'displayModeBar': False})
                         except Exception as e:
-                            st.warning(f"Could not generate histogram: {str(e)}. Data is available but visualization failed.")
-
+                            st.warning(f"Could not generate histogram: {str(e)}")
+        
+        else:
+            # === NON-DEPTH DIMENSIONS ===
+            st.markdown(f"### 📊 Step 3: {selected_dimension.title()} Analysis")
+            
+            st.info(f"""
+            **📏 {selected_dimension.title()} Growth Analysis**
+            
+            You are viewing {selected_dimension} growth analysis. The visualization above shows how {selected_dimension} measurements 
+            changed between inspections.
+            
+            **ℹ️ Note**: Automated KNN correction is only available for depth measurements, as depth is the primary 
+            safety-critical dimension in pipeline integrity assessment. {selected_dimension.title()} variations may be 
+            due to measurement differences between inspections.
+            """)
+            
+            # Show basic statistics for length/width
+            matches_df = comparison_results['matches_df']
+            
+            # Length statistics
+            if selected_dimension == 'length' and comparison_results.get('has_length_data', False):
+                if 'is_negative_length_growth' in matches_df.columns:
+                    neg_count = matches_df['is_negative_length_growth'].sum()
+                    total_count = len(matches_df)
+                    pct = (neg_count / total_count) * 100 if total_count > 0 else 0
+                    
+                    st.markdown("#### 📊 Length Growth Summary")
+                    
+                    summary_col1, summary_col2, summary_col3 = st.columns(3)
+                    
+                    with summary_col1:
+                        st.markdown(f"""
+                        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #3b82f6;">{total_count}</div>
+                            <div style="color: #64748b; font-size: 0.9rem;">Total Defects</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with summary_col2:
+                        st.markdown(f"""
+                        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #f59e0b;">{neg_count}</div>
+                            <div style="color: #64748b; font-size: 0.9rem;">Negative Growth</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with summary_col3:
+                        st.markdown(f"""
+                        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #8b5cf6;">{pct:.1f}%</div>
+                            <div style="color: #64748b; font-size: 0.9rem;">Percentage</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            # Width statistics
+            elif selected_dimension == 'width' and comparison_results.get('has_width_data', False):
+                if 'is_negative_width_growth' in matches_df.columns:
+                    neg_count = matches_df['is_negative_width_growth'].sum()
+                    total_count = len(matches_df)
+                    pct = (neg_count / total_count) * 100 if total_count > 0 else 0
+                    
+                    st.markdown("#### 📊 Width Growth Summary")
+                    
+                    summary_col1, summary_col2, summary_col3 = st.columns(3)
+                    
+                    with summary_col1:
+                        st.markdown(f"""
+                        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #3b82f6;">{total_count}</div>
+                            <div style="color: #64748b; font-size: 0.9rem;">Total Defects</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with summary_col2:
+                        st.markdown(f"""
+                        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #f59e0b;">{neg_count}</div>
+                            <div style="color: #64748b; font-size: 0.9rem;">Negative Growth</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with summary_col3:
+                        st.markdown(f"""
+                        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #8b5cf6;">{pct:.1f}%</div>
+                            <div style="color: #64748b; font-size: 0.9rem;">Percentage</div>
+                        </div>
+                        """, unsafe_allow_html=True)
     # Remaining Life Analysis tab
-    with viz_tabs[4]:
-        st.subheader("Remaining Life Analysis")
+    with viz_tabs[2]:
 
         # Check if we have the required data for remaining life analysis
         if not comparison_results.get('has_depth_data', False):
@@ -407,13 +440,14 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             # Use later joints for wall thickness (most recent data)
             joints_for_analysis = later_joints
             
-            # === NEW: Operating Pressure and Pipeline Parameters Input ===
-            st.markdown("#### Pipeline Parameters for Pressure-Based Analysis")
-            
-            # Create three columns for parameters
-            param_col1, param_col2, param_col3 = st.columns(3)
-            
-            with param_col1:
+            # === Enhanced Pipeline Parameters Input ===
+            st.markdown("#### Pipeline Parameters for Future Prediction Analysis")
+
+            # First row of parameters
+            st.markdown("##### Basic Pipeline Properties")
+            param_row1_col1, param_row1_col2, param_row1_col3 = st.columns(3)
+
+            with param_row1_col1:
                 operating_pressure_mpa = st.number_input(
                     "Operating Pressure (MPa)",
                     min_value=0.1,
@@ -425,8 +459,21 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                     help="Current operating pressure of the pipeline"
                 )
                 st.caption(f"= {operating_pressure_mpa * 145.038:.0f} psi")
-            
-            with param_col2:
+
+            with param_row1_col2:
+                maop_mpa = st.number_input(
+                    "Maximum Allowable Operating Pressure (MPa)",
+                    min_value=0.1,
+                    max_value=15.0,
+                    value=7.0,
+                    step=0.1,
+                    format="%.2f",
+                    key="maop_remaining_life",
+                    help="Maximum allowable operating pressure (MAOP) of the pipeline"
+                )
+                st.caption(f"= {maop_mpa * 145.038:.0f} psi")
+
+            with param_row1_col3:
                 pipe_diameter_m = st.number_input(
                     "Pipe Diameter (m)",
                     min_value=0.1,
@@ -438,14 +485,19 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                     help="Outside diameter of the pipeline"
                 )
                 st.caption(f"= {pipe_diameter_m * 1000:.0f} mm")
-            
-            with param_col3:
+
+            # Second row of parameters
+            st.markdown("##### Assessment Parameters")
+            param_row2_col1, param_row2_col2, param_row2_col3 = st.columns(3)
+
+            with param_row2_col1:
                 # Pipe grade selector
                 pipe_grade = st.selectbox(
                     "Pipe Grade",
                     options=["API 5L X42", "API 5L X52", "API 5L X60", "API 5L X65", "API 5L X70", "Custom"],
                     index=1,
-                    key="pipe_grade_remaining_life"
+                    key="pipe_grade_remaining_life",
+                    help="Steel grade determines the SMYS (Specified Minimum Yield Strength)"
                 )
                 
                 grade_to_smys = {
@@ -469,6 +521,42 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                         format="%.2f",
                         key="smys_custom_remaining_life"
                     )
+
+            with param_row2_col2:
+                safety_factor = st.number_input(
+                    "Safety Factor",
+                    min_value=1.0,
+                    max_value=3.0,
+                    value=1.39,
+                    step=0.01,
+                    format="%.2f",
+                    key="safety_factor_remaining_life",
+                    help="Design safety factor (typical: 1.39 for B31G, 1.25 for class locations)"
+                )
+                st.caption("Industry standard: 1.39")
+
+            with param_row2_col3:
+                assessment_method = st.selectbox(
+                    "Assessment Method",
+                    options=["B31G", "Modified B31G", "RSTRENG"],
+                    index=1,
+                    key="assessment_method_remaining_life",
+                    help="Choose the primary assessment method for failure prediction"
+                )
+                
+                method_descriptions = {
+                    "B31G": "Original ASME B31G",
+                    "Modified B31G": "Enhanced B31G (recommended)",
+                    "RSTRENG": "Effective area method"
+                }
+                st.caption(method_descriptions[assessment_method])
+
+            # Validation warning
+            if operating_pressure_mpa >= maop_mpa:
+                st.error("⚠️ Operating pressure cannot exceed MAOP!")
+
+            # Convert diameter to mm for calculations
+            pipe_diameter_mm = pipe_diameter_m * 1000
             
             # Convert diameter to mm for calculations
             pipe_diameter_mm = pipe_diameter_m * 1000
@@ -780,232 +868,6 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
             - Consider **environmental factors** and **operational changes**
             - **Update analysis** regularly with new inspection data
             """)
-
-
-    with viz_tabs[5]:
-        st.subheader("🔮 Dynamic Clustering Simulation")
-        st.info("""
-        **Advanced Analysis**: This simulation projects defect growth forward in time and detects when 
-        defects will start clustering according to FFS rules, potentially causing earlier failures 
-        than individual analysis would predict.
-        """)
-        
-        # Check if we have the required data
-        if not comparison_results.get('has_depth_data', False):
-            st.warning("Dynamic clustering simulation requires depth data from both years")
-            return
-        
-        if comparison_results['matches_df'].empty:
-            st.warning("No matched defects found for growth rate estimation")
-            return
-        
-        # Initialize session state for dynamic clustering if not exists
-        if 'dynamic_clustering_params' not in st.session_state:
-            st.session_state.dynamic_clustering_params = {
-                'max_sim_years': 20,
-                'time_resolution': 0.5,
-                'clustering_method': 'sqrt_dt',
-                'earlier_year': earlier_year,
-                'later_year': later_year
-            }
-        
-        # Simulation parameters
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            max_sim_years = st.slider(
-                "Simulation Years",
-                min_value=5, max_value=50, value=st.session_state.dynamic_clustering_params['max_sim_years'],
-                help="How many years into the future to simulate"
-            )
-        
-        with col2:
-            time_resolution = st.selectbox(
-                "Time Resolution",
-                options=[0.25, 0.5, 1.0],
-                index=[0.25, 0.5, 1.0].index(st.session_state.dynamic_clustering_params['time_resolution']),
-                format_func=lambda x: f"{x} years ({int(x*12)} months)",
-                help="How often to check for clustering events"
-            )
-        
-        with col3:
-            clustering_method = st.selectbox(
-                "Clustering Rule",
-                options=['sqrt_dt', '3t'],
-                index=['sqrt_dt', '3t'].index(st.session_state.dynamic_clustering_params['clustering_method']),
-                format_func=lambda x: {
-                    'sqrt_dt': '√(D×t) - Standard',
-                    '3t': '3×t - Conservative'
-                }[x]
-            )
-        
-        # Check if parameters have changed
-        params_changed = (
-            max_sim_years != st.session_state.dynamic_clustering_params['max_sim_years'] or
-            time_resolution != st.session_state.dynamic_clustering_params['time_resolution'] or
-            clustering_method != st.session_state.dynamic_clustering_params['clustering_method'] or
-            earlier_year != st.session_state.dynamic_clustering_params['earlier_year'] or
-            later_year != st.session_state.dynamic_clustering_params['later_year']
-        )
-        
-        # Update stored parameters
-        new_params = {
-            'max_sim_years': max_sim_years,
-            'time_resolution': time_resolution,
-            'clustering_method': clustering_method,
-            'earlier_year': earlier_year,
-            'later_year': later_year
-        }
-        
-        # Show current status
-        if hasattr(st.session_state, 'dynamic_clustering_results') and not params_changed:
-            st.success("✅ Simulation results available (parameters unchanged)")
-        elif params_changed and hasattr(st.session_state, 'dynamic_clustering_results'):
-            st.warning("⚠️ Parameters changed - simulation needs to be re-run")
-        
-        # Button layout
-        button_col1, button_col2, button_col3 = st.columns([2, 1, 1])
-        
-        with button_col1:
-            run_simulation = st.button(
-                "🚀 Run Dynamic Clustering Simulation" if not hasattr(st.session_state, 'dynamic_clustering_results') 
-                else "🔄 Re-run Simulation with New Parameters" if params_changed 
-                else "✅ Simulation Complete",
-                use_container_width=True,
-                disabled=(hasattr(st.session_state, 'dynamic_clustering_results') and not params_changed),
-                type="primary" if not hasattr(st.session_state, 'dynamic_clustering_results') or params_changed else "secondary"
-            )
-        
-        with button_col2:
-            if hasattr(st.session_state, 'dynamic_clustering_results'):
-                if st.button("📊 Refresh View", use_container_width=True):
-                    # Just trigger a rerun to refresh the display
-                    st.rerun()
-        
-        with button_col3:
-            if hasattr(st.session_state, 'dynamic_clustering_results'):
-                if st.button("🗑️ Clear Results", use_container_width=True):
-                    del st.session_state.dynamic_clustering_results
-                    st.rerun()
-        
-        # Run simulation if button pressed
-        if run_simulation:
-            # Update parameters in session state
-            st.session_state.dynamic_clustering_params = new_params
-            
-            with st.spinner("Running time-forward simulation..."):
-                try:
-                    # Import the dynamic clustering analyzer
-                    from core.dynamic_clustering_analysis import (
-                        DynamicClusteringAnalyzer, FFSDefectInteraction
-                    )
-                    
-                    # Get required data
-                    current_defects = st.session_state.datasets[later_year]['defects_df'].copy()
-                    joints_df = st.session_state.datasets[later_year]['joints_df']
-                    pipe_diameter_mm = st.session_state.datasets[later_year]['pipe_diameter'] * 1000
-                    
-                    # Extract growth rates from comparison results
-                    growth_rates_dict = {}
-                    matches_df = comparison_results['matches_df']
-                    
-                    for idx, match in matches_df.iterrows():
-                        defect_id = idx  # Use index as defect ID
-                        growth_rates_dict[defect_id] = {
-                            'depth_growth_pct_per_year': match.get('growth_rate_pct_per_year', 2.0),
-                            'length_growth_mm_per_year': match.get('length_growth_rate_mm_per_year', 0.0),
-                            'width_growth_mm_per_year': match.get('width_growth_rate_mm_per_year', 0.0)
-                        }
-                    
-                    # For defects without matches, use conservative estimates
-                    for i in range(len(current_defects)):
-                        if i not in growth_rates_dict:
-                            growth_rates_dict[i] = {
-                                'depth_growth_pct_per_year': 2.0,  # Conservative default
-                                'length_growth_mm_per_year': 3.0,
-                                'width_growth_mm_per_year': 2.0
-                            }
-                    
-                    # Add defect IDs to current defects
-                    current_defects['defect_id'] = range(len(current_defects))
-                    
-                    # Initialize dynamic analyzer
-                    ffs_rules = FFSDefectInteraction(
-                        axial_interaction_distance_mm=25.4,
-                        circumferential_interaction_method=clustering_method
-                    )
-                    
-                    analyzer = DynamicClusteringAnalyzer(
-                        ffs_rules=ffs_rules,
-                        max_simulation_years=max_sim_years,
-                        time_step_years=time_resolution,
-                        depth_failure_threshold=80.0
-                    )
-                    
-                    # Progress bar
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    # Run simulation with progress updates
-                    status_text.text("🔄 Initializing simulation...")
-                    progress_bar.progress(10)
-                    
-                    status_text.text("🔄 Projecting defect growth...")
-                    progress_bar.progress(30)
-                    
-                    simulation_results = analyzer.simulate_dynamic_clustering_failure(
-                        current_defects, joints_df, growth_rates_dict, pipe_diameter_mm
-                    )
-                    
-                    progress_bar.progress(90)
-                    status_text.text("🔄 Finalizing results...")
-                    
-                    # Store results with parameters
-                    st.session_state.dynamic_clustering_results = {
-                        'results': simulation_results,
-                        'parameters': new_params,
-                        'timestamp': datetime.now()
-                    }
-                    
-                    progress_bar.progress(100)
-                    status_text.text("✅ Simulation completed!")
-                    time.sleep(0.5)
-                    
-                    # Clear progress indicators
-                    progress_bar.empty()
-                    status_text.empty()
-                    
-                    st.success("✅ Simulation completed successfully!")
-                    st.rerun()  # Refresh to show results
-                    
-                except Exception as e:
-                    st.error(f"Error in dynamic clustering simulation: {str(e)}")
-                    import traceback
-                    with st.expander("Error Details"):
-                        st.code(traceback.format_exc())
-        
-        # Display results if available
-        if hasattr(st.session_state, 'dynamic_clustering_results'):
-            # Show parameters used
-            with st.expander("📋 Simulation Parameters", expanded=False):
-                params = st.session_state.dynamic_clustering_params
-                param_cols = st.columns(3)
-                with param_cols[0]:
-                    st.metric("Simulation Years", f"{params['max_sim_years']} years")
-                with param_cols[1]:
-                    st.metric("Time Resolution", f"{params['time_resolution']} years")
-                with param_cols[2]:
-                    st.metric("Clustering Method", params['clustering_method'].replace('_', ' ').upper())
-                
-                if 'timestamp' in st.session_state.dynamic_clustering_results:
-                    st.caption(f"Last run: {st.session_state.dynamic_clustering_results['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            # Display the results
-            display_dynamic_clustering_results(
-                st.session_state.dynamic_clustering_results['results'], 
-                earlier_year, 
-                later_year
-            )
 
 def display_dynamic_clustering_results(simulation_results, earlier_year, later_year):
     """Display the results of the dynamic clustering simulation."""
