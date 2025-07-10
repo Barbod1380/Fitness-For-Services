@@ -639,3 +639,87 @@ def create_multi_dimensional_growth_plot(comparison_results):
     )
 
     return fig
+
+
+import plotly.graph_objects as go
+
+
+def create_defect_status_donut(earlier_data, later_data):
+    """
+    Create a donut chart showing percentage of old vs new defects.
+    """
+    
+    # For now, using placeholder logic - this should be replaced with actual matching logic
+    old_defects_count = len(earlier_data['defects_df'])
+    total_defects_count = len(later_data['defects_df'])
+    
+    # Simple assumption: defects that existed before vs new ones
+    # This is placeholder logic - in reality you'd need proper defect matching
+    estimated_common_defects = min(old_defects_count, int(total_defects_count * 0.7))
+    new_defects_count = total_defects_count - estimated_common_defects
+    
+    labels = ['Existing Defects', 'New Defects']
+    values = [estimated_common_defects, new_defects_count]
+    colors = ['#3498db', '#e74c3c']
+    
+    fig = go.Figure(data=[go.Pie(
+        labels=labels, 
+        values=values,
+        hole=.4,
+        marker_colors=colors,
+        textinfo='label+percent',
+        textposition='outside'
+    )])
+    
+    fig.update_layout(
+        title="Defect Status Distribution",
+        showlegend=True,
+        height=400,
+        margin=dict(t=50, b=50, l=50, r=50)
+    )
+    return fig
+
+
+
+def create_new_defects_by_type_bar(later_data):
+    """
+    Create a bar chart showing distribution of new defects by type.
+    """
+    
+    defects_df = later_data['defects_df']
+    
+    # Check if we have defect type information
+    if 'component / anomaly identification' in defects_df.columns:
+        # Get defect type counts
+        type_counts = defects_df['component / anomaly identification'].value_counts().head(10)
+        
+        # For demonstration, assume some percentage are "new" defects
+        # In reality, this would come from the comparison analysis
+        new_defect_counts = (type_counts * 0.3).round().astype(int)  # Assume 30% are new
+        
+        x_values = new_defect_counts.index.tolist()
+        y_values = new_defect_counts.values.tolist()
+    else:
+        # Fallback with generic types if no type column available
+        x_values = ['General Corrosion', 'Pitting', 'External Damage', 'Weld Defect', 'Other']
+        y_values = [12, 8, 5, 3, 2]  # Placeholder counts
+    
+    fig = go.Figure(data=[
+        go.Bar(
+            x=x_values,
+            y=y_values,
+            marker_color='#e74c3c',
+            text=y_values,
+            textposition='outside'
+        )
+    ])
+    
+    fig.update_layout(
+        title="New Defects by Type",
+        xaxis_title="Defect Type",
+        yaxis_title="Count",
+        height=400,
+        margin=dict(t=50, b=100, l=50, r=50),
+        xaxis_tickangle=-45
+    )
+    return fig

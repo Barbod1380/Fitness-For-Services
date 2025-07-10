@@ -1,8 +1,8 @@
 """
 Navigation service for the Pipeline Analysis application.
 """
+
 from app.services.state_manager import get_state, update_state
-from app.views.failure_prediction import render_failure_prediction_view
 
 # Define page navigation structure
 PAGE_STRUCTURE = {

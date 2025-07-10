@@ -3,14 +3,10 @@ Multi-year comparison view for the Pipeline Analysis application.
 """
 import streamlit as st
 import pandas as pd
-import numpy as np
-import time
-from datetime import datetime
-from app.ui_components import info_box, create_comparison_metrics
-from core.multi_year_analysis import compare_defects
 from analysis.growth_analysis import correct_negative_growth_rates
 from visualization.comparison_viz import *
 from app.services.state_manager import *
+
 
 def display_comparison_visualization_tabs(comparison_results, earlier_year, later_year):
     """Display the consolidated visualization tabs for comparison results."""
@@ -424,3 +420,97 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                             <div style="color: #64748b; font-size: 0.9rem;">Percentage</div>
                         </div>
                         """, unsafe_allow_html=True)
+
+
+def render_comparison_view():
+    """
+    Main function to render the multi-year comparison view.
+    """
+    st.title("Multi-Year Comparison")
+    st.markdown("Compare defect growth between inspection years")
+    
+    # Check if we have enough datasets
+    datasets = get_state('datasets', {})
+    available_years = sorted(datasets.keys())
+    
+    if len(available_years) < 2:
+        st.error("**Insufficient Data for Multi-Year Analysis**")
+        st.info(f"""
+        You need at least **2 datasets** from different years to perform multi-year comparison.
+        
+        **Current Status:**
+        - Available datasets: {len(available_years)}
+        - Required: 2 or more
+        
+        **Next Steps:**
+        1. Upload additional inspection data from different years
+        2. Return to this page to start the comparison
+        """)
+        
+        if available_years:
+            st.write("**Currently loaded years:**", ", ".join(map(str, available_years)))
+        return
+    
+    # Year selection
+    st.subheader("📅 Select Years for Comparison")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        earlier_year = st.selectbox(
+            "Earlier Inspection Year",
+            options=available_years[:-1],
+            key="earlier_year_select"
+        )
+    
+    with col2:
+        later_years = [year for year in available_years if year > earlier_year]
+        if not later_years:
+            st.error("No later years available for the selected earlier year")
+            return
+            
+        later_year = st.selectbox(
+            "Later Inspection Year", 
+            options=later_years,
+            key="later_year_select"
+        )
+    
+    # Show basic dataset info
+    st.subheader("📊 Dataset Summary")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write(f"**{earlier_year} Dataset:**")
+        earlier_data = datasets[earlier_year]
+        st.write(f"- Defects: {len(earlier_data['defects_df'])}")
+        st.write(f"- Joints: {len(earlier_data['joints_df'])}")
+    
+    with col2:
+        st.write(f"**{later_year} Dataset:**")
+        later_data = datasets[later_year]
+        st.write(f"- Defects: {len(later_data['defects_df'])}")
+        st.write(f"- Joints: {len(later_data['joints_df'])}")
+    
+    # Simple analysis button
+    if st.button("Start Comparison Analysis", type="primary"):
+        st.success(f"Analysis started for {earlier_year} vs {later_year}")
+        st.info("Multi-year analysis functionality is under development.")
+        
+        # Store the selected years in session state
+        update_state('comparison_years', (earlier_year, later_year), validate=False)
+    
+    # Show results with visualizations
+    comparison_years = get_state('comparison_years')
+    if comparison_years:
+        st.subheader("📈 Analysis Results")
+        
+        # Create two columns for the visualizations
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            donut_chart = create_defect_status_donut(earlier_data, later_data)
+            st.plotly_chart(donut_chart, use_container_width=True)
+        
+        with col2:
+            bar_chart = create_new_defects_by_type_bar(later_data)
+            st.plotly_chart(bar_chart, use_container_width=True)

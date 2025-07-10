@@ -23,5 +23,4 @@ DEFAULT_CLOCK_TOLERANCE = 20  # Default clock position tolerance for matching de
 # UI settings
 SINGLE_YEAR_TAB_LABEL = "Single Year Analysis"
 MULTI_YEAR_TAB_LABEL = "Multi-Year Comparison"
-CLUSTERING_TAB_LABEL = "Defect Clustering"  # NEW
 WORKFLOW_STEPS = ["Upload File", "Map Columns", "Process Data"]
