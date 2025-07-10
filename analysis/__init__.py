@@ -12,5 +12,3 @@ from .growth_analysis import (
     create_growth_summary_table,
     create_highest_growth_table
 )
-
-from .failure_prediction import predict_joint_failures_over_time
