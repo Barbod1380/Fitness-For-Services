@@ -7,7 +7,6 @@ from app.views import (
     render_upload_view, render_home_view, render_single_analysis_view, 
     render_comparison_view, render_corrosion_assessment_view
 )
-from app.views.failure_prediction import render_failure_prediction_view
 
 
 def route_to_current_page(uploaded_file=None, selected_year=None):
@@ -36,8 +35,6 @@ def route_to_current_page(uploaded_file=None, selected_year=None):
         render_comparison_view()
     elif current_page == 'corrosion_assessment':
         render_corrosion_assessment_view()
-    elif current_page == 'failure_prediction':
-        render_failure_prediction_view()
     else:
         # Fallback to home if unknown page
         render_home_view()

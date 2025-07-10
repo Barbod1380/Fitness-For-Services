@@ -31,11 +31,6 @@ PAGE_STRUCTURE = {
         'title': 'Corrosion Assessment',
         'requires_data': True,
         'icon': '🔩'
-    },
-    'failure_prediction': {  # ADD THIS NEW ENTRY
-        'title': 'Failure Prediction',
-        'requires_data': True,
-        'icon': '🔮'
     }
 }
 

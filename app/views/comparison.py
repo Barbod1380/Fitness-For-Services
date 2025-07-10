@@ -570,6 +570,9 @@ def display_comparison_visualization_tabs(comparison_results, earlier_year, late
                         operating_pressure_mpa,
                         pipe_diameter_mm,
                         smys_mpa,
+                        safety_factor,
+                        maop_mpa,
+                        assessment_method
                     )
                     st.session_state.remaining_life_results = enhanced_remaining_life_results
             
