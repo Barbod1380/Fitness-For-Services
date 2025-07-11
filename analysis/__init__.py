@@ -9,6 +9,4 @@ from .defect_analysis import (
 )
 from .growth_analysis import (
     correct_negative_growth_rates,
-    create_growth_summary_table,
-    create_highest_growth_table
 )
