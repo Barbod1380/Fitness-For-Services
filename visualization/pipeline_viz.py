@@ -79,51 +79,9 @@ def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter=None, colo
     if use_separate_traces:
         # Create separate traces for Internal/External with different shapes
         surface_locations = plot_data["surface location"].fillna("Unknown")
-        
-        # Internal defects - Red crosses
-        internal_mask = surface_locations == "INT"
-        if internal_mask.any():
-            fig.add_trace(
-                scatter_class(
-                    x=x_vals[internal_mask],
-                    y=y_vals[internal_mask],
-                    mode="markers",
-                    marker=dict(
-                        size=8,
-                        color="red",
-                        symbol="x",
-                        opacity=0.8,
-                        line=dict(width=2)
-                    ),
-                    customdata=custom_data[internal_mask] if custom_data is not None else None,
-                    hovertemplate=hover_template,
-                    name="Internal",
-                    legendgroup="Internal",
-                    showlegend=True
-                )
-            )
-        
-        # External defects - Blue circles  
+
         external_mask = surface_locations == "NON-INT"
-        if external_mask.any():
-            fig.add_trace(
-                scatter_class(
-                    x=x_vals[external_mask],
-                    y=y_vals[external_mask],
-                    mode="markers",
-                    marker=dict(
-                        size=6,
-                        color="deepskyblue", 
-                        symbol="circle",
-                        opacity=0.8,
-                    ),
-                    customdata=custom_data[external_mask] if custom_data is not None else None,
-                    hovertemplate=hover_template,
-                    name="External", 
-                    legendgroup="External",
-                    showlegend=True
-                )
-            )
+        internal_mask = surface_locations == "INT"
         
         # Unknown/Other surface locations - Gray dots
         other_mask = ~(internal_mask | external_mask)
@@ -146,6 +104,50 @@ def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter=None, colo
                     showlegend=True
                 )
             )
+        
+        # External defects - Blue circles  
+        if external_mask.any():
+            fig.add_trace(
+                scatter_class(
+                    x=x_vals[external_mask],
+                    y=y_vals[external_mask],
+                    mode="markers",
+                    marker=dict(
+                        size=6,
+                        color="deepskyblue", 
+                        symbol="circle",
+                        opacity=0.6,
+                    ),
+                    customdata=custom_data[external_mask] if custom_data is not None else None,
+                    hovertemplate=hover_template,
+                    name="External", 
+                    legendgroup="External",
+                    showlegend=True
+                )
+            )
+
+        # Internal defects - Red crosses
+        if internal_mask.any():
+            fig.add_trace(
+                scatter_class(
+                    x=x_vals[internal_mask],
+                    y=y_vals[internal_mask],
+                    mode="markers",
+                    marker=dict(
+                        size=8,
+                        color="red",
+                        symbol="x",
+                        opacity=0.6,
+                        line=dict(width=2)
+                    ),
+                    customdata=custom_data[internal_mask] if custom_data is not None else None,
+                    hovertemplate=hover_template,
+                    name="Internal",
+                    legendgroup="Internal",
+                    showlegend=True
+                )
+            )
+    
     else:
         # Single trace with depth coloring
         fig.add_trace(
@@ -166,7 +168,30 @@ def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter=None, colo
     
     # === Update Layout ===
     update_figure_layout(fig, y_title, y_unit, color_by, y_axis_column, pipe_diameter, len(plot_data), len(defects_df))
-    
+
+    fig.update_xaxes(
+        tickfont=dict(size=20),     
+        title_font=dict(size=20, family='Arial', color='black')
+    )
+    fig.update_yaxes(
+        tickfont=dict(size=20),       # Increase y-axis tick label size
+        title_font=dict(size=20, family='Arial', color='black')
+    )
+
+    fig.update_layout(
+        legend=dict(
+            font=dict(size=16, family='Arial', color='black'),
+            x=1,  # Move to left
+            y=1,
+            xanchor="left",
+            yanchor="top"
+        ),
+        margin=dict(l=80, r=40, t=80, b=80),
+        font=dict(family='Arial', size=16),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+    )
+
     return fig
 
 
@@ -215,8 +240,7 @@ def get_y_axis_data(plot_data, y_axis_column, pipe_diameter):
         weld_distances = plot_data["up weld dist. [m]"].values
         
         # Check if all values are negative and convert to positive
-        if np.all(weld_distances < 0):
-            weld_distances = np.abs(weld_distances)
+        weld_distances = np.abs(weld_distances)
         
         return {
             'values': weld_distances,
