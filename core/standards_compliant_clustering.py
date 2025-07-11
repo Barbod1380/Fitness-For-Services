@@ -10,7 +10,6 @@ Standards implemented:
 - DNV-RP-F101 composite defect criteria
 """
 
-import numpy as np
 import pandas as pd
 import math
 from typing import List, Dict
@@ -558,22 +557,3 @@ def create_standards_compliant_clusterer(standard_name: str = "RSTRENG",
         pipe_diameter_mm=pipe_diameter_mm,
         conservative_factor=conservative_factor
     )
-
-
-# Integration with existing FFS system
-def replace_proprietary_clustering(defects_df: pd.DataFrame, 
-                                 joints_df: pd.DataFrame,
-                                 pipe_diameter_mm: float,
-                                 standard: str = "RSTRENG") -> List[List[int]]:
-    """
-    Drop-in replacement for existing clustering function with industry standards.
-    
-    This function can directly replace your existing clustering calls.
-    """
-    
-    clusterer = create_standards_compliant_clusterer(
-        standard_name=standard,
-        pipe_diameter_mm=pipe_diameter_mm
-    )
-    
-    return clusterer.find_interacting_defects(defects_df, joints_df)

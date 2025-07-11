@@ -402,35 +402,3 @@ class FailurePredictionSimulator:
             'failure_rate': (failed_joints / total_joints * 100) if total_joints > 0 else 0,
             'survival_rate': (surviving_joints / total_joints * 100) if total_joints > 0 else 100
         }
-
-
-# INTEGRATION HELPER: Function to connect with your existing corrosion assessment
-def integrate_with_existing_corrosion_assessment(simulation_engine, your_corrosion_function):
-    """
-    Helper function to integrate the simulation with your existing corrosion assessment.
-    
-    Parameters:
-    - simulation_engine: The FailurePredictionSimulator instance
-    - your_corrosion_function: Your existing ERF calculation function
-    
-    You would modify _calculate_erf_using_existing_system to call your function.
-    """
-    
-    # Replace the placeholder ERF calculation with your actual function
-    def enhanced_erf_calculation(joint_df):
-        # Call your existing corrosion assessment
-        results = your_corrosion_function(
-            joint_df, 
-            simulation_engine.pipe_diameter,
-            simulation_engine.smys,
-            simulation_engine.safety_factor,
-            method=simulation_engine.params.assessment_method
-        )
-        
-        # Extract ERF values from your results
-        return results['erf_values'].max()  # Adjust based on your function's output format
-    
-    # Replace the simulation engine's ERF calculation
-    simulation_engine._calculate_erf_using_existing_system = enhanced_erf_calculation
-    
-    return simulation_engine
