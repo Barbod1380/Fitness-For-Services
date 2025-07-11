@@ -13,7 +13,7 @@ This module implements:
 import numpy as np
 import pandas as pd
 import math
-from typing import List, Dict, Tuple, Optional, Union
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 

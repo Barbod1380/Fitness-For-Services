@@ -8,9 +8,8 @@ Uses existing corrosion assessment functionality.
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
-from datetime import datetime
 from app.views.corrosion import (
     calculate_b31g, 
     calculate_modified_b31g, 

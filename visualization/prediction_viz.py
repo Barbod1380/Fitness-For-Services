@@ -83,7 +83,6 @@ Simple visualization functions for failure prediction results.
 """
 
 import plotly.graph_objects as go
-import pandas as pd
 
 def create_failure_timeline_histogram(simulation_results: dict) -> go.Figure:
     """Create histogram of joint failures by year."""

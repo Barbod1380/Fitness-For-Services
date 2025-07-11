@@ -20,25 +20,19 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 
 # Import the new clustering modules
 from core.standards_compliant_clustering import (
-    StandardsCompliantClusterer, 
     create_standards_compliant_clusterer,
-    ClusteringStandard
 )
 from core.enhanced_ffs_clustering import (
     EnhancedFFSClusterer,
     ClusterProperties,
-    enhance_existing_assessment,
-    integrate_with_corrosion_assessment
 )
 from core.failure_aware_clustering import (
     FailureAwareClusterer,
     JointFailureAssessment,
-    FailureRisk,
     integrate_failure_aware_clustering
 )
 
