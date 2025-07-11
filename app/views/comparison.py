@@ -7,7 +7,96 @@ import streamlit as st
 from visualization.comparison_viz import *
 from app.services.state_manager import *
 from core.multi_year_analysis import compare_defects
-from analysis.growth_analysis import create_growth_summary_table
+
+
+def render_enhanced_clustering_analysis(earlier_data, later_data):
+    """Enhanced clustering analysis for multi-year comparison"""
+    
+    st.markdown("---")
+    st.markdown("### 🔬 Enhanced Clustering Analysis")
+    
+    if st.button("🚀 Analyze Defect Clustering", key="clustering_analysis"):
+        
+        with st.spinner("Performing enhanced clustering analysis..."):
+            try:
+                # Get data
+                defects_df = later_data['defects_df']
+                joints_df = later_data['joints_df']
+                pipe_diameter_mm = later_data['pipe_diameter'] * 1000
+                
+                # Import and use new clustering
+                from core.enhanced_ffs_clustering import enhance_existing_assessment
+                
+                combined_df, clusters = enhance_existing_assessment(
+                    defects_df, joints_df, pipe_diameter_mm, "RSTRENG"
+                )
+                
+                # Display results
+                st.success(f"✅ Found {len(clusters)} clusters with enhanced analysis")
+                
+                # Show cluster details
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Clusters Found", len(clusters))
+                with col2:
+                    defects_clustered = sum(len(c.defect_indices) for c in clusters)
+                    st.metric("Defects Clustered", defects_clustered)
+                with col3:
+                    max_stress = max([c.stress_concentration_factor for c in clusters], default=1.0)
+                    st.metric("Max Stress Factor", f"{max_stress:.2f}x")
+                
+                # Store results for future use
+                st.session_state.enhanced_clusters = clusters
+                st.session_state.combined_defects = combined_df
+                
+                st.info("💡 **Ready for simulation**: Clustering results stored for 15-year failure prediction")
+                
+            except Exception as e:
+                st.error(f"Error in clustering analysis: {str(e)}")
+
+
+def test_new_clustering():
+    """Test that your new clustering files work"""
+    
+    st.markdown("## 🧪 Test New Clustering System")
+    
+    if st.button("Test Clustering Integration"):
+        try:
+            # Test 1: Check imports work
+            from core.standards_compliant_clustering import create_standards_compliant_clusterer
+            from core.enhanced_ffs_clustering import enhance_existing_assessment  
+            from core.failure_aware_clustering import integrate_failure_aware_clustering
+            st.success("✅ All imports successful!")
+            
+            # Test 2: Check if we have data
+            datasets = st.session_state.get('datasets', {})
+            if not datasets:
+                st.warning("⚠️ No datasets available. Upload data first to test fully.")
+                return
+            
+            # Test 3: Try basic clustering
+            test_year = list(datasets.keys())[0]
+            defects_df = datasets[test_year]['defects_df']
+            joints_df = datasets[test_year]['joints_df']
+            pipe_diameter_mm = datasets[test_year].get('pipe_diameter', 1.0) * 1000
+            
+            # Test clustering
+            clusterer = create_standards_compliant_clusterer(
+                standard_name="RSTRENG",
+                pipe_diameter_mm=pipe_diameter_mm
+            )
+            
+            clusters = clusterer.find_interacting_defects(defects_df, joints_df)
+            
+            st.success(f"✅ Clustering works! Found {len(clusters)} clusters")
+            st.info("🎉 Integration successful! Your new clustering system is ready to use.")
+            
+        except ImportError as e:
+            st.error(f"❌ Import error: {e}")
+            st.error("Check that all 4 files are in the correct directories")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
+            st.error("Check your data structure and file contents")
 
 
 def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year):
@@ -260,6 +349,7 @@ def display_data_preview_and_results(earlier_data, later_data):
         # Data export capabilities
         _render_data_export_section()
 
+    render_enhanced_clustering_analysis(earlier_data, later_data)
 
 
 def _render_growth_analysis_visualizations():

@@ -12,3 +12,16 @@ from .data_processing import process_pipeline_data, validate_pipeline_data
 from .ffs_defect_interaction import *
 from .defect_matching import ClusterAwareDefectMatcher, DefectMatch
 from .growth_analysis import ClusterAwareGrowthAnalyzer
+
+from .standards_compliant_clustering import (
+    StandardsCompliantClusterer,
+    create_standards_compliant_clusterer
+)
+from .enhanced_ffs_clustering import (
+    EnhancedFFSClusterer,
+    enhance_existing_assessment
+)
+from .failure_aware_clustering import (
+    FailureAwareClusterer,
+    integrate_failure_aware_clustering
+)

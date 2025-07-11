@@ -1,8 +1,4 @@
 # core/ffs_defect_interaction_fixed.py
-"""
-FIXED: Enhanced FFS defect interaction with proper vector summation per API 579-1.
-REMOVED: Conflicting implementations of _calculate_vector_summed_length
-"""
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Tuple
