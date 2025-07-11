@@ -114,15 +114,3 @@ def create_failure_timeline_histogram(simulation_results: dict) -> go.Figure:
     )
     
     return fig
-
-def create_simple_summary_metrics(simulation_results: dict) -> dict:
-    """Create summary metrics for display."""
-    
-    survival_stats = simulation_results['survival_statistics']
-    
-    return {
-        'total_joints': survival_stats['total_joints'],
-        'failed_joints': survival_stats['failed_joints'],
-        'failure_rate': survival_stats['failure_rate'],
-        'first_failure_year': min([f.failure_year for f in simulation_results['failure_history']], default=None)
-    }
