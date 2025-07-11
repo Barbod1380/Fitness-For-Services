@@ -13,7 +13,6 @@ from visualization.prediction_viz import (
     create_survival_curve,
     create_erf_evolution_plot
 )
-    
 
 
 def render_enhanced_clustering_analysis(earlier_data, later_data):
@@ -1001,65 +1000,158 @@ def render_future_prediction_section(later_data, comparison_results):
     # TEMPORARY: Simple test implementation
     if st.button("🚀 Run Failure Prediction Simulation", type="primary", use_container_width=True, key="prediction_simulation"):
         
-        # For now, just show that parameters are captured
-        st.success("✅ Simulation framework ready!")
-        st.info(f"""
-        **Parameters Captured:**
-        - Assessment Method: {assessment_method}
-        - Max Operating Pressure: {max_operating_pressure} MPa
-        - Safety Factor: {safety_factor}
-        - SMYS: {smys} MPa
-        - Pipe Diameter: {pipe_diameter} mm
-        - Simulation Years: {simulation_years}
-        - ERF Threshold: {erf_threshold}
-        - Depth Threshold: {depth_threshold}%
+        # Validation
+        if not hasattr(st.session_state, 'enhanced_clusters'):
+            st.error("❌ No clustering results available. Run clustering analysis first.")
+            return
         
-        **Data Available:**
-        - Defects: {len(later_data['defects_df'])}
-        - Joints: {len(later_data['joints_df'])}
-        - Growth Rates: {len(comparison_results['matches_df'])}
-        - Clusters: {len(st.session_state.enhanced_clusters)}
-        
-        **Next Step:** Implement the simulation engine
-        """)
-        
-        # Show clustering summary
-        if hasattr(st.session_state, 'enhanced_clusters'):
-            clusters = st.session_state.enhanced_clusters
-            st.markdown("#### 🔧 Available Clustering Data:")
-            
-            cluster_summary = []
-            for i, cluster in enumerate(clusters):
-                cluster_summary.append({
-                    'Cluster': f'Cluster {i+1}',
-                    'Defects': len(cluster.defect_indices),
-                    'Stress Factor': f"{cluster.stress_concentration_factor:.2f}x",
-                    'Max Depth': f"{cluster.max_depth_pct:.1f}%",
-                    'Location': f"{cluster.center_location_m:.1f}m"
+        with st.spinner("🔮 Running failure prediction simulation..."):
+            try:
+                import time
+                start_time = time.time()
+                
+                # Import simulation modules
+                from core.failure_prediction_simulation import (
+                    FailurePredictionSimulator, SimulationParams
+                )
+                
+                # Create simulation parameters
+                sim_params = SimulationParams(
+                    assessment_method=assessment_method.lower().replace(' ', '_'),  # Convert to function format
+                    max_operating_pressure=max_operating_pressure,
+                    simulation_years=simulation_years,
+                    erf_threshold=erf_threshold,
+                    depth_threshold=depth_threshold
+                )
+                
+                # Initialize simulator
+                simulator = FailurePredictionSimulator(sim_params)
+                
+                # Initialize with current data
+                success = simulator.initialize_simulation(
+                    defects_df=later_data['defects_df'],
+                    joints_df=later_data['joints_df'],
+                    growth_rates_df=comparison_results['matches_df'],
+                    clusters=st.session_state.enhanced_clusters,
+                    pipe_diameter=pipe_diameter / 1000,  # Convert mm to meters
+                    smys=smys,
+                    safety_factor=safety_factor
+                )
+                
+                if not success:
+                    st.error("❌ Failed to initialize simulation")
+                    return
+                
+                # Run simulation
+                results = simulator.run_simulation()
+                
+                end_time = time.time()
+                processing_time = end_time - start_time
+                
+                # Store results
+                st.session_state.prediction_results = results
+                
+                st.success(f"✅ Simulation completed in {processing_time:.2f} seconds!")
+                st.success(f"📊 Predicted {results['total_failures']} joint failures over {simulation_years} years")
+                
+                # Display immediate results
+                display_prediction_results_simple()
+                
+            except Exception as e:
+                st.error(f"❌ Simulation failed: {str(e)}")
+                
+                # Debug information
+                with st.expander("🔍 Debug Information"):
+                    st.write(f"Error details: {str(e)}")
+                    st.write(f"Assessment method: {assessment_method}")
+                    st.write(f"Available clusters: {len(st.session_state.enhanced_clusters) if hasattr(st.session_state, 'enhanced_clusters') else 0}")
+
+ 
+
+
+def display_prediction_results_simple():
+    """Display simulation results with simple visualizations."""
+    
+    if not hasattr(st.session_state, 'prediction_results'):
+        return
+    
+    results = st.session_state.prediction_results
+    
+    st.markdown("---")
+    st.markdown("### 📊 Simulation Results")
+    
+    # Summary metrics
+    survival_stats = results['survival_statistics']
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Joints", survival_stats['total_joints'])
+    
+    with col2:
+        st.metric(
+            "Failed Joints", 
+            survival_stats['failed_joints'],
+            f"{survival_stats['failure_rate']:.1f}% of total"
+        )
+    
+    with col3:
+        st.metric(
+            "Surviving Joints", 
+            survival_stats['surviving_joints'],
+            f"{survival_stats['survival_rate']:.1f}% survival"
+        )
+    
+    with col4:
+        if results['failure_history']:
+            first_failure_year = min(f.failure_year for f in results['failure_history'])
+            st.metric("First Failure", f"Year {first_failure_year}")
+        else:
+            st.metric("First Failure", "None predicted")
+    
+    # Failure timeline chart
+    try:
+        from visualization.prediction_viz import create_failure_timeline_histogram
+        fig = create_failure_timeline_histogram(results)
+        st.plotly_chart(fig, use_container_width=True)
+    except ImportError:
+        # Fallback: simple table if visualization not available
+        st.markdown("### 📈 Failure Timeline")
+        timeline = results['failure_timeline']
+        timeline_data = [{'Year': year, 'Failures': count} for year, count in timeline.items() if count > 0]
+        if timeline_data:
+            st.dataframe(pd.DataFrame(timeline_data), use_container_width=True)
+        else:
+            st.info("🎉 No failures predicted in simulation timeframe!")
+    
+    # Failure details
+    if results['failure_history']:
+        with st.expander("📋 Failure Details"):
+            failure_data = []
+            for failure in results['failure_history']:
+                failure_data.append({
+                    'Joint Number': failure.joint_number,
+                    'Failure Year': failure.failure_year,
+                    'Failure Mode': failure.failure_mode,
+                    'Final ERF': f"{failure.final_erf:.3f}",
+                    'Final Depth (%)': f"{failure.final_depth_pct:.1f}%"
                 })
             
-            if cluster_summary:
-                cluster_df = pd.DataFrame(cluster_summary)
-                st.dataframe(cluster_df, use_container_width=True)
-        
-        st.markdown("---")
-        st.markdown("### 🚧 Implementation Status")
-        st.markdown("""
-        **✅ Completed:**
-        - Parameter collection form
-        - Data validation
-        - Integration with clustering results
-        
-        **🚧 In Progress:**
-        - Simulation engine implementation
-        - ERF calculations
-        - Failure prediction logic
-        
-        **📋 Next Steps:**
-        1. Create pressure assessment module
-        2. Implement simulation engine
-        3. Add visualization components
-        """)
+            failure_df = pd.DataFrame(failure_data)
+            st.dataframe(failure_df, use_container_width=True)
+    
+    # Risk assessment
+    st.markdown("### 💡 Risk Assessment")
+    failure_rate = survival_stats['failure_rate']
+    
+    if failure_rate > 20:
+        st.error(f"🚨 **HIGH RISK**: {failure_rate:.1f}% failure rate predicted")
+    elif failure_rate > 10:
+        st.warning(f"⚠️ **MODERATE RISK**: {failure_rate:.1f}% failure rate predicted")
+    elif failure_rate > 0:
+        st.success(f"✅ **LOW RISK**: {failure_rate:.1f}% failure rate predicted")
+    else:
+        st.success("🎉 **EXCELLENT**: No failures predicted!")
 
 
 def display_prediction_results():

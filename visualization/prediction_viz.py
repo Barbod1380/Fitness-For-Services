@@ -2,63 +2,6 @@ import numpy as np
 import plotly.graph_objects as go
 from typing import Dict
 
-def create_failure_timeline_histogram(simulation_results: Dict) -> go.Figure:
-    """Create histogram of joint failures by year."""
-    
-    timeline = simulation_results['failure_timeline']
-    years = list(timeline.keys())
-    failures = list(timeline.values())
-    
-    fig = go.Figure()
-    
-    # Create histogram bars
-    fig.add_trace(go.Bar(
-        x=years,
-        y=failures,
-        name='Joint Failures',
-        marker_color='rgba(255, 99, 71, 0.8)',
-        marker_line_color='rgba(255, 99, 71, 1.0)',
-        marker_line_width=2,
-        text=failures,
-        textposition='outside',
-        hovertemplate='<b>Year %{x}</b><br>Failures: %{y}<extra></extra>'
-    ))
-    
-    # Add cumulative line
-    cumulative_failures = []
-    cumsum = 0
-    for year in years:
-        cumsum += timeline[year]
-        cumulative_failures.append(cumsum)
-    
-    fig.add_trace(go.Scatter(
-        x=years,
-        y=cumulative_failures,
-        mode='lines+markers',
-        name='Cumulative Failures',
-        line=dict(color='rgba(50, 50, 200, 0.8)', width=3),
-        marker=dict(size=8),
-        yaxis='y2',
-        hovertemplate='<b>Year %{x}</b><br>Cumulative: %{y}<extra></extra>'
-    ))
-    
-    # Update layout
-    fig.update_layout(
-        title='Pipeline Joint Failure Prediction Timeline',
-        xaxis_title='Simulation Year',
-        yaxis_title='Joint Failures per Year',
-        yaxis2=dict(
-            title='Cumulative Failures',
-            overlaying='y',
-            side='right'
-        ),
-        height=500,
-        showlegend=True,
-        hovermode='x unified'
-    )
-    
-    return fig
-
 def create_survival_curve(simulation_results: Dict) -> go.Figure:
     """Create survival curve showing joint survival over time."""
     
@@ -132,3 +75,55 @@ def create_erf_evolution_plot(simulation_results: Dict) -> go.Figure:
     )
     
     return fig
+
+
+
+"""
+Simple visualization functions for failure prediction results.
+"""
+
+import plotly.graph_objects as go
+import pandas as pd
+
+def create_failure_timeline_histogram(simulation_results: dict) -> go.Figure:
+    """Create histogram of joint failures by year."""
+    
+    timeline = simulation_results['failure_timeline']
+    years = list(timeline.keys())
+    failures = list(timeline.values())
+    
+    fig = go.Figure()
+    
+    # Create histogram bars
+    fig.add_trace(go.Bar(
+        x=years,
+        y=failures,
+        name='Joint Failures',
+        marker_color='rgba(255, 99, 71, 0.8)',
+        text=failures,
+        textposition='outside',
+        hovertemplate='<b>Year %{x}</b><br>Failures: %{y}<extra></extra>'
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title='Pipeline Joint Failure Prediction Timeline',
+        xaxis_title='Simulation Year',
+        yaxis_title='Joint Failures per Year',
+        height=500,
+        showlegend=False
+    )
+    
+    return fig
+
+def create_simple_summary_metrics(simulation_results: dict) -> dict:
+    """Create summary metrics for display."""
+    
+    survival_stats = simulation_results['survival_statistics']
+    
+    return {
+        'total_joints': survival_stats['total_joints'],
+        'failed_joints': survival_stats['failed_joints'],
+        'failure_rate': survival_stats['failure_rate'],
+        'first_failure_year': min([f.failure_year for f in simulation_results['failure_history']], default=None)
+    }

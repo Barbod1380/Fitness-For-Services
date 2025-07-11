@@ -11,6 +11,12 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from datetime import datetime
+from app.views.corrosion import (
+    calculate_b31g, 
+    calculate_modified_b31g, 
+    calculate_simplified_effective_area_method
+)
+
 
 @dataclass
 class SimulationParams:
@@ -20,6 +26,17 @@ class SimulationParams:
     simulation_years: int
     erf_threshold: float
     depth_threshold: float  # percentage
+    
+    def __post_init__(self):
+        """Convert UI method names to function names"""
+        method_mapping = {
+            'B31G': 'b31g',
+            'Modified_B31G': 'modified_b31g',
+            'RSTRENG': 'simplified_eff_area'
+        }
+        
+        if self.assessment_method in method_mapping:
+            self.assessment_method = method_mapping[self.assessment_method]
 
 @dataclass
 class DefectState:
@@ -262,47 +279,78 @@ class FailurePredictionSimulator:
                 self.failure_history.append(failure)
         
         return year_failures
-    
+
+
     def _calculate_erf_using_existing_system(self, joint_df: pd.DataFrame) -> float:
         """
-        SIMPLIFIED: Use existing corrosion assessment system to calculate ERF.
-        
-        This function should call your existing corrosion assessment methods.
-        You'll need to replace this with calls to your actual functions.
+        FIXED: Use existing corrosion assessment functions to calculate ERF.
         """
-        
-        # PLACEHOLDER: Replace this with your actual corrosion assessment function calls
-        # This is where you'd call something like:
-        # from core.corrosion_assessment import compute_enhanced_corrosion_metrics
-        # erf_results = compute_enhanced_corrosion_metrics(joint_df, ...)
         
         max_erf = 0.0
         
         for idx, defect in joint_df.iterrows():
-            # TEMPORARY: Simple ERF calculation as placeholder
-            # Replace this with your actual ERF calculation
-            
+            # Extract defect parameters
             depth_pct = defect['depth [%]']
             length_mm = defect['length [mm]']
+            width_mm = defect['width [mm]']
             wt_mm = defect['wt nom [mm]']
             stress_factor = defect.get('stress_concentration_factor', 1.0)
             
-            # Simple placeholder ERF calculation (replace with your method)
-            if self.params.assessment_method == 'simplified_eff_area':
-                # Simplified RSTRENG-like calculation
-                d_over_t = depth_pct / 100.0
-                effective_d_over_t = d_over_t * stress_factor
-                erf = effective_d_over_t / 0.8  # Normalize to failure at 80%
-            else:
-                # Simple B31G-like calculation  
-                d_over_t = depth_pct / 100.0
-                effective_d_over_t = d_over_t * stress_factor
-                erf = effective_d_over_t / 0.8
+            # Apply stress concentration to depth (conservative approach)
+            effective_depth_pct = depth_pct * stress_factor
+            effective_depth_pct = min(effective_depth_pct, 80.0)  # Cap at 80%
             
-            max_erf = max(max_erf, erf)
+            # Apply stress concentration to length (moderate effect)
+            effective_length_mm = length_mm * min(stress_factor, 1.2)  # Cap length effect
+
+            print(self.params.assessment_method)
+            
+            try:
+                # Call your existing assessment function based on method
+                if self.params.assessment_method == 'b31g':
+                    result = calculate_b31g(
+                        defect_depth_pct=effective_depth_pct,
+                        defect_length_mm=effective_length_mm,
+                        pipe_diameter_mm=self.pipe_diameter * 1000,  # Convert to mm
+                        wall_thickness_mm=wt_mm,
+                        maop_mpa=self.params.max_operating_pressure,
+                        smys_mpa=self.smys,
+                        safety_factor=self.safety_factor
+                    )
+                
+                elif self.params.assessment_method == 'modified_b31g':
+                    result = calculate_modified_b31g(
+                        defect_depth_pct=effective_depth_pct,
+                        defect_length_mm=effective_length_mm,
+                        pipe_diameter_mm=self.pipe_diameter * 1000,
+                        wall_thickness_mm=wt_mm,
+                        maop_mpa=self.params.max_operating_pressure,
+                        smys_mpa=self.smys,
+                        safety_factor=self.safety_factor
+                    )
+                
+                elif self.params.assessment_method == 'simplified_eff_area':
+                    result = calculate_simplified_effective_area_method(
+                        defect_depth_pct=effective_depth_pct,
+                        defect_length_mm=effective_length_mm,
+                        defect_width_mm=width_mm,
+                        pipe_diameter_mm=self.pipe_diameter * 1000,
+                        wall_thickness_mm=wt_mm,
+                        smys_mpa=self.smys,
+                        safety_factor=self.safety_factor
+                    )
+                
+                # Calculate ERF: safe_pressure / maop
+                safe_pressure = result['safe_pressure_mpa']
+                erf = self.params.max_operating_pressure / safe_pressure
+                max_erf = max(max_erf, erf)
+                
+            except Exception as e:
+                print(f"Error calculating ERF for defect: {e}")
         
         return max_erf
-    
+
+
     def _calculate_max_erf(self) -> float:
         """Calculate maximum ERF across all surviving defects."""
         
