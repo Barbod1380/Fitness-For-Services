@@ -79,11 +79,18 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
 
             # Prepare feature data - FIX: Handle Series correctly
             scaler = StandardScaler()
-            X_positive = scaler.fit_transform(nearby_positive[features])
-            
-            # Extract features from the negative defect Series correctly
-            neg_features = [neg_defect[feature] for feature in features]
-            X_negative = scaler.transform([neg_features]) 
+
+            # Ensure we have DataFrame with proper column names for fitting
+            nearby_positive_features = nearby_positive[features].copy()
+
+            # Fit scaler with DataFrame (preserves feature names)
+            X_positive = scaler.fit_transform(nearby_positive_features)
+
+            # FIXED: Create DataFrame for negative defect to avoid warning
+            neg_features_dict = {feature: neg_defect[feature] for feature in features}
+            neg_features_df = pd.DataFrame([neg_features_dict], columns=features)
+            X_negative = scaler.transform(neg_features_df)
+
 
             # Find k nearest neighbors
             k_value = min(k, len(nearby_positive))

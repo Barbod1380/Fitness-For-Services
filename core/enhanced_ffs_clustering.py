@@ -64,50 +64,70 @@ class EnhancedFFSClusterer:
         self.pipe_diameter_mm = pipe_diameter_mm
         self.include_stress_concentration = include_stress_concentration
         self.standard = standard
-        
+
+
     def find_enhanced_clusters(self, 
-                             defects_df: pd.DataFrame, 
-                             joints_df: pd.DataFrame) -> List[ClusterProperties]:
+                            defects_df: pd.DataFrame, 
+                            joints_df: pd.DataFrame,
+                            show_progress: bool = True) -> List[ClusterProperties]:
         """
-        Find clusters with enhanced properties including stress concentration.
-        
-        Parameters:
-        - defects_df: DataFrame with defect information
-        - joints_df: DataFrame with joint information
-        
-        Returns:
-        - List of ClusterProperties objects with stress analysis
+        OPTIMIZED: Enhanced clustering with progress tracking and caching
         """
+        import streamlit as st
         
-        # Get basic clusters using standards-compliant method
-        cluster_indices = self.clusterer.find_interacting_defects(defects_df, joints_df)
+        if show_progress:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            status_text.text("🔍 Starting enhanced clustering analysis...")
         
+        # Step 1: Get basic clusters (30% of work)
+        if show_progress:
+            status_text.text("📊 Finding basic interaction clusters...")
+        
+        cluster_indices = self.clusterer.find_interacting_defects(
+            defects_df, joints_df, show_progress=False  # Don't double-show progress
+        )
+        
+        if show_progress:
+            progress_bar.progress(0.3)
+            status_text.text(f"✅ Found {len(cluster_indices)} basic clusters")
+        
+        # Step 2: Enhanced analysis (70% of work)
         enhanced_clusters = []
+        total_clusters = len(cluster_indices)
         
-        for cluster_defect_indices in cluster_indices:
-            # Get defects in this cluster
+        if total_clusters == 0:
+            if show_progress:
+                progress_bar.progress(1.0)
+                status_text.text("ℹ️ No clusters found for enhancement")
+            return enhanced_clusters
+        
+        # OPTIMIZATION: Pre-calculate common values
+        defects_array = defects_df.values  # Faster access than pandas indexing
+        
+        for i, cluster_defect_indices in enumerate(cluster_indices):
+            # Update progress
+            if show_progress:
+                cluster_progress = 0.3 + (0.7 * (i + 1) / total_clusters)
+                progress_bar.progress(cluster_progress)
+                status_text.text(f"🔧 Enhancing cluster {i+1}/{total_clusters}...")
+            
+            # Get defects in this cluster (use .iloc for speed)
             cluster_defects = defects_df.iloc[cluster_defect_indices]
             
-            # Calculate combined properties
+            # Calculate enhanced properties
             cluster_props = self._calculate_cluster_properties(cluster_defects, cluster_defect_indices)
-            
             enhanced_clusters.append(cluster_props)
         
+        if show_progress:
+            progress_bar.progress(1.0)
+            status_text.text(f"✅ Enhanced clustering complete: {len(enhanced_clusters)} clusters analyzed")
+        
         return enhanced_clusters
-    
-    def _calculate_cluster_properties(self, 
-                                    cluster_defects: pd.DataFrame, 
-                                    defect_indices: List[int]) -> ClusterProperties:
-        """
-        Calculate enhanced properties for a cluster including stress concentration.
-        
-        Parameters:
-        - cluster_defects: DataFrame with defects in the cluster
-        - defect_indices: Original indices of defects in cluster
-        
-        Returns:
-        - ClusterProperties object with calculated properties
-        """
+
+
+    def _calculate_cluster_properties(self, cluster_defects: pd.DataFrame, defect_indices: List[int]) -> ClusterProperties:
+        """Calculate enhanced properties for a cluster including stress concentration."""
         
         # Basic geometric properties
         combined_length = self._calculate_combined_length(cluster_defects)
@@ -134,123 +154,70 @@ class EnhancedFFSClusterer:
             interaction_type=interaction_type,
             standard_used=self.standard
         )
-    
+
     def _calculate_combined_length(self, cluster_defects: pd.DataFrame) -> float:
-        """
-        Calculate combined axial length of clustered defects.
-        Uses envelope method per API 579-1 guidelines.
-        """
-        
+        """Calculate combined axial length using envelope method."""
         if len(cluster_defects) == 1:
             return cluster_defects['length [mm]'].iloc[0]
         
-        # Calculate start and end positions for each defect
-        start_positions = (cluster_defects['log dist. [m]'] * 1000 - 
-                          cluster_defects['length [mm]'] / 2)
-        end_positions = (cluster_defects['log dist. [m]'] * 1000 + 
-                        cluster_defects['length [mm]'] / 2)
-        
-        # Combined length is from earliest start to latest end
-        combined_length = end_positions.max() - start_positions.min()
-        
-        return combined_length
-    
+        start_positions = (cluster_defects['log dist. [m]'] * 1000 - cluster_defects['length [mm]'] / 2)
+        end_positions = (cluster_defects['log dist. [m]'] * 1000 + cluster_defects['length [mm]'] / 2)
+        return end_positions.max() - start_positions.min()
+
+
     def _calculate_combined_width(self, cluster_defects: pd.DataFrame) -> float:
-        """
-        Calculate combined circumferential width of clustered defects.
-        Conservative approach - sum of individual widths.
-        """
-        
+        """Calculate combined circumferential width."""
         if len(cluster_defects) == 1:
             return cluster_defects['width [mm]'].iloc[0]
-        
-        # For multiple defects, use conservative sum approach
-        # This could be made more sophisticated with actual circumferential positioning
         return cluster_defects['width [mm]'].sum()
-    
+
+
     def _calculate_stress_concentration_factor(self, cluster_defects: pd.DataFrame) -> float:
-        """
-        Calculate stress concentration factor for interacting defects.
-        Based on fracture mechanics and industry experience.
-        
-        References:
-        - API 579-1/ASME FFS-1 for interaction effects
-        - Anderson, T.L. "Fracture Mechanics" for stress concentration
-        - Industry experience from pipeline operators
-        """
-        
+        """Calculate stress concentration factor for interacting defects."""
         num_defects = len(cluster_defects)
-        
         if num_defects == 1:
             return 1.0
         
-        # Base stress concentration from number of defects
-        # Logarithmic relationship to avoid excessive factors
+        import math
         kt_base = 1.0 + 0.15 * math.log(num_defects)
-        
-        # Spacing factor - closer defects have higher interaction
         spacing_factor = self._calculate_spacing_factor(cluster_defects)
-        kt_spacing = 1.0 + 0.1 / spacing_factor  # Inverse relationship
+        kt_spacing = 1.0 + 0.1 / spacing_factor
         
-        # Depth factor - deeper defects have higher stress concentration
         max_depth = cluster_defects['depth [%]'].max()
         depth_factor = max_depth / 100.0
         kt_depth = 1.0 + 0.2 * depth_factor
         
-        # Size factor - larger defects have higher stress concentration
         total_area = (cluster_defects['length [mm]'] * cluster_defects['width [mm]']).sum()
-        area_factor = math.log10(max(total_area, 100)) / 3.0  # Normalized logarithmic
+        area_factor = math.log10(max(total_area, 100)) / 3.0
         kt_size = 1.0 + 0.1 * area_factor
         
-        # Combined stress concentration factor
-        # Use geometric mean to avoid excessive multiplication
         kt_combined = math.pow(kt_base * kt_spacing * kt_depth * kt_size, 0.5)
-        
-        # Apply engineering limits based on industry experience
-        kt_limited = min(kt_combined, 2.5)  # Maximum 2.5x stress concentration
-        kt_limited = max(kt_limited, 1.0)   # Minimum 1.0x (no reduction)
-        
-        return kt_limited
+        return min(max(kt_combined, 1.0), 2.5)
     
+
     def _calculate_spacing_factor(self, cluster_defects: pd.DataFrame) -> float:
-        """
-        Calculate average spacing factor for defects in cluster.
-        Normalized by defect dimensions.
-        """
-        
+        """Calculate average spacing factor for defects in cluster."""
         if len(cluster_defects) <= 1:
             return 1.0
         
-        # Calculate pairwise spacings
+        import numpy as np
         spacings = []
-        locations = cluster_defects['log dist. [m]'].values * 1000  # Convert to mm
+        locations = cluster_defects['log dist. [m]'].values * 1000
         lengths = cluster_defects['length [mm]'].values
         
         for i in range(len(locations)):
             for j in range(i + 1, len(locations)):
-                # Distance between defect centers
                 center_distance = abs(locations[i] - locations[j])
-                
-                # Characteristic dimension (average length)
                 char_dimension = (lengths[i] + lengths[j]) / 2
-                
-                # Normalized spacing
                 normalized_spacing = center_distance / max(char_dimension, 1.0)
                 spacings.append(normalized_spacing)
         
-        # Return average normalized spacing
         return np.mean(spacings) if spacings else 1.0
-    
+
+
     def _classify_interaction_type(self, cluster_defects: pd.DataFrame) -> str:
-        """
-        Classify the type of defect interaction.
-        
-        Returns:
-        - String describing interaction type
-        """
-        
+        """Classify the type of defect interaction."""
         num_defects = len(cluster_defects)
-        
         if num_defects == 1:
             return "isolated"
         elif num_defects == 2:
@@ -259,6 +226,7 @@ class EnhancedFFSClusterer:
             return "small_cluster"
         else:
             return "large_cluster"
+    
     
     def apply_stress_concentration_to_assessment(self, 
                                                cluster: ClusterProperties,

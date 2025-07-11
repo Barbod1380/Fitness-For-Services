@@ -4,9 +4,16 @@ Multi-year comparison view for the Pipeline Analysis application.
 
 import pandas as pd
 import streamlit as st
+import datetime
 from visualization.comparison_viz import *
 from app.services.state_manager import *
 from core.multi_year_analysis import compare_defects
+from visualization.prediction_viz import (
+    create_failure_timeline_histogram,
+    create_survival_curve,
+    create_erf_evolution_plot
+)
+    
 
 
 def render_enhanced_clustering_analysis(earlier_data, later_data):
@@ -99,12 +106,21 @@ def test_new_clustering():
             st.error("Check your data structure and file contents")
 
 
-def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year):
-    """Perform comprehensive multi-year comparison analysis with automatic growth correction."""
+def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, distance_tolerance, clock_tolerance):
+    """
+    Perform comprehensive multi-year comparison analysis with automatic growth correction.
+    
+    FIXED: Now accepts tolerance parameters directly from user input
+    """
     st.success(f"✅ Analysis initialized for {earlier_year} vs {later_year}")
     
-    # Get analysis parameters
-    params = get_state('analysis_parameters', {})
+    # FIXED: Store user parameters in session state for future use
+    analysis_params = {
+        'distance_tolerance': distance_tolerance,
+        'clock_tolerance': clock_tolerance,
+        'analysis_timestamp': pd.Timestamp.now()
+    }
+    update_state('analysis_parameters', analysis_params)
     
     with st.spinner("🔄 Processing advanced multi-year comparison..."):
         try:
@@ -115,12 +131,13 @@ def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year):
             earlier_data = datasets[earlier_year]
             later_data = datasets[later_year]
             
+            # FIXED: Use the actual user inputs instead of session state defaults
             comparison_results = compare_defects(
                 earlier_data['defects_df'], later_data['defects_df'],
                 earlier_data['joints_df'], later_data['joints_df'],
                 earlier_year, later_year,
-                params.get('distance_tolerance', 0.1),
-                params.get('clock_tolerance', 20)
+                distance_tolerance,  # User input
+                clock_tolerance      # User input
             )
             progress_bar.progress(25)
             
@@ -136,7 +153,7 @@ def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year):
                 corrected_df, correction_info = _apply_growth_correction(
                     comparison_results['matches_df'],
                     earlier_data['joints_df'],
-                    params
+                    analysis_params  # Pass the user parameters
                 )
                 
                 # Update comparison results with corrected data
@@ -171,6 +188,7 @@ def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year):
             return
         
         st.rerun()
+
 
 
 def _apply_growth_correction(matches_df, joints_df, params):
@@ -495,9 +513,17 @@ def _render_growth_statistics_table(comparison_results, dimension):
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
+
+# New tab structure visualization and helper functions
+
+# Add these imports to the top of comparison.py
+import streamlit as st
+import pandas as pd
+from app.services.state_manager import get_state, update_state
+
 def render_comparison_view():
     """
-    Main function to render the multi-year comparison view.
+    UPDATED: Main function to render the multi-year comparison view with tabbed interface.
     """
     st.title("🔄 Multi-Year Comparison")
     st.markdown("**Compare defect growth patterns between inspection years**")
@@ -530,13 +556,41 @@ def render_comparison_view():
                     defect_count = len(datasets[year]['defects_df'])
                     st.metric(f"Year {year}", f"{defect_count} defects")
         return
+
+    # NEW: Create main tabs for different analysis types
+    main_tabs = st.tabs([
+        "📈 Growth Analysis", 
+        "🔧 Advanced Clustering",
+        "📊 Results & Visualization", 
+        "📥 Export Data"
+    ])
     
-    # Improved layout with sections
+    with main_tabs[0]:
+        # Growth Rate Analysis Tab
+        render_growth_analysis_tab(datasets, available_years)
+    
+    with main_tabs[1]:
+        # Advanced Clustering Tab (NEW)
+        render_clustering_analysis_tab(datasets, available_years)
+    
+    with main_tabs[2]:
+        # Results and Visualization Tab
+        render_results_visualization_tab(datasets)
+    
+    with main_tabs[3]:
+        # Export Tab
+        render_export_tab()
+
+
+def render_growth_analysis_tab(datasets, available_years):
+    """
+    Render the growth analysis tab - FOCUSED ONLY ON GROWTH ANALYSIS
+    """
+
+    # Year Selection Section
     with st.container():
-        st.markdown("---")
-        st.subheader("📅 Year Selection")
+        st.markdown("#### 📅 Year Selection")
         
-        # Year selection in organized columns
         col1, col2, col3 = st.columns([2, 2, 1])
         
         with col1:
@@ -564,110 +618,792 @@ def render_comparison_view():
             year_gap = later_year - earlier_year
             st.metric("Time Gap", f"{year_gap} years")
     
-    # Enhanced dataset summary
-    st.markdown("---")
-    st.subheader("📊 Dataset Overview")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown(f"### 📋 {earlier_year} Dataset (Baseline)")
-        earlier_data = datasets[earlier_year]
-        earlier_defects = len(earlier_data['defects_df'])
-        earlier_joints = len(earlier_data['joints_df'])
+    # Dataset Overview Section
+    with st.container():
+        st.markdown("#### 📊 Dataset Overview")
         
-        # Metrics for earlier data
-        metrics_col1, metrics_col2 = st.columns(2)
-        with metrics_col1:
-            st.metric("Defects", earlier_defects)
-        with metrics_col2:
-            st.metric("Joints", earlier_joints)
+        col1, col2 = st.columns(2)
         
-        st.write(f"**Pipe Diameter:** {earlier_data['pipe_diameter']}mm")
-    
-    with col2:
-        st.markdown(f"### 📋 {later_year} Dataset (Comparison)")
-        later_data = datasets[later_year]
-        later_defects = len(later_data['defects_df'])
-        later_joints = len(later_data['joints_df'])
+        with col1:
+            st.markdown(f"**{earlier_year} Dataset (Baseline)**")
+            earlier_data = datasets[earlier_year]
+            earlier_defects = len(earlier_data['defects_df'])
+            earlier_joints = len(earlier_data['joints_df'])
+            
+            metrics_col1, metrics_col2 = st.columns(2)
+            with metrics_col1:
+                st.metric("Defects", earlier_defects)
+            with metrics_col2:
+                st.metric("Joints", earlier_joints)
         
-        # Metrics for later data
-        metrics_col1, metrics_col2 = st.columns(2)
-        with metrics_col1:
-            st.metric("Defects", later_defects, delta=later_defects - earlier_defects)
-        with metrics_col2:
-            st.metric("Joints", later_joints, delta=later_joints - earlier_joints)
+        with col2:
+            st.markdown(f"**{later_year} Dataset (Comparison)**")
+            later_data = datasets[later_year]
+            later_defects = len(later_data['defects_df'])
+            later_joints = len(later_data['joints_df'])
+            
+            metrics_col1, metrics_col2 = st.columns(2)
+            with metrics_col1:
+                st.metric("Defects", later_defects, delta=later_defects - earlier_defects)
+            with metrics_col2:
+                st.metric("Joints", later_joints, delta=later_joints - earlier_joints)
+    
+    # Analysis Parameters Section
+    with st.container():
+        st.markdown("#### 🎯 Analysis Parameters")
         
-        st.write(f"**Pipe Diameter:** {later_data['pipe_diameter']}mm")
+        # Get previous parameters from session state or use defaults
+        previous_params = get_state('analysis_parameters', {})
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            distance_tolerance = st.number_input(
+                "**Distance Tolerance (meters)**",
+                min_value=0.01,
+                max_value=1.0,
+                value=previous_params.get('distance_tolerance', 0.1),
+                step=0.01,
+                key="distance_tolerance_input",
+                help="Maximum distance difference to consider defects as the same location"
+            )
+        
+        with col2:
+            clock_tolerance = st.number_input(
+                "**Clock Tolerance (minutes)**",
+                min_value=1,
+                max_value=120,
+                value=previous_params.get('clock_tolerance', 20),
+                step=5,
+                key="clock_tolerance_input",
+                help="Maximum clock position difference to consider defects at same position"
+            )
+        
+        # Parameter confirmation
+        with st.expander("🔍 Current Parameters", expanded=False):
+            param_col1, param_col2 = st.columns(2)
+            with param_col1:
+                st.metric("Distance Tolerance", f"{distance_tolerance} m")
+            with param_col2:
+                st.metric("Clock Tolerance", f"{clock_tolerance} min")
     
-    # Matching parameters
-    st.markdown("---")
-    st.subheader("🎯 Matching Parameters")
+    # Analysis Execution
+    st.markdown("#### 🔍 Run Analysis")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        distance_tolerance = st.number_input(
-            "**Distance Tolerance (meters)**",
-            min_value=0.01,
-            max_value=1.0,
-            value=0.1,
-            step=0.01,
-            help="Maximum distance difference to consider defects as the same location"
-        )
-    
-    with col2:
-        clock_tolerance = st.number_input(
-            "**Clock Tolerance (minutes)**",
-            min_value=1,
-            max_value=120,
-            value=20,
-            step=5,
-            help="Maximum clock position difference to consider defects at same position"
-        )
-    
-    # Analysis button
-    st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("🔍 Start Advanced Comparison Analysis", type="primary", use_container_width=True):
-            _perform_advanced_comparison_analysis(datasets, earlier_year, later_year)  
+        if st.button("🚀 Start Growth Rate Analysis", type="primary", use_container_width=True):
+            # FIXED: Pass the actual user inputs
+            _perform_advanced_comparison_analysis(
+                datasets, earlier_year, later_year, 
+                distance_tolerance, clock_tolerance
+            )
     
-    # Display data preview and results
+    # Show analysis status
     comparison_years = get_state('comparison_years')
-    if comparison_years and comparison_years == (earlier_year, later_year):
-        display_data_preview_and_results(earlier_data, later_data)
+    comparison_results = get_state('comparison_results')
+    
+    if comparison_years and comparison_results:
+        if comparison_years == (earlier_year, later_year):
+            st.success("✅ Growth analysis completed! Check other tabs for results and clustering.")
+        else:
+            st.warning(f"⚠️ Results available for {comparison_years[0]} vs {comparison_years[1]}. Run analysis again for current selection.")
 
 
-def get_display_columns(df):
+def render_clustering_analysis_tab(datasets, available_years):
     """
-    Get the most relevant columns for display in the data preview.
+    FIXED: Clustering tab with proper function calls
     """
-    # Priority columns to show
-    priority_cols = [
-        'log dist. [m]', 'joint number', 'depth [%]', 
-        'length [mm]', 'width [mm]', 'clock',
-        'component / anomaly identification'
-    ]
+    st.markdown("### 🔧 Advanced Clustering Analysis")
+    st.markdown("Industry-standards compliant clustering with stress concentration and failure prediction.")
     
-    # Get columns that exist in the dataframe
-    available_cols = [col for col in priority_cols if col in df.columns]
+    # Check if growth analysis has been performed
+    comparison_results = get_state('comparison_results')
+    comparison_years = get_state('comparison_years')
     
-    # If we have less than 4 columns, add others
-    if len(available_cols) < 4:
-        other_cols = [col for col in df.columns if col not in available_cols]
-        available_cols.extend(other_cols[:4-len(available_cols)])
+    if not comparison_results or not comparison_years:
+        st.warning("⚠️ **Growth Analysis Required**")
+        st.info("""
+        Please complete the Growth Analysis first:
+        1. Go to the **Growth Analysis** tab
+        2. Select your years and parameters  
+        3. Run the growth rate analysis
+        4. Return here for clustering analysis
+        """)
+        return
     
-    return available_cols[:6]  # Limit to 6 columns max
+    # Show which years are being analyzed
+    earlier_year, later_year = comparison_years
+    st.info(f"🔍 **Clustering Analysis for**: {earlier_year} → {later_year}")
+    
+    # Get data
+    earlier_data = datasets[earlier_year]
+    later_data = datasets[later_year]
+    
+    # Create sub-tabs for clustering and prediction
+    cluster_tabs = st.tabs([
+        "🔧 Clustering Analysis",
+        "🔮 Future Prediction"
+    ])
+    
+    with cluster_tabs[0]:
+        # FIXED: Use the proper function with correct parameter
+        render_clustering_analysis_section(later_data)
+    
+    with cluster_tabs[1]:
+        # NEW FUTURE PREDICTION SECTION
+        render_future_prediction_section(later_data, comparison_results)
 
+
+def render_clustering_analysis_section(later_data):
+    """
+    Render the clustering analysis section (extracted from original code)
+    """
+    st.markdown("#### 🔧 Clustering Configuration")
     
-    # Combined dataset info
-    st.info(f"""
-    **📊 {year} Dataset Summary:**
-    - Defects: {len(data['defects_df'])}
-    - Joints: {len(data['joints_df'])}
-    - Pipe Diameter: {data['pipe_diameter']}mm
-    """)
+    # Configuration section
+    with st.expander("🔧 Advanced Clustering Configuration", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            clustering_standard = st.selectbox(
+                "Industry Standard",
+                options=["RSTRENG", "BS7910", "API579", "DNV", "CONSERVATIVE"],
+                index=0,
+                help="Select industry standard for clustering methodology"
+            )
+        
+        with col2:
+            conservative_factor = st.slider(
+                "Conservative Factor", 
+                min_value=1.0, max_value=2.0, value=1.0, step=0.1,
+                help="Additional conservatism factor (1.0 = standard, >1.0 = more conservative)"
+            )
+        
+        with col3:
+            erf_threshold = st.slider(
+                "ERF Failure Threshold",
+                min_value=0.80, max_value=0.99, value=0.90, step=0.01,
+                help="ERF threshold for failure assessment"
+            )
+    
+    # Analysis Execution
+    st.markdown("#### 🚀 Run Clustering Analysis")
+    
+    if st.button("🔬 Perform Advanced Clustering Analysis", type="primary", use_container_width=True, key="clustering_analysis_main"):
+        
+        # Pre-analysis setup
+        defects_df = later_data['defects_df']
+        joints_df = later_data['joints_df']
+        pipe_diameter_mm = later_data['pipe_diameter'] * 1000
+        
+        # Validation checks
+        if defects_df.empty:
+            st.error("❌ No defects found in the selected dataset")
+            return
+        
+        if joints_df.empty:
+            st.error("❌ No joints found in the selected dataset")
+            return
+        
+        # Check required columns
+        required_defect_cols = ['log dist. [m]', 'joint number', 'depth [%]', 'length [mm]', 'width [mm]']
+        missing_cols = [col for col in required_defect_cols if col not in defects_df.columns]
+        
+        if missing_cols:
+            st.error(f"❌ Missing required columns in defects data: {missing_cols}")
+            return
+        
+        st.info(f"🔍 **Starting clustering analysis**: {len(defects_df)} defects, {len(joints_df)} joints")
+        
+        # Performance estimate
+        estimated_time = max(2, len(defects_df) * 0.01)
+        st.caption(f"⏱️ Estimated completion time: {estimated_time:.1f} seconds")
+        
+        try:
+            import time
+            start_time = time.time()
+            
+            # More robust import handling
+            try:
+                from core.enhanced_ffs_clustering import enhance_existing_assessment
+            except ImportError as e:
+                st.error(f"❌ Import error: {e}")
+                st.info("💡 Make sure all clustering modules are properly installed")
+                return
+            
+            # Run with progress tracking
+            combined_df, clusters = enhance_existing_assessment(
+                defects_df, joints_df, pipe_diameter_mm, clustering_standard
+            )
+            
+            end_time = time.time()
+            processing_time = end_time - start_time
+            
+            # Better validation of results
+            if clusters is None:
+                st.warning("⚠️ No clusters were generated")
+                return
+            
+            if not isinstance(clusters, list):
+                st.error("❌ Invalid cluster results format")
+                return
+            
+            # Store results with performance metadata
+            st.session_state.enhanced_clusters = clusters
+            st.session_state.combined_defects = combined_df
+            st.session_state.clustering_config = {
+                'standard': clustering_standard,
+                'conservative_factor': conservative_factor,
+                'erf_threshold': erf_threshold,
+                'analysis_timestamp': pd.Timestamp.now(),
+                'processing_time_seconds': processing_time,
+                'defects_processed': len(defects_df)
+            }
+            
+            # Performance summary
+            st.success(f"✅ Clustering analysis completed in {processing_time:.2f} seconds!")
+            
+            if processing_time > 0:
+                defects_per_second = len(defects_df) / processing_time
+                st.caption(f"⚡ Performance: {defects_per_second:.1f} defects/second")
+            
+            # Show summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Clusters Found", len(clusters))
+            with col2:
+                defects_clustered = sum(len(c.defect_indices) for c in clusters)
+                st.metric("Defects Clustered", defects_clustered)
+            with col3:
+                max_stress = max([c.stress_concentration_factor for c in clusters], default=1.0)
+                st.metric("Max Stress Factor", f"{max_stress:.2f}x")
+            with col4:
+                total_defects = len(defects_df)
+                clustering_rate = (defects_clustered / total_defects) * 100 if total_defects > 0 else 0
+                st.metric("Clustering Rate", f"{clustering_rate:.1f}%")
+            
+        except AttributeError as e:
+            st.error(f"❌ Method missing: {str(e)}")
+            st.info("💡 **Solution**: Make sure all required methods are implemented in the clustering classes")
+        except ImportError as e:
+            st.error(f"❌ Import error: {str(e)}")
+            st.info("💡 **Solution**: Check that all required modules are available")
+        except Exception as e:
+            st.error(f"❌ Clustering analysis failed: {str(e)}")
+            st.info("💡 **Troubleshooting**: Ensure defects have valid location and dimension data")
+            
+            # Debug information
+            with st.expander("🔍 Debug Information"):
+                st.write("**Dataset Info:**")
+                st.write(f"- Defects shape: {defects_df.shape}")
+                st.write(f"- Joints shape: {joints_df.shape}")
+                st.write(f"- Defects columns: {defects_df.columns.tolist()}")
+                st.write(f"- Joints columns: {joints_df.columns.tolist()}")
+                
+                st.write("**Sample Data:**")
+                st.write("First defect:", defects_df.iloc[0].to_dict() if not defects_df.empty else "No data")
+    
+    # Display clustering results if available
+    if hasattr(st.session_state, 'enhanced_clusters') and st.session_state.enhanced_clusters:
+        display_clustering_results()
+
+def render_future_prediction_section(later_data, comparison_results):
+    """
+    Future prediction section with time-forward simulation
+    """
+    st.markdown("### 🔮 Future Failure Prediction")
+    st.markdown("Simulate defect growth and predict joint failures over time")
+    
+    # Check if clustering has been performed
+    if not hasattr(st.session_state, 'enhanced_clusters'):
+        st.warning("⚠️ **Clustering Analysis Required**")
+        st.info("Please run the Clustering Analysis first to enable failure prediction.")
+        return
+    
+    # Parameter input form
+    with st.expander("⚙️ Simulation Parameters", expanded=True):
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            assessment_method = st.selectbox(
+                "**Assessment Method**",
+                options=['B31G', 'Modified_B31G', 'RSTRENG'],
+                index=2,  # Default to RSTRENG
+                help="Method for calculating safe operating pressure"
+            )
+            
+            max_operating_pressure = st.number_input(
+                "**Maximum Allowed Operating Pressure (MPa)**",
+                min_value=1.0,
+                max_value=20.0,
+                value=7.0,
+                step=0.1,
+                help="Maximum allowed operating pressure for the pipeline"
+            )
+            
+            safety_factor = st.number_input(
+                "**Safety Factor**",
+                min_value=1.0,
+                max_value=5.0,
+                value=1.39,
+                step=0.01,
+                help="Design safety factor"
+            )
+            
+            smys = st.number_input(
+                "**Pipe Grade (SMYS) (MPa)**",
+                min_value=200.0,
+                max_value=800.0,
+                value=415.0,
+                step=5.0,
+                help="Specified Minimum Yield Strength"
+            )
+        
+        with col2:
+            pipe_diameter = st.number_input(
+                "**Pipe Diameter (mm)**",
+                min_value=100.0,
+                max_value=2000.0,
+                value=later_data['pipe_diameter'] * 1000,  # Convert to mm
+                step=1.0,
+                help="Outside diameter of the pipeline"
+            )
+            
+            simulation_years = st.number_input(
+                "**Simulation Years**",
+                min_value=1,
+                max_value=50,
+                value=15,
+                step=1,
+                help="Number of years to simulate into the future"
+            )
+            
+            erf_threshold = st.number_input(
+                "**ERF Failure Threshold**",
+                min_value=0.5,
+                max_value=1.0,
+                value=0.90,
+                step=0.01,
+                help="ERF threshold above which joint fails"
+            )
+            
+            depth_threshold = st.number_input(
+                "**Depth Failure Threshold (%)**",
+                min_value=50.0,
+                max_value=95.0,
+                value=80.0,
+                step=1.0,
+                help="Depth threshold above which joint fails"
+            )
+    
+    # TEMPORARY: Simple test implementation
+    if st.button("🚀 Run Failure Prediction Simulation", type="primary", use_container_width=True, key="prediction_simulation"):
+        
+        # For now, just show that parameters are captured
+        st.success("✅ Simulation framework ready!")
+        st.info(f"""
+        **Parameters Captured:**
+        - Assessment Method: {assessment_method}
+        - Max Operating Pressure: {max_operating_pressure} MPa
+        - Safety Factor: {safety_factor}
+        - SMYS: {smys} MPa
+        - Pipe Diameter: {pipe_diameter} mm
+        - Simulation Years: {simulation_years}
+        - ERF Threshold: {erf_threshold}
+        - Depth Threshold: {depth_threshold}%
+        
+        **Data Available:**
+        - Defects: {len(later_data['defects_df'])}
+        - Joints: {len(later_data['joints_df'])}
+        - Growth Rates: {len(comparison_results['matches_df'])}
+        - Clusters: {len(st.session_state.enhanced_clusters)}
+        
+        **Next Step:** Implement the simulation engine
+        """)
+        
+        # Show clustering summary
+        if hasattr(st.session_state, 'enhanced_clusters'):
+            clusters = st.session_state.enhanced_clusters
+            st.markdown("#### 🔧 Available Clustering Data:")
+            
+            cluster_summary = []
+            for i, cluster in enumerate(clusters):
+                cluster_summary.append({
+                    'Cluster': f'Cluster {i+1}',
+                    'Defects': len(cluster.defect_indices),
+                    'Stress Factor': f"{cluster.stress_concentration_factor:.2f}x",
+                    'Max Depth': f"{cluster.max_depth_pct:.1f}%",
+                    'Location': f"{cluster.center_location_m:.1f}m"
+                })
+            
+            if cluster_summary:
+                cluster_df = pd.DataFrame(cluster_summary)
+                st.dataframe(cluster_df, use_container_width=True)
+        
+        st.markdown("---")
+        st.markdown("### 🚧 Implementation Status")
+        st.markdown("""
+        **✅ Completed:**
+        - Parameter collection form
+        - Data validation
+        - Integration with clustering results
+        
+        **🚧 In Progress:**
+        - Simulation engine implementation
+        - ERF calculations
+        - Failure prediction logic
+        
+        **📋 Next Steps:**
+        1. Create pressure assessment module
+        2. Implement simulation engine
+        3. Add visualization components
+        """)
+
+
+def display_prediction_results():
+    """Display simulation results with visualizations."""
+    
+    results = st.session_state.prediction_results
+    
+    st.markdown("---")
+    st.markdown("### 📊 Simulation Results")
+    
+    # Summary metrics
+    survival_stats = results['survival_statistics']
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Total Joints",
+            survival_stats['total_joints']
+        )
+    
+    with col2:
+        st.metric(
+            "Failed Joints",
+            survival_stats['failed_joints'],
+            f"{survival_stats['failure_rate']:.1f}% of total"
+        )
+    
+    with col3:
+        st.metric(
+            "Surviving Joints", 
+            survival_stats['surviving_joints'],
+            f"{survival_stats['survival_rate']:.1f}% survival"
+        )
+    
+    with col4:
+        if results['failure_history']:
+            first_failure_year = min(f.failure_year for f in results['failure_history'])
+            st.metric("First Failure", f"Year {first_failure_year}")
+        else:
+            st.metric("First Failure", "None predicted")
+    
+    # Visualizations
+    st.markdown("### 📈 Failure Timeline Analysis")
+    
+
+    # Failure timeline histogram
+    fig_timeline = create_failure_timeline_histogram(results)
+    st.plotly_chart(fig_timeline, use_container_width=True)
+    
+    # Additional charts in columns
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Survival curve
+        fig_survival = create_survival_curve(results)
+        st.plotly_chart(fig_survival, use_container_width=True)
+    
+    with col2:
+        # ERF evolution
+        fig_erf = create_erf_evolution_plot(results)
+        st.plotly_chart(fig_erf, use_container_width=True)
+    
+    # Detailed failure breakdown
+    with st.expander("📋 Detailed Failure Analysis", expanded=False):
+        
+        if results['failure_history']:
+            # Create failure details table
+            failure_data = []
+            for failure in results['failure_history']:
+                failure_data.append({
+                    'Joint Number': failure.joint_number,
+                    'Failure Year': failure.failure_year,
+                    'Failure Mode': failure.failure_mode,
+                    'Final ERF': f"{failure.final_erf:.3f}",
+                    'Final Depth (%)': f"{failure.final_depth_pct:.1f}%",
+                    'Defect Count': failure.defect_count
+                })
+            
+            failure_df = pd.DataFrame(failure_data)
+            st.dataframe(failure_df, use_container_width=True)
+            
+            # Download failure details
+            failure_csv = failure_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Failure Details",
+                data=failure_csv,
+                file_name=f"failure_prediction_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="failure_prediction_download"
+            )
+        else:
+            st.info("🎉 No joint failures predicted within the simulation timeframe!")
+    
+    # Engineering recommendations
+    st.markdown("### 💡 Engineering Recommendations")
+    
+    if results['total_failures'] > 0:
+        failure_rate = results['total_failures'] / survival_stats['total_joints'] * 100
+        
+        if failure_rate > 20:
+            st.error(f"🚨 **HIGH RISK**: {failure_rate:.1f}% failure rate predicted")
+            st.markdown("""
+            **Immediate Actions Required:**
+            - Detailed inspection of high-risk joints
+            - Consider pressure reduction
+            - Implement enhanced monitoring
+            - Plan repair/replacement schedule
+            """)
+        elif failure_rate > 10:
+            st.warning(f"⚠️ **MODERATE RISK**: {failure_rate:.1f}% failure rate predicted")
+            st.markdown("""
+            **Recommended Actions:**
+            - Increase inspection frequency
+            - Monitor critical joints closely
+            - Plan preventive maintenance
+            """)
+        else:
+            st.success(f"✅ **LOW RISK**: {failure_rate:.1f}% failure rate predicted")
+            st.markdown("""
+            **Maintenance Strategy:**
+            - Continue routine monitoring
+            - Standard inspection intervals
+            - Predictive maintenance approach
+            """)
+    else:
+        st.success("🎉 **EXCELLENT**: No failures predicted within simulation timeframe!")
+        st.markdown("""
+        **Recommended Strategy:**
+        - Maintain current integrity program
+        - Consider extending inspection intervals
+        - Monitor for new defect formation
+        """)
+
+
+
+def render_results_visualization_tab(datasets):
+    """
+    NEW: Combined results and visualization tab
+    """
+    st.markdown("### 📊 Analysis Results & Visualization")
+    
+    comparison_results = get_state('comparison_results')
+    comparison_years = get_state('comparison_years')
+    
+    if not comparison_results or not comparison_years:
+        st.info("📊 No analysis results available. Please run Growth Analysis first.")
+        return
+    
+    earlier_year, later_year = comparison_years
+    earlier_data = datasets[earlier_year]
+    later_data = datasets[later_year]
+    
+    # Use the existing results display function
+    display_data_preview_and_results(earlier_data, later_data)
+
+
+def display_clustering_results():
+    """
+    FIXED: Display detailed clustering results without styling errors
+    """
+    clusters = st.session_state.enhanced_clusters
+    config = st.session_state.clustering_config
+    
+    st.markdown("#### 🔍 Clustering Results Details")
+    
+    # Configuration summary
+    with st.expander("📋 Analysis Configuration", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Standard", config['standard'])
+        with col2:
+            st.metric("Conservative Factor", f"{config['conservative_factor']:.1f}x")
+        with col3:
+            st.metric("ERF Threshold", f"{config['erf_threshold']:.2f}")
+        
+        st.caption(f"Analysis performed: {config['analysis_timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Cluster details table
+    if clusters:
+        st.markdown("#### 📋 Cluster Details")
+        
+        cluster_data = []
+        for i, cluster in enumerate(clusters):
+            # FIXED: Format stress factor with emoji indicators instead of complex styling
+            stress_factor = cluster.stress_concentration_factor
+            if stress_factor >= 2.0:
+                stress_display = f"{stress_factor:.2f}x 🔴"
+            elif stress_factor >= 1.5:
+                stress_display = f"{stress_factor:.2f}x 🟡"
+            elif stress_factor > 1.0:
+                stress_display = f"{stress_factor:.2f}x 🟢"
+            else:
+                stress_display = f"{stress_factor:.2f}x"
+            
+            cluster_data.append({
+                'Cluster ID': f'Cluster {i+1}',
+                'Defect Count': len(cluster.defect_indices),
+                'Max Depth (%)': f"{cluster.max_depth_pct:.1f}%",
+                'Combined Length (mm)': f"{cluster.combined_length_mm:.1f}mm",
+                'Combined Width (mm)': f"{cluster.combined_width_mm:.1f}mm",
+                'Stress Factor': stress_display,  # FIXED: Simple format with emoji
+                'Center Location (m)': f"{cluster.center_location_m:.2f}m",
+                'Interaction Type': cluster.interaction_type,
+                'Standard Used': cluster.standard_used
+            })
+        
+        cluster_df = pd.DataFrame(cluster_data)
+        
+        # FIXED: Simple dataframe display without problematic styling
+        st.dataframe(cluster_df, use_container_width=True)
+        
+        # Add simple legend
+        st.markdown("**Stress Factor Guide:** 🟢 Low (1.0-1.5x) | 🟡 Moderate (1.5-2.0x) | 🔴 High (>2.0x)")
+        
+        # Download cluster results
+        cluster_csv = cluster_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Cluster Results",
+            data=cluster_csv,
+            file_name=f"clustering_results_{config['analysis_timestamp'].strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            key="clustering_results_download_button"
+        )
+        
+        # Additional summary metrics
+        st.markdown("#### 📊 Cluster Summary")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            stress_factors = [cluster.stress_concentration_factor for cluster in clusters]
+            avg_stress = sum(stress_factors) / len(stress_factors)
+            st.metric("Average Stress Factor", f"{avg_stress:.2f}x")
+        
+        with col2:
+            cluster_sizes = [len(cluster.defect_indices) for cluster in clusters]
+            avg_size = sum(cluster_sizes) / len(cluster_sizes)
+            st.metric("Average Cluster Size", f"{avg_size:.1f} defects")
+        
+        with col3:
+            total_defects_clustered = sum(cluster_sizes)
+            st.metric("Total Defects Clustered", total_defects_clustered)
+    
+    else:
+        st.info("No clusters found with current parameters.")
+        st.markdown("""
+        **Possible reasons:**
+        - Defects are too far apart to interact
+        - Conservative clustering parameters
+        - Limited defect data
+        
+        **Try:**
+        - Increasing the conservative factor
+        - Using a different clustering standard
+        - Checking defect location data quality
+        """)
+        
+
+def render_export_tab():
+    """
+    FIXED: Enhanced export tab with unique keys for all download buttons
+    """
+    st.markdown("### 📥 Data Export & Documentation")
+    
+    comparison_results = get_state('comparison_results')
+    correction_results = get_state('correction_results')
+    
+    if not comparison_results:
+        st.info("📁 No analysis results available for export.")
+        return
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 📊 Growth Analysis Data")
+        
+        # Export matched defects - FIXED: Added unique key
+        if not comparison_results['matches_df'].empty:
+            matches_csv = comparison_results['matches_df'].to_csv(index=False)
+            st.download_button(
+                label="📈 Download Matched Defects (CSV)",
+                data=matches_csv,
+                file_name=f"matched_defects_{st.session_state.get('earlier_year_select')}_{st.session_state.get('later_year_select')}.csv",
+                mime="text/csv",
+                key="export_tab_matched_defects_download"  # UNIQUE KEY
+            )
+        
+        # Export new defects - FIXED: Added unique key
+        if not comparison_results['new_defects'].empty:
+            new_defects_csv = comparison_results['new_defects'].to_csv(index=False)
+            st.download_button(
+                label="🆕 Download New Defects (CSV)",
+                data=new_defects_csv,
+                file_name=f"new_defects_{st.session_state.get('later_year_select')}.csv",
+                mime="text/csv",
+                key="export_tab_new_defects_download"  # UNIQUE KEY
+            )
+    
+    with col2:
+        st.markdown("#### 🔧 Clustering Data")
+        
+        # Export clustering results if available - FIXED: Added unique key
+        if hasattr(st.session_state, 'enhanced_clusters') and st.session_state.enhanced_clusters:
+            # Combined defects export
+            if hasattr(st.session_state, 'combined_defects'):
+                combined_csv = st.session_state.combined_defects.to_csv(index=False)
+                st.download_button(
+                    label="🔗 Download Combined Defects (CSV)",
+                    data=combined_csv,
+                    file_name=f"combined_defects_{st.session_state.clustering_config['analysis_timestamp'].strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    key="export_tab_combined_defects_download"  # UNIQUE KEY
+                )
+        else:
+            st.info("🔧 Run clustering analysis to enable clustering data export.")
+    
+    # Documentation section
+    st.markdown("#### 📋 Documentation & Reports")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Growth correction report - FIXED: Added unique key
+        if correction_results:
+            report_content = _generate_correction_report(correction_results, comparison_results)
+            st.download_button(
+                label="📋 Download Correction Report",
+                data=report_content,
+                file_name=f"growth_correction_report_{st.session_state.get('earlier_year_select')}_{st.session_state.get('later_year_select')}.txt",
+                mime="text/plain",
+                key="export_tab_correction_report_download"  # UNIQUE KEY
+            )
+    
+    with col2:
+        # Methodology documentation - FIXED: Added unique key
+        methodology_doc = _generate_methodology_documentation()
+        st.download_button(
+            label="📖 Download Methodology Documentation",
+            data=methodology_doc,
+            file_name="analysis_methodology.txt",
+            mime="text/plain",
+            key="export_tab_methodology_download"  # UNIQUE KEY
+        )
+
 
 
 def _render_correction_review_section():
@@ -733,9 +1469,10 @@ def _render_correction_review_section():
                 else:
                     st.write(f"**{key}**: {value}")
 
-
 def _render_data_export_section():
-    """Render data export capabilities with correction documentation."""
+    """
+    FIXED: Render data export capabilities with unique keys for download buttons
+    """
     
     comparison_results = get_state('comparison_results')
     correction_results = get_state('correction_results')
@@ -751,48 +1488,52 @@ def _render_data_export_section():
     with col1:
         st.markdown("#### Analysis Data")
         
-        # Export matched defects with corrections
+        # Export matched defects with corrections - FIXED: Added unique key
         if not comparison_results['matches_df'].empty:
             matches_csv = comparison_results['matches_df'].to_csv(index=False)
             st.download_button(
                 label="📊 Download Matched Defects (CSV)",
                 data=matches_csv,
                 file_name=f"matched_defects_corrected_{st.session_state.get('earlier_year_select')}_{st.session_state.get('later_year_select')}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="results_tab_matched_defects_download"  # UNIQUE KEY
             )
         
-        # Export new defects
+        # Export new defects - FIXED: Added unique key
         if not comparison_results['new_defects'].empty:
             new_defects_csv = comparison_results['new_defects'].to_csv(index=False)
             st.download_button(
                 label="🆕 Download New Defects (CSV)",
                 data=new_defects_csv,
                 file_name=f"new_defects_{st.session_state.get('later_year_select')}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="results_tab_new_defects_download"  # UNIQUE KEY
             )
     
     with col2:
         st.markdown("#### Documentation")
         
-        # Generate correction report
+        # Generate correction report - FIXED: Added unique key
         if correction_results:
             report_content = _generate_correction_report(correction_results, comparison_results)
             st.download_button(
                 label="📋 Download Correction Report",
                 data=report_content,
                 file_name=f"growth_correction_report_{st.session_state.get('earlier_year_select')}_{st.session_state.get('later_year_select')}.txt",
-                mime="text/plain"
+                mime="text/plain",
+                key="results_tab_correction_report_download"  # UNIQUE KEY
             )
         
-        # Export methodology documentation
+        # Export methodology documentation - FIXED: Added unique key
         methodology_doc = _generate_methodology_documentation()
         st.download_button(
             label="📖 Download Methodology Documentation",
             data=methodology_doc,
             file_name="growth_correction_methodology.txt",
-            mime="text/plain"
+            mime="text/plain",
+            key="results_tab_methodology_download"  # UNIQUE KEY
         )
-
+        
 def _generate_correction_report(correction_results, comparison_results):
     """Generate a detailed correction report for documentation."""
     
