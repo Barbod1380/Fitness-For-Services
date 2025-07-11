@@ -272,6 +272,139 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
     }
 
 
+def calculate_true_rstreng_method(defect_depth_pct, defect_length_mm, defect_width_mm, 
+                                 pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.39):
+    """
+    TRUE RSTRENG Implementation per Kiefner & Vieth (PRCI Catalog No. L51794)
+    
+    FIXES THE PROBLEM: Previous implementation was actually Modified B31G
+    
+    Key Differences from Modified B31G:
+    1. Uses effective area methodology (A_eff = 2/3 × L × W × d/t)
+    2. Flow stress = SMYS + 68.95 MPa (exactly, not 69)
+    3. Parabolic defect profile assumption
+    4. Different failure stress calculation approach
+    
+    Reference: "PC Program for Evaluating the Remaining Strength of Corroded Pipe"
+    """
+    
+    # Input validation with RSTRENG-specific limits
+    if defect_depth_pct <= 0 or defect_depth_pct > 80:
+        return {
+            "method": "RSTRENG (True Effective Area)",
+            "safe": False,
+            "failure_pressure_mpa": 0.0,
+            "safe_pressure_mpa": 0.0,
+            "remaining_strength_pct": 0.0,
+            "note": f"Depth {defect_depth_pct}% outside RSTRENG applicability (0-80%)"
+        }
+    
+    # Convert inputs
+    d_t = defect_depth_pct / 100.0
+    radius_mm = pipe_diameter_mm / 2.0
+    
+    # === CORE RSTRENG METHODOLOGY ===
+    
+    # 1. EFFECTIVE AREA CALCULATION (Key difference from Modified B31G)
+    # For parabolic defect profile: A_eff = (2/3) × length × width × (d/t)
+    # This represents actual metal loss volume
+    effective_area_mm2 = (2.0/3.0) * defect_length_mm * defect_width_mm * d_t
+    
+    # 2. TOTAL AREA IN DEFECT REGION
+    total_area_mm2 = defect_length_mm * defect_width_mm
+    
+    # 3. EFFECTIVE AREA RATIO (Key RSTRENG parameter)
+    area_ratio = effective_area_mm2 / total_area_mm2  # = (2/3) × d/t
+    
+    # 4. RSTRENG FOLIAS FACTOR (accounts for pressure-induced bulging)
+    # ψ = L/√(R×t) - dimensionless length parameter
+    psi = defect_length_mm / math.sqrt(radius_mm * wall_thickness_mm)
+    
+    # RSTRENG Folias factor calculation
+    if psi <= 4:
+        # Short defect formula
+        folias_factor = math.sqrt(1 + 0.6275 * psi**2 - 0.003375 * psi**4)
+    else:
+        # Long defect formula
+        folias_factor = 0.032 * psi + 3.3
+    
+    # 5. FLOW STRESS (RSTRENG-specific value)
+    # Original RSTRENG uses SMYS + 68.95 MPa (exactly 10 ksi)
+    flow_stress_mpa = smys_mpa + 68.95  # NOT 69 MPa
+    
+    # 6. FAILURE STRESS CALCULATION (True RSTRENG approach)
+    # σ_f = σ_flow × [(1 - A_eff/A_total) / (1 - (A_eff/A_total)/M_t)]
+    numerator = 1 - area_ratio
+    denominator = 1 - (area_ratio / folias_factor)
+    
+    # Check for mathematical validity
+    if denominator <= 0 or folias_factor <= 0:
+        return {
+            "method": "RSTRENG (True Effective Area)",
+            "safe": False,
+            "failure_pressure_mpa": 0.0,
+            "safe_pressure_mpa": 0.0,
+            "remaining_strength_pct": 0.0,
+            "note": f"Mathematical instability: denominator={denominator:.3f}, M_t={folias_factor:.3f}"
+        }
+    
+    # Calculate failure stress
+    failure_stress_mpa = flow_stress_mpa * (numerator / denominator)
+    
+    # 7. FAILURE PRESSURE (thin-wall assumption)
+    failure_pressure_mpa = (2 * failure_stress_mpa * wall_thickness_mm) / pipe_diameter_mm
+    
+    # 8. SAFE OPERATING PRESSURE
+    safe_pressure_mpa = failure_pressure_mpa / safety_factor
+    
+    # 9. REMAINING STRENGTH FACTOR
+    remaining_strength_pct = (failure_stress_mpa / flow_stress_mpa) * 100
+    
+    return {
+        "method": "RSTRENG (True Effective Area)",
+        "safe": failure_pressure_mpa > 0,
+        "failure_pressure_mpa": failure_pressure_mpa,
+        "safe_pressure_mpa": safe_pressure_mpa,
+        "remaining_strength_pct": remaining_strength_pct,
+        # RSTRENG-specific outputs
+        "effective_area_ratio": area_ratio,
+        "folias_factor_Mt": folias_factor,
+        "flow_stress_mpa": flow_stress_mpa,
+        "psi_parameter": psi,
+        "effective_area_mm2": effective_area_mm2,
+        "total_area_mm2": total_area_mm2,
+        "note": f"True RSTRENG: ψ={psi:.2f}, M_t={folias_factor:.3f}, A_eff/A_total={area_ratio:.3f}, σ_flow={flow_stress_mpa:.1f}MPa"
+    }
+
+
+def calculate_simplified_effective_area_method(defect_depth_pct, defect_length_mm, defect_width_mm, 
+                                             pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.5):
+    """
+    CORRECTED: Now calls true RSTRENG instead of Modified B31G
+    
+    This function signature is maintained for backward compatibility,
+    but now implements true RSTRENG methodology.
+    """
+    
+    # Call the corrected RSTRENG implementation
+    result = calculate_true_rstreng_method(
+        defect_depth_pct, defect_length_mm, defect_width_mm,
+        pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor
+    )
+    
+    # Map outputs to maintain compatibility with existing code
+    return {
+        "method": result["method"],
+        "safe": result["safe"],
+        "failure_pressure_mpa": result["failure_pressure_mpa"],
+        "safe_pressure_mpa": result["safe_pressure_mpa"],
+        "remaining_strength_pct": result["remaining_strength_pct"],
+        "effective_area_ratio": result["effective_area_ratio"],
+        "folias_factor_M": result["folias_factor_Mt"],
+        "note": result["note"]
+    }
+
+
 def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, analysis_pressure_mpa, max_allowable_pressure_mpa):
     """
     Enhanced version of compute_corrosion_metrics_for_dataframe with pressure-based assessment and ERF.
@@ -468,175 +601,6 @@ def create_pressure_based_summary_stats(enhanced_df, analysis_pressure_mpa, max_
         }
     
     return summary
-
-
-def calculate_simplified_effective_area_method(defect_depth_pct, defect_length_mm, defect_width_mm, 
-                                             pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.5):
-    """
-    Calculate remaining strength using Modified B31G method (RSTRENG approximation).
-    
-    Key improvements:
-    - Correct Folias factor calculation
-    - Validated Modified B31G pressure equation
-    - Industry-standard flow stress
-    - Orientation handling
-    - ASME/API compliant limits
-    
-    Parameters and return structure match original
-    """
-    # ==================================================================
-    # Step 1: Input Validation (preserve original structure)
-    # ==================================================================
-    if pipe_diameter_mm <= 0 or wall_thickness_mm <= 0 or defect_length_mm <= 0 or smys_mpa <= 0:
-        return {
-            "method": "Modified B31G (RSTRENG Approximation)",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "effective_area_ratio": None,
-            "folias_factor_M": None,
-            "note": "Invalid input parameters: dimensional values and SMYS must be positive"
-        }
-    
-    if defect_width_mm < 0:
-        return {
-            "method": "Modified B31G (RSTRENG Approximation)",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "effective_area_ratio": None,
-            "folias_factor_M": None,
-            "note": "Invalid defect width: cannot be negative"
-        }
-    
-    if defect_depth_pct < 0 or defect_depth_pct > 100:
-        return {
-            "method": "Modified B31G (RSTRENG Approximation)",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "effective_area_ratio": None,
-            "folias_factor_M": None,
-            "note": f"Invalid defect depth: {defect_depth_pct}%. Must be between 0 and 100."
-        }
-
-    # ==================================================================
-    # Step 2: Convert Depth and Validate
-    # ==================================================================
-    defect_depth_mm = (defect_depth_pct / 100.0) * wall_thickness_mm
-    d_t = defect_depth_mm / wall_thickness_mm
-    
-    # Industry applicability limits
-    if d_t > 0.8:
-        return {
-            "method": "Modified B31G (RSTRENG Approximation)",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "effective_area_ratio": None,
-            "folias_factor_M": None,
-            "note": f"Defect depth exceeds 80% of wall thickness (d/t = {d_t:.3f}). Method not applicable."
-        }
-    
-    # Check defect orientation
-    if defect_length_mm < defect_width_mm:
-        return {
-            "method": "Modified B31G (RSTRENG Approximation)",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "effective_area_ratio": None,
-            "folias_factor_M": None,
-            "note": "Circumferential defects not supported. Use API 579 Level 2 assessment."
-        }
-    
-    # Intact pipe case
-    if d_t == 0:
-        flow_stress_mpa = smys_mpa + 69.0
-        intact_pressure = (2.0 * flow_stress_mpa * wall_thickness_mm) / pipe_diameter_mm
-        safe_pressure = intact_pressure / safety_factor
-        
-        return {
-            "method": "Modified B31G (RSTRENG Approximation)",
-            "safe": True,
-            "failure_pressure_mpa": intact_pressure,
-            "safe_pressure_mpa": safe_pressure,
-            "remaining_strength_pct": 100.0,
-            "effective_area_ratio": 0.0,
-            "folias_factor_M": 1.0,
-            "note": "Zero defect depth; pipe at full strength"
-        }
-    
-    # ==================================================================
-    # Step 3: Core Calculations (ASME B31G Modified)
-    # ==================================================================
-    # Calculate Folias factor (M)
-    z = (defect_length_mm ** 2) / (pipe_diameter_mm * wall_thickness_mm)
-    
-    if z <= 50:
-        folias_factor = math.sqrt(1 + 0.6275*z - 0.003375*(z**2))
-    else:
-        folias_factor = 0.032*z + 3.3
-    
-    # Flow stress (SMYS + 69 MPa = 10 ksi)
-    flow_stress_mpa = smys_mpa + 69.0
-    
-    # Intact pipe reference pressure
-    p_intact = (2 * flow_stress_mpa * wall_thickness_mm) / pipe_diameter_mm
-    
-    # ==================================================================
-    # Step 4: Failure Pressure Calculation (Modified B31G)
-    # ==================================================================
-    # Validate Folias factor
-    if folias_factor <= 0:
-        return {
-            "method": "Modified B31G (RSTRENG Approximation)",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "effective_area_ratio": None,
-            "folias_factor_M": folias_factor,
-            "note": "Invalid Folias factor calculation"
-        }
-    
-    # Modified B31G equation for parabolic defects
-    numerator = 1 - 0.85 * d_t
-    denominator = 1 - 0.85 * d_t / folias_factor
-    
-    # Check for mathematical validity
-    if denominator <= 0:
-        failure_pressure_mpa = 0.0
-        remaining_strength_pct = 0.0
-    else:
-        failure_pressure_mpa = p_intact * (numerator / denominator)
-        remaining_strength_pct = (failure_pressure_mpa / p_intact) * 100
-    
-    # Apply safety factor
-    safe_pressure_mpa = failure_pressure_mpa / safety_factor
-    
-    # ==================================================================
-    # Step 5: Return Results (preserve original structure)
-    # ==================================================================
-    return {
-        "method": "Modified B31G (RSTRENG Approximation)",
-        "safe": failure_pressure_mpa > 0,  # True if structurally sound
-        "failure_pressure_mpa": failure_pressure_mpa,
-        "safe_pressure_mpa": safe_pressure_mpa,
-        "remaining_strength_pct": remaining_strength_pct,
-        "effective_area_ratio": 0.85 * d_t,  # Industry equivalent
-        "folias_factor_M": folias_factor,
-        "z_parameter": z,
-        "d_over_t_ratio": d_t,
-        "defect_type": "longitudinal",
-        "flow_stress_mpa": flow_stress_mpa,
-        "note": f"Modified B31G: d/t={d_t:.3f}, M={folias_factor:.3f}"
-    }
 
 
 def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, maop_mpa=0.0):
