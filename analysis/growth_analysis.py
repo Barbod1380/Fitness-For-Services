@@ -224,6 +224,7 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
         correction_info['updated_growth_stats'] = updated_growth_stats
 
     return df, correction_info
+
 def create_growth_summary_table(comparison_results):
     """
     Create a summary table of growth statistics.
@@ -254,8 +255,8 @@ def create_growth_summary_table(comparison_results):
 
     rows.append({
         'Statistic': 'Negative Growth Anomalies',
-        'Value': f"{growth_stats['negative_growth_count']} "
-                 f"({growth_stats['pct_negative_growth']:.1f}%)"
+        'Value': f"{growth_stats['depth_negative_growth_count']} "
+                f"({growth_stats['depth_pct_negative_growth']:.1f}%)"
     })
 
     if has_wt_data:

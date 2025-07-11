@@ -276,6 +276,27 @@ def create_growth_rate_histogram(comparison_results, dimension="depth"):
         height=500,
     )
 
+    # Add statistical annotations
+    if not positive_growth.empty:
+        mean_val = positive_growth[growth_col].mean()
+        median_val = positive_growth[growth_col].median()
+        
+        # Add mean line
+        fig.add_vline(
+            x=mean_val, 
+            line_dash="dash", 
+            line_color="red",
+            annotation_text=f"Mean: {mean_val:.3f}"
+        )
+        
+        # Add median line  
+        fig.add_vline(
+            x=median_val,
+            line_dash="dot",
+            line_color="green", 
+            annotation_text=f"Median: {median_val:.3f}"
+        )
+    
     return fig
 
 
