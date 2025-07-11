@@ -404,6 +404,7 @@ class FailureAwareClusterer:
         
         return criteria_status
     
+    
     def _check_individual_failure_criteria(self, 
                                          defect_idx: int, 
                                          assessment_df: pd.DataFrame) -> Dict[str, bool]:

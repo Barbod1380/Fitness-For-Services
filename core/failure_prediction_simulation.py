@@ -200,9 +200,11 @@ class FailurePredictionSimulator:
         for defect in self.defect_states:
             # Apply clustering acceleration to growth rates
             if defect.is_clustered:
-                # Clustered defects grow faster due to stress concentration
-                depth_acceleration = 1.0 + 0.1 * (defect.stress_concentration_factor - 1.0)
-                length_acceleration = 1.0 + 0.05 * (defect.stress_concentration_factor - 1.0)
+                # Use stress-based acceleration per Griffith crack theory
+                stress_ratio = defect.stress_concentration_factor
+                # Paris law-based approach for corrosion acceleration
+                depth_acceleration = stress_ratio ** 0.3  # Based on empirical corrosion studies
+                length_acceleration = stress_ratio ** 0.15  # Lower exponent for lateral growth
             else:
                 depth_acceleration = 1.0
                 length_acceleration = 1.0
