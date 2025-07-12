@@ -6,7 +6,6 @@ Time-forward failure prediction simulation engine.
 Uses existing corrosion assessment functionality.
 """
 
-import math
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
@@ -60,17 +59,12 @@ class JointFailure:
     final_depth_pct: float
     defect_count: int
 
+
+
+                
 class FailurePredictionSimulator:
-    """
-    SIMPLIFIED: Main simulation engine using existing corrosion assessment.
-    """
-    
     def __init__(self, params: SimulationParams):
         self.params = params
-        
-        # NO MORE PRESSURE CALCULATOR - we'll use existing corrosion assessment
-        
-        # Simulation state
         self.defect_states: List[DefectState] = []
         self.failure_history: List[JointFailure] = []
         self.annual_results: List[Dict] = []
@@ -80,14 +74,14 @@ class FailurePredictionSimulator:
                             joints_df: pd.DataFrame,
                             growth_rates_df: pd.DataFrame,
                             clusters: List,
-                            pipe_diameter: float,  # in meters
-                            smys: float,           # MPa
-                            safety_factor: float) -> bool:
+                            pipe_diameter: float,
+                            smys: float,
+                            safety_factor: float,
+                            use_clustering: bool = True) -> bool:  # NEW PARAMETER
         """
-        SIMPLIFIED: Initialize simulation with current defect states and growth rates.
+        FIXED: Add option to bypass clustering for year 1 comparison
         """
         try:
-            # Store additional parameters needed for ERF calculation
             self.pipe_diameter = pipe_diameter
             self.smys = smys
             self.safety_factor = safety_factor
@@ -99,45 +93,50 @@ class FailurePredictionSimulator:
             growth_lookup = {}
             if not growth_rates_df.empty:
                 for idx, row in growth_rates_df.iterrows():
-                    # Try different possible column names for defect ID
                     defect_id = row.get('new_defect_id') or row.get('defect_id') or idx
                     growth_lookup[defect_id] = {
                         'depth_growth_pct': row.get('growth_rate_pct_per_year', 0.5),
                         'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1)
                     }
             
-            # Create cluster lookup for stress concentration factors
-            cluster_lookup = {}
-            for cluster in clusters:
-                stress_factor = cluster.stress_concentration_factor
-                for defect_idx in cluster.defect_indices:
-                    cluster_lookup[defect_idx] = {
-                        'stress_factor': stress_factor,
-                        'cluster_id': id(cluster),
-                        'is_clustered': True
+            # FIXED: Conditional clustering logic
+            if use_clustering:
+                # Use clustering (existing logic)
+                cluster_lookup = {}
+                for cluster in clusters:
+                    stress_factor = cluster.stress_concentration_factor
+                    for defect_idx in cluster.defect_indices:
+                        cluster_lookup[defect_idx] = {
+                            'stress_factor': stress_factor,
+                            'cluster_id': id(cluster),
+                            'is_clustered': True
+                        }
+            else:
+                # No clustering - all defects individual
+                cluster_lookup = {}
+                for idx in defects_df.index:
+                    cluster_lookup[idx] = {
+                        'stress_factor': 1.0,  # No stress concentration
+                        'cluster_id': None,
+                        'is_clustered': False
                     }
             
-            # Initialize defect states
+            # Initialize defect states (rest unchanged)
             self.defect_states = []
             for idx, defect in defects_df.iterrows():
-                
-                # Get growth rates
                 growth_data = growth_lookup.get(idx, {
-                    'depth_growth_pct': 0.5,  # Conservative default
+                    'depth_growth_pct': 0.5,
                     'length_growth_mm': 0.1
                 })
                 
-                # Get clustering info
                 cluster_info = cluster_lookup.get(idx, {
                     'stress_factor': 1.0,
                     'cluster_id': None,
                     'is_clustered': False
                 })
                 
-                # Get wall thickness
                 wall_thickness = wt_lookup.get(defect['joint number'], 10.0)
                 
-                # Create defect state
                 defect_state = DefectState(
                     defect_id=idx,
                     joint_number=defect['joint number'],

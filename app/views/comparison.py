@@ -937,7 +937,7 @@ def render_future_prediction_section(later_data, comparison_results):
                 "**Maximum Allowed Operating Pressure (MPa)**",
                 min_value=1.0,
                 max_value=20.0,
-                value=7.0,
+                value=8.0,
                 step=0.1,
                 help="Maximum allowed operating pressure for the pipeline"
             )
