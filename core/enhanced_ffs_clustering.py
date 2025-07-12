@@ -225,6 +225,7 @@ class EnhancedFFSClusterer:
         kt_final = max(kt_final, 1.0)     # Cannot be less than 1.0
         
         return kt_final
+    
 
     def _calculate_api579_interaction_factor(self, cluster_defects: pd.DataFrame) -> float:
         """

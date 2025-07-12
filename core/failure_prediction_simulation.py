@@ -6,15 +6,12 @@ Time-forward failure prediction simulation engine.
 Uses existing corrosion assessment functionality.
 """
 
+import math
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-from app.views.corrosion import (
-    calculate_b31g, 
-    calculate_modified_b31g, 
-    calculate_simplified_effective_area_method
-)
+from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_simplified_effective_area_method
 
 
 @dataclass
@@ -194,6 +191,7 @@ class FailurePredictionSimulator:
         
         return self._compile_results()
     
+
     def _grow_defects(self, year: int):
         """Grow all defects based on their growth rates and clustering effects."""
         
@@ -218,6 +216,7 @@ class FailurePredictionSimulator:
             length_growth = defect.length_growth_rate_mm_per_year * length_acceleration
             defect.current_length_mm += length_growth
             defect.current_length_mm = max(defect.current_length_mm, 1.0)  # Minimum 1mm
+
     
     def _check_failures(self, year: int, failed_joints: set) -> List[JointFailure]:
         """SIMPLIFIED: Check for joint failures using existing corrosion assessment."""
@@ -345,7 +344,7 @@ class FailurePredictionSimulator:
                 safe_pressure = result['safe_pressure_mpa']
                 erf = self.params.max_operating_pressure / safe_pressure
                 max_erf = max(max_erf, erf)
-                
+
             except Exception as e:
                 print(f"Error calculating ERF for defect: {e}")
         
