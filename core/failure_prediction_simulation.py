@@ -284,10 +284,14 @@ class FailurePredictionSimulator:
             # USE EXISTING CORROSION ASSESSMENT to calculate ERF
             worst_erf = self._calculate_erf_using_existing_system(joint_df)
             worst_depth = max(defect.current_depth_pct for defect in joint_defects)
-            
+
             # Check failure criteria
             erf_failure = worst_erf >= self.params.erf_threshold
             depth_failure = worst_depth >= self.params.depth_threshold
+
+            if(year == 0 and erf_failure):
+                print(joint_df)
+                print(worst_erf)
             
             if erf_failure or depth_failure:
                 # Determine failure mode
@@ -366,8 +370,6 @@ class FailurePredictionSimulator:
                 if safe_pressure > 0:
                     erf = self.params.max_operating_pressure / safe_pressure
                     max_erf = max(max_erf, erf)
-                    if(erf > 0.99):
-                        print("ERF:", erf, safe_pressure, depth_pct, length_mm)
                 else:
                     # Invalid calculation - return high ERF but not infinite
                     return 5.0
@@ -376,7 +378,6 @@ class FailurePredictionSimulator:
                 print(f"Error calculating ERF for defect: {e}")
                 # Return high ERF for failed calculations
                 return 5.0
-        
         return max_erf
 
 

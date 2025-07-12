@@ -815,10 +815,7 @@ def render_clustering_analysis_section(later_data):
         
         st.info(f"🔍 **Starting clustering analysis**: {len(defects_df)} defects, {len(joints_df)} joints")
         
-        # Performance estimate
-        estimated_time = max(2, len(defects_df) * 0.01)
-        st.caption(f"⏱️ Estimated completion time: {estimated_time:.1f} seconds")
-        
+
         try:
             import time
             start_time = time.time()
