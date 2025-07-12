@@ -82,35 +82,49 @@ def create_erf_evolution_plot(simulation_results: Dict) -> go.Figure:
 Simple visualization functions for failure prediction results.
 """
 
-import plotly.graph_objects as go
-
 def create_failure_timeline_histogram(simulation_results: dict) -> go.Figure:
     """Create histogram of joint failures by year."""
     
     timeline = simulation_results['failure_timeline']
-    years = list(timeline.keys())
-    failures = list(timeline.values())
+    
+    # Separate current failures from future predictions
+    current_failures = timeline.get(0, 0)
+    future_timeline = {k: v for k, v in timeline.items() if k > 0}
     
     fig = go.Figure()
     
-    # Create histogram bars
-    fig.add_trace(go.Bar(
-        x=years,
-        y=failures,
-        name='Joint Failures',
-        marker_color='rgba(255, 99, 71, 0.8)',
-        text=failures,
-        textposition='outside',
-        hovertemplate='<b>Year %{x}</b><br>Failures: %{y}<extra></extra>'
-    ))
+    # Add current failures as special bar
+    if current_failures > 0:
+        fig.add_trace(go.Bar(
+            x=[0],
+            y=[current_failures],
+            name='Current Failures',
+            marker_color='rgba(255, 0, 0, 0.9)',  # Red for immediate
+            text=[current_failures],
+            textposition='outside',
+            hovertemplate='<b>Current State</b><br>Immediate Failures: %{y}<extra></extra>'
+        ))
     
-    # Update layout
+    # Add future predictions
+    if future_timeline:
+        years = list(future_timeline.keys())
+        failures = list(future_timeline.values())
+        
+        fig.add_trace(go.Bar(
+            x=years,
+            y=failures,
+            name='Predicted Failures',
+            marker_color='rgba(255, 99, 71, 0.8)',
+            text=failures,
+            textposition='outside',
+            hovertemplate='<b>Year %{x}</b><br>Predicted Failures: %{y}<extra></extra>'
+        ))
+    
     fig.update_layout(
-        title='Pipeline Joint Failure Prediction Timeline',
-        xaxis_title='Simulation Year',
-        yaxis_title='Joint Failures per Year',
-        height=500,
-        showlegend=False
+        title='Pipeline Failure Timeline: Current + Predictions',
+        xaxis_title='Years from Now (0 = Current State)',
+        yaxis_title='Joint Failures',
+        height=500
     )
     
     return fig

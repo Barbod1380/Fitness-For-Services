@@ -341,6 +341,17 @@ class EnhancedFFSClusterer:
         Returns:
         - DataFrame with combined defects replacing individual clustered defects
         """
+
+
+        # If no actual clusters (all single defects), return original DataFrame
+        real_clusters = [c for c in clusters if len(c.defect_indices) > 1]
+        
+        if not real_clusters:
+            # No clustering needed - return original with minimal modifications
+            result_df = defects_df.copy()
+            result_df['is_combined'] = False
+            result_df['stress_concentration_factor'] = 1.0
+            return result_df
         
         combined_defects = []
         processed_indices = set()

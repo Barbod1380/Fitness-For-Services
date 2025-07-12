@@ -442,7 +442,7 @@ def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, 
                     analysis_pressure_mpa, max_allowable_pressure_mpa
                 )
                 
-                # Calculate ERF = Safe Working Pressure / MAOP 
+                # Calculate ERF = MAOP  / Safe Working Pressure 
                 erf_value = max_allowable_pressure_mpa / safe_pressure if max_allowable_pressure_mpa > 0 else float('inf')
                 
                 # Direct assignment of all assessment results
@@ -1354,9 +1354,9 @@ def render_corrosion_assessment_view():
         # Add ERF interpretation guide
         st.markdown("#### 📊 ERF (Estimated Repair Factor) Interpretation")
         st.markdown("""
-        **ERF = Safe Working Pressure / Max Allowable Pressure**
-        - **ERF ⩽ 0.9**: ✅ Defect acceptable for normal operations
-        - **ERF > 0.9**: ⚠️ Repair required or pressure reduction needed
+        **ERF = Max Allowable Pressure / Safe Working Pressure **
+        - **ERF ⩽ 0.99**: ✅ Defect acceptable for normal operations
+        - **ERF > 0.99**: ⚠️ Repair required or pressure reduction needed
         - **Higher ERF values**: Better condition, more safety margin
         """)
 
