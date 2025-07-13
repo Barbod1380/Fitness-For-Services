@@ -484,11 +484,10 @@ def create_defect_categorization_summary_table(defects_df, joints_df):
     summary = summary[['Rank', 'Category', 'Description', 'Count', 'Percentage']]
     return summary
 
-
 def create_dimension_distribution_plots(defects_df, dimension_columns=None):
     """
     Create and display a combined Plotly figure with histograms and box plots for defect dimensions.
-    Now with optimized binning strategy for better engineering insight.
+    Uses Freedman-Diaconis rule for optimal bin selection.
     """
     if dimension_columns is None:
         dimension_columns = {
@@ -497,12 +496,31 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
             'depth [%]': 'Defect Depth (%)'
         }
 
-    # Define optimal bin counts for each dimension
-    optimal_bins = {
-        'length [mm]': 40,    # Increased from 20 - better resolution for small defects
-        'width [mm]': 40,     # Increased from 20 - better resolution for small defects  
-        'depth [%]': 40,      # Significantly increased - most critical for FFS assessment
-    }
+    def calculate_optimal_bins(data):
+        """
+        Calculate optimal number of bins using Freedman-Diaconis rule.
+        Formula: bin_width = 2 * IQR / n^(1/3)
+        """
+        n = len(data)
+        if n < 2:
+            return 10  # Default for very small datasets
+        
+        q75, q25 = np.percentile(data, [75, 25])
+        iqr = q75 - q25
+        
+        if iqr == 0:
+            return int(np.sqrt(n))  # Fallback to square root rule if no spread
+        
+        bin_width = 2 * iqr / (n ** (1/3))
+        data_range = data.max() - data.min()
+        
+        if data_range == 0:
+            return 10  # Default if no range
+        
+        n_bins = int(np.ceil(data_range / bin_width))
+        
+        # Apply reasonable bounds (5-100 bins)
+        return max(5, min(100, n_bins))
 
     valid_dims = []
     for col, title in dimension_columns.items():
@@ -527,10 +545,14 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
         row_heights=[0.3, 0.7]
     )
 
+    # Track bin counts for annotation
+    bin_info = []
+
     # Add box plots in the top row and histograms in the bottom row
     for idx, (col, title, series) in enumerate(valid_dims, start=1):
-        # Get optimal bin count for this dimension
-        nbins = optimal_bins.get(col, 25)  # Default to 25 if not specified
+        # Calculate optimal bin count using Freedman-Diaconis rule
+        nbins = calculate_optimal_bins(series)
+        bin_info.append(f"{title.split()[1]}: {nbins}")
         
         # Add box plot in top row
         fig.add_trace(
@@ -544,11 +566,11 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
             col=idx
         )
 
-        # Add histogram in bottom row with optimized binning
+        # Add histogram in bottom row with optimal binning
         fig.add_trace(
             go.Histogram(
                 x=series,
-                nbinsx=nbins,  # Use dimension-specific bin count
+                nbinsx=nbins,
                 marker=dict(color='rgba(0,128,255,0.6)'),
                 showlegend=False,
                 name=f"{title} Distribution"
@@ -560,16 +582,16 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
         # Update x-axis label per subplot
         fig.update_xaxes(title_text=title, row=2, col=idx)
 
-    # Enhanced layout
+    # Enhanced layout with dynamic bin information
     fig.update_layout(
-        title_text="Distribution of Defect Dimensions - Enhanced Resolution",
+        title_text="Distribution of Defect Dimensions - Freedman-Diaconis Optimal Binning",
         height=600,
         width=300 * n,
         bargap=0.1,
         showlegend=False,
         annotations=[
             dict(
-                text="📊 Optimized binning: Depth (40 bins) | Length/Width (30 bins) for better FFS analysis",
+                text=f"📊 Optimal bins (Freedman-Diaconis): {' | '.join(bin_info)}",
                 showarrow=False,
                 xref="paper", yref="paper",
                 x=0.5, y=-0.1,
@@ -579,7 +601,6 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
         ]
     )
     return {"combined_dimensions": fig} if fig else {}
-
 
 def create_combined_dimensions_plot(defects_df, joints_df):
     """

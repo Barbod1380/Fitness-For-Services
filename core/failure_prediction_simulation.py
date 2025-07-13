@@ -350,6 +350,7 @@ class FailurePredictionSimulator:
                         defect_width_mm=width_mm,
                         pipe_diameter_mm=self.pipe_diameter * 1000,
                         wall_thickness_mm=wt_mm,
+                        maop_mpa=self.params.max_operating_pressure,
                         smys_mpa=self.smys,
                         safety_factor=self.safety_factor
                     )

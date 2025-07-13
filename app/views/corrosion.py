@@ -272,8 +272,7 @@ def calculate_modified_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm
     }
 
 
-def calculate_true_rstreng_method(defect_depth_pct, defect_length_mm, defect_width_mm, 
-                                 pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.39):
+def calculate_true_rstreng_method(defect_depth_pct, defect_length_mm, defect_width_mm, pipe_diameter_mm, wall_thickness_mm, maop_mpa, smys_mpa, safety_factor=1.39):
     """
     TRUE RSTRENG Implementation per Kiefner & Vieth (PRCI Catalog No. L51794)
     
@@ -751,7 +750,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         try:
             effective_area_result = calculate_true_rstreng_method(
                 depth_pct, length_mm, width_mm, pipe_diameter_mm, 
-                wall_thickness_mm, smys_mpa, safety_factor
+                wall_thickness_mm, maop_mpa, smys_mpa, safety_factor
             )
             enhanced_df.loc[idx, 'simplified_eff_area_safe'] = effective_area_result['safe']
             enhanced_df.loc[idx, 'simplified_eff_area_failure_pressure_mpa'] = effective_area_result['failure_pressure_mpa']
@@ -1212,7 +1211,8 @@ def render_corrosion_assessment_view():
                 enhanced_df,
                 pipe_diameter_mm,
                 smys_mpa,
-                safety_factor
+                safety_factor,
+                max_allowable_pressure_mpa
             )
             
             if rstreng_envelope_plot:

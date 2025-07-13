@@ -380,7 +380,7 @@ def create_defect_assessment_summary_table(enhanced_df):
     return summary_df
 
 
-def create_rstreng_envelope_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety_factor):
+def create_rstreng_envelope_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety_factor, maop):
     """
     Create RSTRENG Fitness-for-Service envelope plot showing allowable defect dimensions.
     
@@ -389,7 +389,7 @@ def create_rstreng_envelope_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety
     - pipe_diameter_mm: Pipe outside diameter in mm
     - smys_mpa: Specified Minimum Yield Strength in MPa
     - safety_factor: Safety factor applied
-    
+    - maop: Maximum Allowed Operating Pressure
     Returns:
     - Plotly figure object
     """
@@ -432,9 +432,7 @@ def create_rstreng_envelope_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety
     
     for length_mm in length_range:
         # Find maximum allowable depth for this length
-        max_allowable_depth = find_max_allowable_depth_rstreng(
-            length_mm, avg_wall_thickness, pipe_diameter_mm, smys_mpa, safety_factor
-        )
+        max_allowable_depth = find_max_allowable_depth_rstreng(length_mm, avg_wall_thickness, pipe_diameter_mm, smys_mpa, safety_factor, maop)
         envelope_depths.append(max_allowable_depth)
     
     # Create the plot
@@ -557,7 +555,7 @@ def create_rstreng_envelope_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety
     return fig
 
 
-def find_max_allowable_depth_rstreng(length_mm, wall_thickness_mm, pipe_diameter_mm, smys_mpa, safety_factor):
+def find_max_allowable_depth_rstreng(length_mm, wall_thickness_mm, pipe_diameter_mm, smys_mpa, safety_factor, maop):
     """
     Find maximum allowable depth for given defect length using RSTRENG method.
     Uses binary search to find the depth that gives ERF ≈ 1.0.
@@ -583,6 +581,7 @@ def find_max_allowable_depth_rstreng(length_mm, wall_thickness_mm, pipe_diameter
                 defect_width_mm=typical_width_mm,
                 pipe_diameter_mm=pipe_diameter_mm,
                 wall_thickness_mm=wall_thickness_mm,
+                maop_mpa=maop,
                 smys_mpa=smys_mpa,
                 safety_factor=safety_factor
             )
@@ -591,8 +590,7 @@ def find_max_allowable_depth_rstreng(length_mm, wall_thickness_mm, pipe_diameter
                 # Calculate ERF (using user's definition: MAOP/Safe_Pressure)
                 # We want to find where this equals 1.0 (i.e., safe_pressure = MAOP)
                 # For envelope, we can assume MAOP = design pressure
-                design_pressure = (2 * smys_mpa * wall_thickness_mm / pipe_diameter_mm) / safety_factor
-                erf = design_pressure / result['safe_pressure_mpa']
+                erf = maop / result['safe_pressure_mpa']
                 
                 if abs(erf - 1.0) < 0.05:  # Within 5% of limit
                     return test_depth
