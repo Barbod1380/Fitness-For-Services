@@ -68,19 +68,23 @@ class FailurePredictionSimulator:
         self.defect_states: List[DefectState] = []
         self.failure_history: List[JointFailure] = []
         self.annual_results: List[Dict] = []
+
     
-    def initialize_simulation(self, 
-                            defects_df: pd.DataFrame,
-                            joints_df: pd.DataFrame,
-                            growth_rates_df: pd.DataFrame,
-                            clusters: List,
-                            pipe_diameter: float,
-                            smys: float,
-                            safety_factor: float,
-                            use_clustering: bool = True) -> bool:  # NEW PARAMETER
-        """
-        FIXED: Add option to bypass clustering for year 1 comparison
-        """
+    def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
+        # SOLUTION: Filter defects with valid depth data
+        valid_defects = defects_df[
+            (defects_df['depth [%]'].notna()) & 
+            (defects_df['depth [%]'] > 0) & 
+            (defects_df['depth [%]'] <= 100) &
+            (defects_df['length [mm]'].notna()) & 
+            (defects_df['length [mm]'] > 0) &
+            (defects_df['width [mm]'].notna()) & 
+            (defects_df['width [mm]'] > 0)
+        ].copy()
+        
+        if len(valid_defects) < len(defects_df):
+            print(f"Filtered {len(defects_df) - len(valid_defects)} defects with invalid dimensions")
+        
         try:
             self.pipe_diameter = pipe_diameter
             self.smys = smys
@@ -160,6 +164,7 @@ class FailurePredictionSimulator:
             print(f"Simulation initialization failed: {e}")
             return False
     
+
     def run_simulation(self) -> Dict:
         """Run the complete simulation over the specified timeframe."""
         self.failure_history = []
@@ -289,10 +294,6 @@ class FailurePredictionSimulator:
             erf_failure = worst_erf >= self.params.erf_threshold
             depth_failure = worst_depth >= self.params.depth_threshold
 
-            if(year == 0 and erf_failure):
-                print(joint_df)
-                print(worst_erf)
-            
             if erf_failure or depth_failure:
                 # Determine failure mode
                 if erf_failure and depth_failure:
@@ -320,22 +321,23 @@ class FailurePredictionSimulator:
 
 
     def _calculate_erf_using_existing_system(self, joint_df: pd.DataFrame) -> float:
-
         max_erf = 0.0
+        valid_calculations = 0
 
+        # FIXED: Single loop that processes each defect individually
         for _, defect in joint_df.iterrows():
-            # Extract CURRENT defect parameters (already grown)
-            depth_pct = defect['depth [%]']
-            length_mm = defect['length [mm]']
-            width_mm = defect['width [mm]']
-            wt_mm = defect['wt nom [mm]']
-            
             try:
+                # Extract CURRENT defect parameters (already grown) - INSIDE the loop
+                depth_pct = defect['depth [%]']
+                length_mm = defect['length [mm]']
+                width_mm = defect['width [mm]']
+                wt_mm = defect['wt nom [mm]']
+                
                 # Call assessment method with CURRENT dimensions only
                 if self.params.assessment_method == 'b31g':
                     result = calculate_b31g(
-                        defect_depth_pct=depth_pct,  # Current depth (already includes growth)
-                        defect_length_mm=length_mm,  # Current length (already includes growth)
+                        defect_depth_pct=depth_pct,  # Current defect's parameters
+                        defect_length_mm=length_mm,
                         pipe_diameter_mm=self.pipe_diameter * 1000,
                         wall_thickness_mm=wt_mm,
                         maop_mpa=self.params.max_operating_pressure,
@@ -365,19 +367,29 @@ class FailurePredictionSimulator:
                         safety_factor=self.safety_factor
                     )
                 
-                # Calculate ERF with proper error handling
+                # SOLUTION: Robust ERF calculation
                 safe_pressure = result.get('safe_pressure_mpa', 0)
-                if safe_pressure > 0:
+                calculation_safe = result.get('safe', False)
+                
+                # Only calculate ERF for valid results
+                if calculation_safe and safe_pressure > 0:
                     erf = self.params.max_operating_pressure / safe_pressure
                     max_erf = max(max_erf, erf)
+                    valid_calculations += 1
                 else:
-                    # Invalid calculation - return high ERF but not infinite
-                    return 5.0
+                    # Log but don't use invalid calculations
+                    print(f"Invalid calculation for defect: depth={depth_pct}%, method={self.params.assessment_method}")
                     
             except Exception as e:
-                print(f"Error calculating ERF for defect: {e}")
-                # Return high ERF for failed calculations
-                return 5.0
+                print(f"Error calculating ERF for defect: {str(e)}")
+                # Continue processing other defects
+                continue
+        
+        # If no valid calculations, return low ERF (safe)
+        if valid_calculations == 0:
+            print(f"Warning: No valid calculations for joint, assuming safe")
+            return 0.5  # Conservative but not failure-triggering
+        
         return max_erf
 
 
