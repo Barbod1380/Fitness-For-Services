@@ -376,35 +376,6 @@ def calculate_true_rstreng_method(defect_depth_pct, defect_length_mm, defect_wid
         "note": f"True RSTRENG: ψ={psi:.2f}, M_t={folias_factor:.3f}, A_eff/A_total={area_ratio:.3f}, σ_flow={flow_stress_mpa:.1f}MPa"
     }
 
-
-def calculate_simplified_effective_area_method(defect_depth_pct, defect_length_mm, defect_width_mm, 
-                                             pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor=1.5):
-    """
-    CORRECTED: Now calls true RSTRENG instead of Modified B31G
-    
-    This function signature is maintained for backward compatibility,
-    but now implements true RSTRENG methodology.
-    """
-    
-    # Call the corrected RSTRENG implementation
-    result = calculate_true_rstreng_method(
-        defect_depth_pct, defect_length_mm, defect_width_mm,
-        pipe_diameter_mm, wall_thickness_mm, smys_mpa, safety_factor
-    )
-    
-    # Map outputs to maintain compatibility with existing code
-    return {
-        "method": result["method"],
-        "safe": result["safe"],
-        "failure_pressure_mpa": result["failure_pressure_mpa"],
-        "safe_pressure_mpa": result["safe_pressure_mpa"],
-        "remaining_strength_pct": result["remaining_strength_pct"],
-        "effective_area_ratio": result["effective_area_ratio"],
-        "folias_factor_M": result["folias_factor_Mt"],
-        "note": result["note"]
-    }
-
-
 def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, analysis_pressure_mpa, max_allowable_pressure_mpa):
     """
     Enhanced version of compute_corrosion_metrics_for_dataframe with pressure-based assessment and ERF.
@@ -777,7 +748,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         
         # Calculate Effective Area (Simplified RSTRENG)
         try:
-            effective_area_result = calculate_simplified_effective_area_method(
+            effective_area_result = calculate_true_rstreng_method(
                 depth_pct, length_mm, width_mm, pipe_diameter_mm, 
                 wall_thickness_mm, smys_mpa, safety_factor
             )

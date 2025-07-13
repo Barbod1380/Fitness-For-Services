@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_simplified_effective_area_method
+from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_true_rstreng_method
 
 
 @dataclass
@@ -332,6 +332,8 @@ class FailurePredictionSimulator:
                 width_mm = defect['width [mm]']
                 wt_mm = defect['wt nom [mm]']
                 
+                print(self.params.assessment_method)
+
                 # Call assessment method with CURRENT dimensions only
                 if self.params.assessment_method == 'b31g':
                     result = calculate_b31g(
@@ -355,8 +357,8 @@ class FailurePredictionSimulator:
                         safety_factor=self.safety_factor
                     )
                 
-                elif self.params.assessment_method == 'simplified_eff_area':
-                    result = calculate_simplified_effective_area_method(
+                elif self.params.assessment_method == 'rstreng':
+                    result = calculate_true_rstreng_method(
                         defect_depth_pct=depth_pct,
                         defect_length_mm=length_mm,
                         defect_width_mm=width_mm,

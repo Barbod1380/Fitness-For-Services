@@ -763,7 +763,7 @@ def render_clustering_analysis_section(later_data):
         with col1:
             clustering_standard = st.selectbox(
                 "Industry Standard",
-                options=["RSTRENG", "BS7910", "API579", "DNV", "CONSERVATIVE"],
+                options=["RSTRENG", "BS7910", "API579", "DNV"],
                 index=0,
                 help="Select industry standard for clustering methodology"
             )
@@ -778,7 +778,7 @@ def render_clustering_analysis_section(later_data):
         with col3:
             erf_threshold = st.slider(
                 "ERF Failure Threshold",
-                min_value=0.80, max_value=0.99, value=0.90, step=0.01,
+                min_value=0.90, max_value=1.00, value=0.99, step=0.01,
                 help="ERF threshold for failure assessment"
             )
     

@@ -47,7 +47,7 @@ class EnhancedFFSClusterer:
         Initialize enhanced FFS clusterer.
         
         Parameters:
-        - standard: Industry standard for clustering ("RSTRENG", "BS7910", "API579", "DNV", "CONSERVATIVE")
+        - standard: Industry standard for clustering ("RSTRENG", "BS7910", "API579", "DNV")
         - pipe_diameter_mm: Pipeline outside diameter in mm
         - conservative_factor: Additional conservatism factor
         - include_stress_concentration: Whether to apply stress concentration factors
@@ -223,9 +223,14 @@ class EnhancedFFSClusterer:
         # Apply physical limits based on experimental data
         kt_final = min(kt_combined, 3.5)  # Conservative upper limit from literature
         kt_final = max(kt_final, 1.0)     # Cannot be less than 1.0
+
+        # Additional validation for extreme cases
+        if len(cluster_defects) > 10:
+            # Cap stress concentration for very large clusters
+            kt_final = min(kt_final, 2.5)
         
-        return kt_final
-    
+        return kt_final        
+
 
     def _calculate_api579_interaction_factor(self, cluster_defects: pd.DataFrame) -> float:
         """

@@ -603,7 +603,7 @@ def integrate_failure_aware_clustering(defects_df: pd.DataFrame,
                                      joints_df: pd.DataFrame,
                                      enhanced_assessment_df: pd.DataFrame,
                                      pipe_diameter_mm: float,
-                                     erf_threshold: float = 0.90,
+                                     erf_threshold: float = 1.0,
                                      depth_threshold: float = 80.0) -> Tuple[List[JointFailureAssessment], pd.DataFrame]:
     """
     Main integration function for existing corrosion assessment system.

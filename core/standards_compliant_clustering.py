@@ -22,7 +22,6 @@ class ClusteringStandard(Enum):
     BS7910 = "BS 7910 Flaw Interaction"
     API579 = "API 579-1 Proximity Rules"
     DNV_RP_F101 = "DNV-RP-F101 Composite Defects"
-    CONSERVATIVE = "Conservative Multi-Standard"
 
 
 @dataclass
@@ -71,8 +70,7 @@ class StandardsCompliantClusterer:
             self._setup_api579_parameters()
         elif self.standard == ClusteringStandard.DNV_RP_F101:
             self._setup_dnv_parameters()
-        elif self.standard == ClusteringStandard.CONSERVATIVE:
-            self._setup_conservative_parameters()
+
         else:
             raise ValueError(f"Unsupported standard: {self.standard}")
     
@@ -136,19 +134,6 @@ class StandardsCompliantClusterer:
             "Validated for high-pressure gas transmission applications."
         )
     
-    def _setup_conservative_parameters(self):
-        """Setup conservative multi-standard approach"""
-        self.standard_name = "Conservative Multi-Standard"
-        self.reference = "Combined approach using most conservative criteria"
-        
-        # Use most conservative parameters from all standards
-        self.conservative_multiplier = 1.5  # 50% additional conservatism
-        
-        self.applicability_notes = (
-            "Conservative approach combining multiple standards. "
-            "Recommended for critical pipeline segments or when standard is uncertain."
-        )
-    
     def calculate_interaction_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
         """
         Calculate interaction criteria for given wall thickness.
@@ -168,8 +153,6 @@ class StandardsCompliantClusterer:
             return self._calculate_api579_criteria(wall_thickness_mm)
         elif self.standard == ClusteringStandard.DNV_RP_F101:
             return self._calculate_dnv_criteria(wall_thickness_mm)
-        elif self.standard == ClusteringStandard.CONSERVATIVE:
-            return self._calculate_conservative_criteria(wall_thickness_mm)
     
     def _calculate_rstreng_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
         """Calculate RSTRENG-based interaction criteria"""
@@ -533,7 +516,7 @@ def create_standards_compliant_clusterer(standard_name: str = "RSTRENG",
     Factory function to create standards-compliant clusterer.
     
     Parameters:
-    - standard_name: Name of standard ("RSTRENG", "BS7910", "API579", "DNV", "CONSERVATIVE")
+    - standard_name: Name of standard ("RSTRENG", "BS7910", "API579", "DNV")
     - pipe_diameter_mm: Pipeline diameter in mm
     - conservative_factor: Additional conservatism factor
     
@@ -546,7 +529,6 @@ def create_standards_compliant_clusterer(standard_name: str = "RSTRENG",
         "BS7910": ClusteringStandard.BS7910,
         "API579": ClusteringStandard.API579,
         "DNV": ClusteringStandard.DNV_RP_F101,
-        "CONSERVATIVE": ClusteringStandard.CONSERVATIVE
     }
     
     if standard_name not in standard_mapping:
