@@ -101,9 +101,8 @@ class FailurePredictionSimulator:
                     growth_lookup[defect_id] = {
                         'depth_growth_pct': row.get('growth_rate_pct_per_year', 0.5),
                         'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1)
-                    }
-            
-            # FIXED: Conditional clustering logic
+                    }            
+
             if use_clustering:
                 # Use clustering (existing logic)
                 cluster_lookup = {}
@@ -324,7 +323,7 @@ class FailurePredictionSimulator:
         max_erf = 0.0
         valid_calculations = 0
 
-        # FIXED: Single loop that processes each defect individually
+        # Single loop that processes each defect individually
         for _, defect in joint_df.iterrows():
             try:
                 # Extract CURRENT defect parameters (already grown) - INSIDE the loop

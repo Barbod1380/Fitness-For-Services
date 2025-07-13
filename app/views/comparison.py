@@ -113,7 +113,7 @@ def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, di
     """
     st.success(f"✅ Analysis initialized for {earlier_year} vs {later_year}")
     
-    # FIXED: Store user parameters in session state for future use
+    # Store user parameters in session state for future use
     analysis_params = {
         'distance_tolerance': distance_tolerance,
         'clock_tolerance': clock_tolerance,
@@ -130,7 +130,6 @@ def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, di
             earlier_data = datasets[earlier_year]
             later_data = datasets[later_year]
             
-            # FIXED: Use the actual user inputs instead of session state defaults
             comparison_results = compare_defects(
                 earlier_data['defects_df'], later_data['defects_df'],
                 earlier_data['joints_df'], later_data['joints_df'],
@@ -692,7 +691,6 @@ def render_growth_analysis_tab(datasets, available_years):
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("🚀 Start Growth Rate Analysis", type="primary", use_container_width=True):
-            # FIXED: Pass the actual user inputs
             _perform_advanced_comparison_analysis(
                 datasets, earlier_year, later_year, 
                 distance_tolerance, clock_tolerance
@@ -746,11 +744,9 @@ def render_clustering_analysis_tab(datasets, available_years):
     ])
     
     with cluster_tabs[0]:
-        # FIXED: Use the proper function with correct parameter
         render_clustering_analysis_section(later_data)
     
     with cluster_tabs[1]:
-        # NEW FUTURE PREDICTION SECTION
         render_future_prediction_section(later_data, comparison_results)
 
 
@@ -1334,7 +1330,7 @@ def display_clustering_results():
         
         cluster_data = []
         for i, cluster in enumerate(clusters):
-            # FIXED: Format stress factor with emoji indicators instead of complex styling
+            # Format stress factor with emoji indicators instead of complex styling
             stress_factor = cluster.stress_concentration_factor
             if stress_factor >= 2.0:
                 stress_display = f"{stress_factor:.2f}x 🔴"
@@ -1351,7 +1347,7 @@ def display_clustering_results():
                 'Max Depth (%)': f"{cluster.max_depth_pct:.1f}%",
                 'Combined Length (mm)': f"{cluster.combined_length_mm:.1f}mm",
                 'Combined Width (mm)': f"{cluster.combined_width_mm:.1f}mm",
-                'Stress Factor': stress_display,  # FIXED: Simple format with emoji
+                'Stress Factor': stress_display, 
                 'Center Location (m)': f"{cluster.center_location_m:.2f}m",
                 'Interaction Type': cluster.interaction_type,
                 'Standard Used': cluster.standard_used
@@ -1359,7 +1355,7 @@ def display_clustering_results():
         
         cluster_df = pd.DataFrame(cluster_data)
         
-        # FIXED: Simple dataframe display without problematic styling
+        # Simple dataframe display without problematic styling
         st.dataframe(cluster_df, use_container_width=True)
         
         # Add simple legend

@@ -86,7 +86,6 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
             # Fit scaler with DataFrame (preserves feature names)
             X_positive = scaler.fit_transform(nearby_positive_features)
 
-            # FIXED: Create DataFrame for negative defect to avoid warning
             neg_features_dict = {feature: neg_defect[feature] for feature in features}
             neg_features_df = pd.DataFrame([neg_features_dict], columns=features)
             X_negative = scaler.transform(neg_features_df)

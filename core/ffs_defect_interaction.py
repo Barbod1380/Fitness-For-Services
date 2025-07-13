@@ -299,8 +299,7 @@ class FFSDefectInteraction:
                     continue
                 
                 theta = self._calculate_angle_between_defects(vector_i, vector_j)
-                
-                # FIXED: Define L1, L2 BEFORE using them
+
                 L1, L2 = vector_i['length_mm'], vector_j['length_mm']
                 
                 distance = np.linalg.norm(vector_i['center_position'] - vector_j['center_position'])
@@ -327,7 +326,7 @@ class FFSDefectInteraction:
         radius = pipe_diameter_mm / 2
         
         for vector in defect_vectors:
-            # FIXED: Convert width to angular extent using proper chord-to-arc formula
+            # Convert width to angular extent using proper chord-to-arc formula
             width_mm = vector['width_mm']
             
             # For small defects: angular_width ≈ width_mm / radius (small angle approximation)
