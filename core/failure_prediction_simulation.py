@@ -197,41 +197,29 @@ class FailurePredictionSimulator:
 
     def calculate_stress_accelerated_growth(self, base_growth_rate, stress_concentration_factor, growth_type):
         """
-        Calculate stress-accelerated growth using established corrosion mechanics
-        
-        Based on:
-        - NACE SP0169 corrosion rate acceleration under stress
-        - API 579-1 stress concentration effects on crack growth
-        - Empirical pipeline corrosion data (PRCI studies)
+        Calculate stress-accelerated growth using NACE SP0169 and API 579-1 principles
         """
-        
         if stress_concentration_factor <= 1.0:
             return base_growth_rate
         
-        # Established corrosion acceleration factors per NACE/API standards
         if growth_type == 'depth':
-            # Depth growth follows power law with exponent ~0.5 for stress corrosion
-            # Reference: NACE SP0169-2013 Section 6.3
-            acceleration_factor = 1.0 + 0.3 * (stress_concentration_factor - 1.0) ** 0.5
+            # NACE SP0169-2013 Section 6.3: Stress corrosion acceleration
+            # Conservative power law with exponent 0.5 for general corrosion
+            acceleration_factor = 1.0 + 0.2 * (stress_concentration_factor - 1.0) ** 0.5
             
         elif growth_type == 'length':
-            # Length growth (crack extension) follows Paris Law: da/dN = C(ΔK)^m
-            # For corrosion fatigue, m ≈ 3-4, but use conservative m=2 for general corrosion
-            # Reference: API 579-1 Part 9, Section 9.3.3
+            # API 579-1 Part 9: Crack growth follows Paris Law da/dN = C(ΔK)^m
+            # For m=2 (conservative): acceleration ∝ (K_ratio)²
             stress_intensity_ratio = stress_concentration_factor ** 0.5  # K ∝ σ√(πa)
-            acceleration_factor = 1.0 + 0.2 * (stress_intensity_ratio - 1.0) ** 2.0
+            acceleration_factor = 1.0 + 0.15 * (stress_intensity_ratio - 1.0) ** 2.0
             
-        elif growth_type == 'width':
-            # Width growth (lateral expansion) is less sensitive to stress
-            # Conservative linear relationship
+        else:  # width
+            # Conservative linear relationship for lateral expansion
             acceleration_factor = 1.0 + 0.1 * (stress_concentration_factor - 1.0)
-            
-        else:
-            acceleration_factor = 1.0
         
-        # Cap acceleration at 3x to prevent unrealistic predictions
-        acceleration_factor = min(acceleration_factor, 3.0)
-        return base_growth_rate * acceleration_factor
+        # Cap at 2.5x to prevent unrealistic predictions
+        return base_growth_rate * min(acceleration_factor, 2.5)
+    
 
 
     # Integration: Replace in analysis/growth_analysis.py line 420
@@ -331,8 +319,6 @@ class FailurePredictionSimulator:
                 length_mm = defect['length [mm]']
                 width_mm = defect['width [mm]']
                 wt_mm = defect['wt nom [mm]']
-                
-                print(self.params.assessment_method)
 
                 # Call assessment method with CURRENT dimensions only
                 if self.params.assessment_method == 'b31g':

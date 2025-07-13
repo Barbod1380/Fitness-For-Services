@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import List, Dict, Tuple
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ class FFSDefectInteraction:
     """
     
     def __init__(self, 
-                 axial_interaction_distance_mm: float = 25.4,
+                 axial_interaction_distance_mm: float = None,
                  circumferential_interaction_method: str = 'sqrt_dt',
                  custom_circ_distance_mm: float = None): # type: ignore
         self.axial_interaction_distance = axial_interaction_distance_mm
@@ -52,8 +53,10 @@ class FFSDefectInteraction:
             wall_thickness = wt_lookup.get(defect['joint number'], 10.0)  # 10mm default
             
             # API 579-1 interaction distances
-            axial_criterion = min(self.axial_interaction_distance, 2 * np.sqrt(radius_mm * wall_thickness))
-            
+            # Calculate dynamic interaction distances
+            distance_result = self.calculate_interaction_distance("API579", wall_thickness, pipe_diameter_mm)
+            axial_criterion = distance_result['axial_distance_mm']
+
             if self.circ_method == 'sqrt_dt':
                 circ_criterion = np.sqrt(pipe_diameter_mm * wall_thickness)
             elif self.circ_method == 'sqrt_rt':
@@ -80,6 +83,122 @@ class FFSDefectInteraction:
         
         return result_clusters
     
+    def calculate_interaction_distance(self, standard: str, wall_thickness_mm: float, pipe_diameter_mm: float, defect_length_mm: float = None) -> Dict:
+        """
+        Calculate interaction distances based on industry standards and pipe-specific parameters.
+        
+        References:
+        - API 579-1/ASME FFS-1 Section 4.3.3: Proximity rules
+        - ASME B31G Modified: √(D×t) plastic zone criterion  
+        - BS 7910:2019 Section 7.1.7: Flaw interaction methodology
+        - DNV-RP-F101 October 2017: Composite defect criteria
+        
+        Parameters:
+        - standard: Industry standard name
+        - wall_thickness_mm: Nominal wall thickness
+        - pipe_diameter_mm: Outside diameter
+        - defect_length_mm: Defect length for size-based criteria (optional)
+        
+        Returns:
+        - Dict with axial and circumferential interaction distances
+        """
+        
+        # Input validation
+        if wall_thickness_mm <= 0 or pipe_diameter_mm <= 0:
+            raise ValueError("Wall thickness and diameter must be positive")
+        
+        radius_mm = pipe_diameter_mm / 2.0
+        
+        if standard.upper() == "API579":
+            # API 579-1 Section 4.3.3: Proximity rules
+            # Base structural discontinuity distance
+            base_structural = 25.4  # 1 inch for major discontinuities
+            
+            # For defect-to-defect: consider pipe geometry
+            # Minimum of structural distance or geometry-based
+            geometry_based = max(2.0 * wall_thickness_mm, 
+                            0.1 * math.sqrt(pipe_diameter_mm * wall_thickness_mm))
+            
+            axial_distance = max(base_structural, geometry_based)
+            
+            # Circumferential: Based on pipe curvature effects
+            circumferential_distance = min(base_structural, 
+                                        math.pi * pipe_diameter_mm / 12)  # 30° arc length
+            
+            reference = "API 579-1/ASME FFS-1 Section 4.3.3"
+            
+        elif standard.upper() == "RSTRENG":
+            # ASME B31G Modified - Kiefner & Vieth methodology
+            # Based on plastic zone size from fracture mechanics
+            axial_distance = math.sqrt(pipe_diameter_mm * wall_thickness_mm)
+            
+            # Circumferential: Traditional 6×wall thickness
+            circumferential_distance = 6.0 * wall_thickness_mm
+            
+            reference = "ASME B31G Modified (Kiefner & Vieth)"
+            
+        elif standard.upper() == "BS7910":
+            # BS 7910:2019 Section 7.1.7 - Size-based interaction
+            if defect_length_mm and defect_length_mm > 0:
+                # Interaction when s < (a₁ + a₂), assume similar defects: s < 2a
+                axial_distance = 2.0 * defect_length_mm
+            else:
+                # Conservative default: 4×wall thickness
+                axial_distance = 4.0 * wall_thickness_mm
+            
+            # Circumferential: Smaller influence in BS 7910
+            circumferential_distance = 2.0 * wall_thickness_mm
+            
+            reference = "BS 7910:2019 Section 7.1.7"
+            
+        elif standard.upper() == "DNV":
+            # DNV-RP-F101 October 2017 - Composite defect approach
+            # Conservative for high-pressure applications
+            axial_distance = 1.5 * wall_thickness_mm
+            circumferential_distance = 3.0 * wall_thickness_mm
+            
+            reference = "DNV-RP-F101 October 2017"
+            
+        else:
+            # Conservative multi-standard approach
+            # Use maximum of all methods for safety
+            rstreng_axial = math.sqrt(pipe_diameter_mm * wall_thickness_mm)
+            api_axial = max(25.4, 2.0 * wall_thickness_mm)
+            bs_axial = 4.0 * wall_thickness_mm
+            dnv_axial = 1.5 * wall_thickness_mm
+            
+            axial_distance = max(rstreng_axial, api_axial, bs_axial, dnv_axial)
+            circumferential_distance = max(25.4, 6.0 * wall_thickness_mm)
+            
+            reference = "Conservative multi-standard maximum"
+        
+        # Apply pipe-specific scaling factors
+        # For very thick pipes (t > 20mm), increase distances
+        if wall_thickness_mm > 20.0:
+            thickness_factor = min(wall_thickness_mm / 10.0, 2.0)  # Cap at 2x
+            axial_distance *= thickness_factor
+            circumferential_distance *= thickness_factor
+        
+        # For high D/t ratios (>50), consider buckling interactions
+        d_over_t = pipe_diameter_mm / wall_thickness_mm
+        if d_over_t > 50:
+            buckling_factor = min(1.0 + (d_over_t - 50) / 100, 1.5)  # Up to 1.5x
+            axial_distance *= buckling_factor
+        
+        return {
+            'axial_distance_mm': axial_distance,
+            'circumferential_distance_mm': circumferential_distance,
+            'standard_used': standard,
+            'reference': reference,
+            'wall_thickness_mm': wall_thickness_mm,
+            'pipe_diameter_mm': pipe_diameter_mm,
+            'd_over_t_ratio': d_over_t,
+            'scaling_applied': {
+                'thickness_scaling': wall_thickness_mm > 20.0,
+                'buckling_scaling': d_over_t > 50
+            }
+        }
+        
     def _find_interaction_clusters(self, interaction_data: List[Dict], radius_mm: float) -> List[List[int]]:
         """
         Use union-find algorithm to group interacting defects.

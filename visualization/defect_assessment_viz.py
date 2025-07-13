@@ -378,3 +378,237 @@ def create_defect_assessment_summary_table(enhanced_df):
         summary_df['Percentage'] = summary_df['Percentage'].round(1)
     
     return summary_df
+
+
+def create_rstreng_envelope_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety_factor):
+    """
+    Create RSTRENG Fitness-for-Service envelope plot showing allowable defect dimensions.
+    
+    Parameters:
+    - enhanced_df: DataFrame with defect data and assessment results
+    - pipe_diameter_mm: Pipe outside diameter in mm
+    - smys_mpa: Specified Minimum Yield Strength in MPa
+    - safety_factor: Safety factor applied
+    
+    Returns:
+    - Plotly figure object
+    """
+    
+    # Import the RSTRENG calculation function
+    from app.views.corrosion import calculate_true_rstreng_method
+    
+    # Filter defects with valid dimensions
+    valid_defects = enhanced_df[
+        (enhanced_df['depth [%]'].notna()) & 
+        (enhanced_df['length [mm]'].notna()) & 
+        (enhanced_df['width [mm]'].notna()) & 
+        (enhanced_df['depth [%]'] > 0) & 
+        (enhanced_df['length [mm]'] > 0) & 
+        (enhanced_df['width [mm]'] > 0)
+    ].copy()
+    
+    if len(valid_defects) == 0:
+        # Return empty plot if no valid data
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No valid defect data available for RSTRENG envelope analysis",
+            xref="paper", yref="paper", x=0.5, y=0.5,
+            showarrow=False, font=dict(size=16, color='#2C3E50')
+        )
+        fig.update_layout(title="RSTRENG Envelope - No Data")
+        return fig
+    
+    # Get wall thickness (use average if multiple values)
+    if 'wall_thickness_used_mm' in valid_defects.columns:
+        avg_wall_thickness = valid_defects['wall_thickness_used_mm'].mean()
+    else:
+        # Fallback to a typical value
+        avg_wall_thickness = 10.0
+    
+    # Calculate RSTRENG envelope curve
+
+    length_range = np.logspace(np.log10(5), np.log10(1000), 60)  # 5mm to 1000mm
+    envelope_depths = []
+    
+    for length_mm in length_range:
+        # Find maximum allowable depth for this length
+        max_allowable_depth = find_max_allowable_depth_rstreng(
+            length_mm, avg_wall_thickness, pipe_diameter_mm, smys_mpa, safety_factor
+        )
+        envelope_depths.append(max_allowable_depth)
+    
+    # Create the plot
+    fig = go.Figure()
+    
+    # Color mapping for surface location
+    color_map = {
+        'INT': '#87CEEB',        # Light blue for internal
+        'NON-INT': '#90EE90',    # Light green for external  
+        'INTERNAL': '#87CEEB',   # Alternative internal naming
+        'EXTERNAL': '#90EE90',   # Alternative external naming
+        'N/A': '#FFB6C1',       # Light pink for unknown
+        'UNKNOWN': '#FFB6C1'     # Alternative unknown naming
+    }
+    
+    # Add defect data points by surface location
+    surface_locations = valid_defects['surface location'].fillna('N/A').unique()
+    
+    for surface in surface_locations:
+        surface_data = valid_defects[valid_defects['surface location'].fillna('N/A') == surface]
+        
+        if len(surface_data) == 0:
+            continue
+            
+        # Determine color and symbol
+        color = color_map.get(surface, '#FFB6C1')
+        symbol = 'circle' if surface in ['INT', 'INTERNAL'] else 'triangle-up' if surface in ['NON-INT', 'EXTERNAL'] else 'diamond'
+        
+        # Create hover text with defect information
+        hover_text = (
+            "Length: " + surface_data['length [mm]'].round(1).astype(str) + " mm<br>" +
+            "Depth: " + surface_data['depth [%]'].round(1).astype(str) + "%<br>" +
+            "Surface: " + surface
+        )
+        
+        fig.add_trace(go.Scattergl(
+            x=surface_data['length [mm]'],
+            y=surface_data['depth [%]'],
+            mode='markers',
+            name=surface,
+            marker=dict(
+                color=color,
+                size=8,
+                symbol=symbol,
+                line=dict(color='white', width=1),
+                opacity=0.7
+            ),
+            hovertemplate="%{hovertext}<extra></extra>",
+            hovertext=hover_text
+        ))
+    
+    # Add RSTRENG envelope curve
+    fig.add_trace(go.Scattergl(
+        x=length_range,
+        y=envelope_depths,
+        mode='lines',
+        name='RSTRENG Envelope',
+        line=dict(color='red', width=3),
+        hovertemplate="Length: %{x:.1f} mm<br>Max Allowable Depth: %{y:.1f}%<extra></extra>"
+    ))
+    
+    # Update layout for professional appearance
+    fig.update_layout(
+        title={
+            'text': 'RSTRENG Fitness-for-Service Assessment Envelope',
+            'x': 0.5,
+            'font': {'size': 16, 'color': '#2C3E50'}
+        },
+        xaxis=dict(
+            title='Defect Length (mm)',
+            type='log',
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)',
+            range=[np.log10(5), np.log10(1000)]
+        ),
+        yaxis=dict(
+            title='Defect Depth (%)',
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)',
+            range=[0, 100]
+        ),
+        plot_bgcolor='white',
+        legend=dict(
+            yanchor="top",
+            y=0.98,
+            xanchor="right",
+            x=0.98,
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="rgba(0,0,0,0.1)",
+            borderwidth=1
+        ),
+        width=1000,
+        height=600,
+        margin=dict(l=80, r=150, t=80, b=80)
+    )
+    
+    # Add pipe parameters annotation
+    params_text = (
+        f"<b>Pipe Parameters:</b><br>"
+        f"Wall thickness: {avg_wall_thickness:.1f} mm<br>"
+        f"Outside diameter: {pipe_diameter_mm:.1f} mm<br>"
+        f"SMYS: {smys_mpa:.0f} MPa<br>"
+        f"Safety factor: {safety_factor:.2f}"
+    )
+    
+    fig.add_annotation(
+        text=params_text,
+        xref="paper", yref="paper",
+        x=1.02, y=0.5,
+        showarrow=False,
+        font=dict(size=10, color='#2C3E50'),
+        bgcolor="rgba(255,255,255,0.9)",
+        bordercolor="rgba(0,0,0,0.1)",
+        borderwidth=1,
+        align="left"
+    )
+    
+    return fig
+
+
+def find_max_allowable_depth_rstreng(length_mm, wall_thickness_mm, pipe_diameter_mm, smys_mpa, safety_factor):
+    """
+    Find maximum allowable depth for given defect length using RSTRENG method.
+    Uses binary search to find the depth that gives ERF ≈ 1.0.
+    """
+    from app.views.corrosion import calculate_true_rstreng_method
+    
+    # Binary search parameters
+    min_depth = 0.1  # Start from 0.1%
+    max_depth = 80.0  # RSTRENG limit
+    tolerance = 0.1  # Depth tolerance in %
+    max_iterations = 50
+    
+    # Assume typical width (can be refined)
+    typical_width_mm = min(length_mm * 0.5, 50.0)  # Conservative assumption
+    
+    for _ in range(max_iterations):
+        test_depth = (min_depth + max_depth) / 2.0
+        
+        try:
+            result = calculate_true_rstreng_method(
+                defect_depth_pct=test_depth,
+                defect_length_mm=length_mm,
+                defect_width_mm=typical_width_mm,
+                pipe_diameter_mm=pipe_diameter_mm,
+                wall_thickness_mm=wall_thickness_mm,
+                smys_mpa=smys_mpa,
+                safety_factor=safety_factor
+            )
+            
+            if result['safe'] and result['failure_pressure_mpa'] > 0:
+                # Calculate ERF (using user's definition: MAOP/Safe_Pressure)
+                # We want to find where this equals 1.0 (i.e., safe_pressure = MAOP)
+                # For envelope, we can assume MAOP = design pressure
+                design_pressure = (2 * smys_mpa * wall_thickness_mm / pipe_diameter_mm) / safety_factor
+                erf = design_pressure / result['safe_pressure_mpa']
+                
+                if abs(erf - 1.0) < 0.05:  # Within 5% of limit
+                    return test_depth
+                elif erf > 1.0:  # Too deep, reduce depth
+                    max_depth = test_depth
+                else:  # Too shallow, increase depth
+                    min_depth = test_depth
+            else:
+                # Calculation failed, reduce depth
+                max_depth = test_depth
+                
+        except:
+            # Error in calculation, reduce depth
+            max_depth = test_depth
+        
+        if abs(max_depth - min_depth) < tolerance:
+            break
+    
+    return (min_depth + max_depth) / 2.0

@@ -10,7 +10,7 @@ import base64
 from app.ui_components import create_metrics_row
 from app.services.state_manager import get_state
 from core.ffs_defect_interaction import *
-from visualization.defect_assessment_viz import create_defect_assessment_scatter_plot, create_defect_assessment_summary_table
+from visualization.defect_assessment_viz import create_defect_assessment_scatter_plot, create_defect_assessment_summary_table, create_rstreng_envelope_plot
 from visualization.pressure_assessment_viz import create_pressure_assessment_visualization
 
 
@@ -321,11 +321,11 @@ def calculate_true_rstreng_method(defect_depth_pct, defect_length_mm, defect_wid
     psi = defect_length_mm / math.sqrt(radius_mm * wall_thickness_mm)
     
     # RSTRENG Folias factor calculation
-    if psi <= 4:
-        # Short defect formula
+    if psi <= 4.0:
+        # Short defect - quadratic formula
         folias_factor = math.sqrt(1 + 0.6275 * psi**2 - 0.003375 * psi**4)
     else:
-        # Long defect formula
+        # Long defect - linear formula  
         folias_factor = 0.032 * psi + 3.3
     
     # 5. FLOW STRESS (RSTRENG-specific value)
@@ -375,6 +375,7 @@ def calculate_true_rstreng_method(defect_depth_pct, defect_length_mm, defect_wid
         "total_area_mm2": total_area_mm2,
         "note": f"True RSTRENG: ψ={psi:.2f}, M_t={folias_factor:.3f}, A_eff/A_total={area_ratio:.3f}, σ_flow={flow_stress_mpa:.1f}MPa"
     }
+
 
 def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, analysis_pressure_mpa, max_allowable_pressure_mpa):
     """
@@ -1205,6 +1206,25 @@ def render_corrosion_assessment_view():
                             st.markdown("#### 🔬 Engineering Insights")
                             for insight in insights:
                                 st.markdown(insight)
+
+            st.markdown("#### 📈 RSTRENG Fitness-for-Service Envelope")        
+            rstreng_envelope_plot = create_rstreng_envelope_plot(
+                enhanced_df,
+                pipe_diameter_mm,
+                smys_mpa,
+                safety_factor
+            )
+            
+            if rstreng_envelope_plot:
+                st.plotly_chart(rstreng_envelope_plot, use_container_width=True, key="rstreng_envelope_plot")
+                
+                st.markdown("""
+                **📊 RSTRENG Envelope Interpretation:**
+                - **Red curve**: RSTRENG allowable defect envelope per Kiefner & Vieth methodology
+                - **Above curve**: Defects requiring repair or pressure reduction
+                - **Below curve**: Defects acceptable for continued operation at MAOP
+                - **Color coding**: Green = External, Blue = Internal, Red = Unknown surface
+                """)
         
         st.markdown('</div>', unsafe_allow_html=True)  # Close traditional results container
         
