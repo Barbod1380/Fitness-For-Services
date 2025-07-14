@@ -402,12 +402,6 @@ class FailurePredictionSimulator:
                 year_failures.append(failure)
                 failed_defects.add(defect.defect_id)
                 self.failure_history.append(failure)
-        
-        if( year == 0 ):
-            print("COUNTER", counter)
-            for fail in self.failure_history:
-                print(fail)
-                print('---------------')
         return year_failures
     
 
