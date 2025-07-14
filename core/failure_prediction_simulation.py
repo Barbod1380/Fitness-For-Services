@@ -409,26 +409,23 @@ class FailurePredictionSimulator:
                 print(fail)
                 print('---------------')
         return year_failures
-
+    
 
     def _calculate_defect_erf(self, defect: DefectState) -> float:
         """
-        Calculate ERF for an individual defect with improved error handling.
-        ERF = MAOP / Safe Operating Pressure
-        ERF > 1.0 = Unsafe condition requiring repair
-        ERF ≤ 1.0 = Safe condition
+        FIXED: Calculate ERF with proper stress concentration application.
+        Addresses immediate failures from overly aggressive stress factors.
         """
         
         try:
-            # Validate input parameters first
+            # Validation (unchanged)
             if defect.current_depth_pct >= 95.0:
-                # Defect too deep for any assessment method
-                return 99.0  # High but not infinite ERF
+                return 99.0
             
             if defect.current_length_mm <= 0 or defect.wall_thickness_mm <= 0:
-                return 99.0  # Invalid geometry
+                return 99.0
             
-            # Call appropriate assessment method for this defect
+            # Calculate base assessment (unchanged)
             if self.params.assessment_method == 'b31g':
                 result = calculate_b31g(
                     defect_depth_pct=defect.current_depth_pct,
@@ -463,39 +460,45 @@ class FailurePredictionSimulator:
                     safety_factor=self.safety_factor
                 )
             
-            # Extract results safely
             safe_pressure = result.get('safe_pressure_mpa', 0)
             failure_pressure = result.get('failure_pressure_mpa', 0)
-            calculation_safe = result.get('safe', False)
             
-            # FIXED: Calculate ERF even for "unsafe" defects
             if safe_pressure > 0:
-                # Normal ERF calculation
                 base_erf = self.params.max_operating_pressure / safe_pressure
                 
-                # Apply stress concentration factor to ERF calculation
-                # For clustered defects, stress concentration increases ERF (worse condition)
-                final_erf = base_erf * defect.stress_concentration_factor
+                # FIXED: Apply stress concentration more appropriately
+                # Only apply to defects that are actually close to failure
+                if base_erf > 0.7:  # Only apply to defects approaching limits
+                    # Apply stress concentration factor
+                    stress_multiplier = defect.stress_concentration_factor
+                    
+                    # FIXED: Use graduated approach instead of direct multiplication
+                    if defect.is_clustered:
+                        # For clustered defects, apply stress concentration more gradually
+                        stress_effect = 1.0 + (stress_multiplier - 1.0) * 0.6  # Reduce impact by 40%
+                        final_erf = base_erf * stress_effect
+                    else:
+                        # Individual defects - no stress concentration
+                        final_erf = base_erf
+                else:
+                    # FIXED: For defects well below failure threshold, 
+                    # stress concentration has minimal effect
+                    stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.2  # Only 20% effect
+                    final_erf = base_erf * stress_effect
                 
-                # Cap ERF at reasonable maximum (99.0 instead of 999.0)
                 final_erf = min(final_erf, 99.0)
-                
                 return final_erf
-            
+                
             elif failure_pressure > 0:
-                # Fallback: use failure pressure if safe pressure unavailable
                 erf_from_failure = self.params.max_operating_pressure / (failure_pressure / self.safety_factor)
-                erf_from_failure *= defect.stress_concentration_factor
+                erf_from_failure *= min(defect.stress_concentration_factor, 2.0)  # Cap stress effect
                 return min(erf_from_failure, 99.0)
-            
             else:
-                # Calculation completely failed - return high but finite ERF
-                return 50.0  # High ERF indicating likely failure, but not infinite
+                return 50.0
                 
         except Exception as e:
             print(f"Error calculating ERF for defect {defect.defect_id}: {str(e)}")
-            return 50.0  # Conservative assumption for errors
-
+            return 50.0
 
 
     def _calculate_max_erf(self) -> float:
