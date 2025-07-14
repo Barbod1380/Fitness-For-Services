@@ -658,10 +658,10 @@ def render_growth_analysis_tab(datasets, available_years):
         with col1:
             distance_tolerance = st.number_input(
                 "**Distance Tolerance (meters)**",
-                min_value=0.01,
+                min_value=0.001,
                 max_value=1.0,
-                value=previous_params.get('distance_tolerance', 0.1),
-                step=0.01,
+                value=previous_params.get('distance_tolerance', 0.01),
+                step=0.001,
                 key="distance_tolerance_input",
                 help="Maximum distance difference to consider defects as the same location"
             )
