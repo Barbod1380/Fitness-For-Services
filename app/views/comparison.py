@@ -1117,11 +1117,7 @@ def display_prediction_results_simple():
         st.error(f"Error displaying summary metrics: {str(e)}")
         return
     
-    # Failure timeline chart - FIXED: Better error handling
     try:
-        # Try to import and use the visualization
-        from visualization.prediction_viz import create_failure_timeline_histogram
-
         fig = create_failure_timeline_histogram(results)
         st.plotly_chart(fig, use_container_width=True)   
 

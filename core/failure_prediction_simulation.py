@@ -73,7 +73,15 @@ class FailurePredictionSimulator:
 
     
     def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
-        # Filter defects with valid depth data
+        """
+        FIXED: Proper initialization without index mismatches
+        """
+        
+        # STEP 1: Filter valid defects FIRST and track index mapping
+        print("🔍 Filtering valid defects...")
+        
+        original_count = len(defects_df)
+        
         valid_defects = defects_df[
             (defects_df['depth [%]'].notna()) & 
             (defects_df['depth [%]'] > 0) & 
@@ -84,86 +92,190 @@ class FailurePredictionSimulator:
             (defects_df['width [mm]'] > 0)
         ].copy()
         
-        if len(valid_defects) < len(defects_df):
-            print(f"Filtered {len(defects_df) - len(valid_defects)} defects with invalid dimensions")
+        valid_count = len(valid_defects)
         
+        print(f"✅ Filtered: {valid_count} valid defects (from {original_count})")
+        
+        if valid_count == 0:
+            print("❌ No valid defects found!")
+            return False
+        
+        # STEP 2: Create index mapping from original to filtered
+        original_to_filtered = {}
+        filtered_to_original = {}
+        
+        for new_idx, (original_idx, _) in enumerate(valid_defects.iterrows()):
+            original_to_filtered[original_idx] = new_idx
+            filtered_to_original[new_idx] = original_idx
+        
+        # STEP 3: Store pipe parameters
         try:
             self.pipe_diameter = pipe_diameter
             self.smys = smys
             self.safety_factor = safety_factor
-            
-            # Create wall thickness lookup
+            print(f"📏 Pipe specs: D={pipe_diameter:.3f}m, SMYS={smys}MPa, SF={safety_factor}")
+        except Exception as e:
+            print(f"❌ Error setting pipe parameters: {e}")
+            return False
+        
+        # STEP 4: Create wall thickness lookup
+        try:
             wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
+            print(f"🔧 Wall thickness lookup: {len(wt_lookup)} joints")
+        except Exception as e:
+            print(f"❌ Error creating wall thickness lookup: {e}")
+            return False
+        
+        # STEP 5: Create growth rate lookup with proper index mapping
+        growth_lookup = {}
+        if not growth_rates_df.empty:
+            print("📈 Processing growth rates...")
             
-            # Create growth rate lookup
-            growth_lookup = {}
-            if not growth_rates_df.empty:
-                for idx, row in growth_rates_df.iterrows():
-                    defect_id = row.get('new_defect_id') or row.get('defect_id') or idx
-                    growth_lookup[defect_id] = {
+            for idx, row in growth_rates_df.iterrows():
+                # Try multiple ways to get the defect ID
+                defect_id = None
+                
+                # Method 1: Direct ID columns
+                for id_col in ['new_defect_id', 'defect_id', 'old_defect_id']:
+                    if id_col in row and pd.notna(row[id_col]):
+                        defect_id = int(row[id_col])
+                        break
+                
+                # Method 2: Use index if no ID found
+                if defect_id is None:
+                    defect_id = idx
+                
+                # Only store growth data for valid defects
+                if defect_id in original_to_filtered:
+                    mapped_id = original_to_filtered[defect_id]
+                    growth_lookup[mapped_id] = {
                         'depth_growth_pct': row.get('growth_rate_pct_per_year', 0.5),
                         'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1)
-                    }            
-
-            if use_clustering:
-                # Use clustering (existing logic)
-                cluster_lookup = {}
-                for cluster in clusters:
-                    stress_factor = cluster.stress_concentration_factor
-                    for defect_idx in cluster.defect_indices:
-                        cluster_lookup[defect_idx] = {
-                            'stress_factor': stress_factor,
-                            'cluster_id': id(cluster),
-                            'is_clustered': True
-                        }
-            else:
-                # No clustering - all defects individual
-                cluster_lookup = {}
-                for idx in defects_df.index:
-                    cluster_lookup[idx] = {
-                        'stress_factor': 1.0,  # No stress concentration
+                    }
+            
+            print(f"📈 Growth rates mapped: {len(growth_lookup)} defects")
+        else:
+            print("⚠️ No growth rate data provided - using defaults")
+        
+        # STEP 6: Process clustering with proper index mapping
+        cluster_lookup = {}
+        
+        if use_clustering and clusters:
+            print("🔗 Processing clustering data...")
+            processed_defects = set()
+            
+            for cluster_idx, cluster in enumerate(clusters):
+                try:
+                    stress_factor = getattr(cluster, 'stress_concentration_factor', 1.0)
+                    defect_indices = getattr(cluster, 'defect_indices', [])
+                    
+                    # Map original cluster indices to filtered indices
+                    mapped_indices = []
+                    for orig_idx in defect_indices:
+                        if orig_idx in original_to_filtered:
+                            mapped_idx = original_to_filtered[orig_idx]
+                            mapped_indices.append(mapped_idx)
+                            processed_defects.add(mapped_idx)
+                            
+                            cluster_lookup[mapped_idx] = {
+                                'stress_factor': stress_factor,
+                                'cluster_id': cluster_idx,
+                                'is_clustered': True
+                            }
+                    
+                    if mapped_indices:
+                        print(f"  Cluster {cluster_idx}: {len(mapped_indices)} defects, stress={stress_factor:.2f}")
+                    
+                except Exception as e:
+                    print(f"⚠️ Error processing cluster {cluster_idx}: {e}")
+                    continue
+            
+            # Add non-clustered defects
+            for filtered_idx in range(len(valid_defects)):
+                if filtered_idx not in processed_defects:
+                    cluster_lookup[filtered_idx] = {
+                        'stress_factor': 1.0,
                         'cluster_id': None,
                         'is_clustered': False
                     }
             
-            # Initialize defect states
-            self.defect_states = []
-            for idx, defect in defects_df.iterrows():
-                growth_data = growth_lookup.get(idx, {
-                    'depth_growth_pct': 0.5,
-                    'length_growth_mm': 0.1
+            print(f"🔗 Clustering complete: {len([v for v in cluster_lookup.values() if v['is_clustered']])} clustered, {len([v for v in cluster_lookup.values() if not v['is_clustered']])} individual")
+        
+        else:
+            print("📍 No clustering - treating all defects as individual")
+            # All defects individual
+            for filtered_idx in range(len(valid_defects)):
+                cluster_lookup[filtered_idx] = {
+                    'stress_factor': 1.0,
+                    'cluster_id': None,
+                    'is_clustered': False
+                }
+        
+        # STEP 7: Initialize defect states using FILTERED data
+        print("🏗️ Initializing defect states...")
+        self.defect_states = []
+        
+        for filtered_idx, (original_idx, defect) in enumerate(valid_defects.iterrows()):
+            try:
+                # Get growth data (use defaults if not found)
+                growth_data = growth_lookup.get(filtered_idx, {
+                    'depth_growth_pct': 0.5,  # 0.5% per year default
+                    'length_growth_mm': 0.1   # 0.1 mm per year default
                 })
                 
-                cluster_info = cluster_lookup.get(idx, {
+                # Get clustering data
+                cluster_info = cluster_lookup.get(filtered_idx, {
                     'stress_factor': 1.0,
                     'cluster_id': None,
                     'is_clustered': False
                 })
                 
+                # Get wall thickness
                 wall_thickness = wt_lookup.get(defect['joint number'], 10.0)
+                if pd.isna(wall_thickness) or wall_thickness <= 0:
+                    wall_thickness = 10.0
+                    print(f"⚠️ Using default wall thickness for joint {defect['joint number']}")
                 
+                # Create defect state
                 defect_state = DefectState(
-                    defect_id=idx,
+                    defect_id=filtered_idx,  # Use filtered index as ID
                     joint_number=defect['joint number'],
-                    current_depth_pct=defect['depth [%]'],
-                    current_length_mm=defect['length [mm]'],
-                    current_width_mm=defect['width [mm]'],
-                    location_m=defect['log dist. [m]'],
-                    growth_rate_pct_per_year=growth_data['depth_growth_pct'],
-                    length_growth_rate_mm_per_year=growth_data['length_growth_mm'],
-                    wall_thickness_mm=wall_thickness,
-                    stress_concentration_factor=cluster_info['stress_factor'],
-                    is_clustered=cluster_info['is_clustered'],
+                    current_depth_pct=float(defect['depth [%]']),
+                    current_length_mm=float(defect['length [mm]']),
+                    current_width_mm=float(defect['width [mm]']),
+                    location_m=float(defect['log dist. [m]']),
+                    growth_rate_pct_per_year=float(growth_data['depth_growth_pct']),
+                    length_growth_rate_mm_per_year=float(growth_data['length_growth_mm']),
+                    wall_thickness_mm=float(wall_thickness),
+                    stress_concentration_factor=float(cluster_info['stress_factor']),
+                    is_clustered=bool(cluster_info['is_clustered']),
                     cluster_id=cluster_info['cluster_id']
                 )
                 
                 self.defect_states.append(defect_state)
-            
-            return True
-            
-        except Exception as e:
-            print(f"Simulation initialization failed: {e}")
+                
+            except Exception as e:
+                print(f"❌ Error creating defect state for index {filtered_idx}: {e}")
+                continue
+        
+        final_count = len(self.defect_states)
+        print(f"✅ Initialization complete: {final_count} defect states created")
+        
+        # STEP 8: Validation
+        if final_count == 0:
+            print("❌ No defect states created!")
             return False
+        
+        # Quick sanity check
+        severe_defects = sum(1 for ds in self.defect_states if ds.current_depth_pct > 80)
+        clustered_defects = sum(1 for ds in self.defect_states if ds.is_clustered)
+        
+        print(f"📊 Validation: {severe_defects} severe defects (>80%), {clustered_defects} clustered")
+        
+        if severe_defects > final_count * 0.5:
+            print("⚠️ WARNING: >50% of defects are severe (>80% depth)")
+        
+        return True
     
 
     def run_simulation(self) -> Dict:
@@ -191,9 +303,7 @@ class FailurePredictionSimulator:
                 'max_depth': max(defect.current_depth_pct for defect in self.defect_states),
                 'avg_depth': np.mean([defect.current_depth_pct for defect in self.defect_states])
             }
-            
             self.annual_results.append(annual_result)
-        
         return self._compile_results()
     
 
@@ -247,8 +357,12 @@ class FailurePredictionSimulator:
     def _check_defect_failures(self, year: int, failed_defects: set) -> List[DefectFailure]:
         """CHANGED: Check individual defect failures instead of joint failures."""
         
+        if(year == 0):
+            print("YEAR 0 Analysis")
+
         year_failures = []
-        
+        counter = 0
+
         # Check each defect individually
         for defect in self.defect_states:
             if defect.defect_id in failed_defects:
@@ -264,6 +378,7 @@ class FailurePredictionSimulator:
 
             if erf_failure or depth_failure:
                 # Determine failure mode
+                counter += 1
                 if erf_failure and depth_failure:
                     failure_mode = 'BOTH'
                 elif erf_failure:
@@ -288,13 +403,31 @@ class FailurePredictionSimulator:
                 failed_defects.add(defect.defect_id)
                 self.failure_history.append(failure)
         
+        if( year == 0 ):
+            print("COUNTER", counter)
+            for fail in self.failure_history:
+                print(fail)
+                print('---------------')
         return year_failures
 
 
     def _calculate_defect_erf(self, defect: DefectState) -> float:
-        """Calculate ERF for an individual defect."""
+        """
+        Calculate ERF for an individual defect with improved error handling.
+        ERF = MAOP / Safe Operating Pressure
+        ERF > 1.0 = Unsafe condition requiring repair
+        ERF ≤ 1.0 = Safe condition
+        """
         
         try:
+            # Validate input parameters first
+            if defect.current_depth_pct >= 95.0:
+                # Defect too deep for any assessment method
+                return 99.0  # High but not infinite ERF
+            
+            if defect.current_length_mm <= 0 or defect.wall_thickness_mm <= 0:
+                return 99.0  # Invalid geometry
+            
             # Call appropriate assessment method for this defect
             if self.params.assessment_method == 'b31g':
                 result = calculate_b31g(
@@ -330,22 +463,39 @@ class FailurePredictionSimulator:
                     safety_factor=self.safety_factor
                 )
             
-            # Calculate ERF
+            # Extract results safely
             safe_pressure = result.get('safe_pressure_mpa', 0)
+            failure_pressure = result.get('failure_pressure_mpa', 0)
             calculation_safe = result.get('safe', False)
             
-            if calculation_safe and safe_pressure > 0:
-                # Apply stress concentration factor to ERF calculation
+            # FIXED: Calculate ERF even for "unsafe" defects
+            if safe_pressure > 0:
+                # Normal ERF calculation
                 base_erf = self.params.max_operating_pressure / safe_pressure
+                
+                # Apply stress concentration factor to ERF calculation
                 # For clustered defects, stress concentration increases ERF (worse condition)
                 final_erf = base_erf * defect.stress_concentration_factor
+                
+                # Cap ERF at reasonable maximum (99.0 instead of 999.0)
+                final_erf = min(final_erf, 99.0)
+                
                 return final_erf
+            
+            elif failure_pressure > 0:
+                # Fallback: use failure pressure if safe pressure unavailable
+                erf_from_failure = self.params.max_operating_pressure / (failure_pressure / self.safety_factor)
+                erf_from_failure *= defect.stress_concentration_factor
+                return min(erf_from_failure, 99.0)
+            
             else:
-                return 999.0  # Very high ERF for failed calculations (indicates failure)
+                # Calculation completely failed - return high but finite ERF
+                return 50.0  # High ERF indicating likely failure, but not infinite
                 
         except Exception as e:
             print(f"Error calculating ERF for defect {defect.defect_id}: {str(e)}")
-            return 999.0  # Conservative failure assumption
+            return 50.0  # Conservative assumption for errors
+
 
 
     def _calculate_max_erf(self) -> float:
