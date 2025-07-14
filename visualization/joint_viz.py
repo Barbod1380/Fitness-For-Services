@@ -80,7 +80,7 @@ def create_joint_defect_visualization(defects_df, joint_number, pipe_diameter_m)
 
         # Add rectangle trace (closed loop of 5 points)
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=[x0, x1, x1, x0, x0],
                 y=[y0, y0, y1, y1, y0],
                 mode="lines",
@@ -105,7 +105,7 @@ def create_joint_defect_visualization(defects_df, joint_number, pipe_diameter_m)
 
     # Invisible scatter trace to create shared colorbar
     fig.add_trace(
-        go.Scatter(
+        go.Scattergl(
             x=[None] * len(depths),
             y=[None] * len(depths),
             mode="markers",

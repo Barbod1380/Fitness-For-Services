@@ -49,29 +49,31 @@ class DefectState:
     is_clustered: bool
     cluster_id: Optional[int] = None
 
+
 @dataclass
-class JointFailure:
-    """Record of a joint failure"""
-    joint_number: int
+class DefectFailure:
+    """Record of an individual defect failure - CHANGED FROM JOINT TO DEFECT"""
+    defect_id: int
+    joint_number: int  # Keep for reference
     failure_year: int
     failure_mode: str  # 'ERF_EXCEEDED' or 'DEPTH_EXCEEDED' or 'BOTH'
     final_erf: float
     final_depth_pct: float
-    defect_count: int
+    location_m: float
+    was_clustered: bool
+    stress_concentration_factor: float
 
 
-
-                
 class FailurePredictionSimulator:
     def __init__(self, params: SimulationParams):
         self.params = params
         self.defect_states: List[DefectState] = []
-        self.failure_history: List[JointFailure] = []
+        self.failure_history: List[DefectFailure] = []  # CHANGED: Now tracks individual defects
         self.annual_results: List[Dict] = []
 
     
     def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
-        # SOLUTION: Filter defects with valid depth data
+        # Filter defects with valid depth data
         valid_defects = defects_df[
             (defects_df['depth [%]'].notna()) & 
             (defects_df['depth [%]'] > 0) & 
@@ -124,7 +126,7 @@ class FailurePredictionSimulator:
                         'is_clustered': False
                     }
             
-            # Initialize defect states (rest unchanged)
+            # Initialize defect states
             self.defect_states = []
             for idx, defect in defects_df.iterrows():
                 growth_data = growth_lookup.get(idx, {
@@ -168,23 +170,23 @@ class FailurePredictionSimulator:
         """Run the complete simulation over the specified timeframe."""
         self.failure_history = []
         self.annual_results = []
-        failed_joints = set()
+        failed_defects = set()  # CHANGED: Track failed defect IDs instead of joint numbers
         
         for year in range(self.params.simulation_years + 1):
             # Grow defects for this year (except year 0)
             if year > 0:
                 self._grow_defects(year)
             
-            # Check for failures
-            year_failures = self._check_failures(year, failed_joints)
+            # Check for failures - CHANGED to defect-level
+            year_failures = self._check_defect_failures(year, failed_defects)
             
-            # Record annual results
+            # Record annual results - CHANGED metrics
             annual_result = {
                 'year': year,
-                'total_joints': len(set(defect.joint_number for defect in self.defect_states)),
-                'failed_joints_this_year': len(year_failures),
-                'cumulative_failed_joints': len(failed_joints),
-                'surviving_joints': len(set(defect.joint_number for defect in self.defect_states)) - len(failed_joints),
+                'total_defects': len(self.defect_states),  # CHANGED: Count defects
+                'failed_defects_this_year': len(year_failures),  # CHANGED
+                'cumulative_failed_defects': len(failed_defects),  # CHANGED
+                'surviving_defects': len(self.defect_states) - len(failed_defects),  # CHANGED
                 'max_erf': self._calculate_max_erf(),
                 'max_depth': max(defect.current_depth_pct for defect in self.defect_states),
                 'avg_depth': np.mean([defect.current_depth_pct for defect in self.defect_states])
@@ -221,8 +223,6 @@ class FailurePredictionSimulator:
         return base_growth_rate * min(acceleration_factor, 2.5)
     
 
-
-    # Integration: Replace in analysis/growth_analysis.py line 420
     def _grow_defects(self, year: int):
         """Grow all defects based on their growth rates and clustering effects."""
         
@@ -244,42 +244,23 @@ class FailurePredictionSimulator:
             defect.current_length_mm += length_growth
     
 
-    def _check_failures(self, year: int, failed_joints: set) -> List[JointFailure]:
-        """SIMPLIFIED: Check for joint failures using existing corrosion assessment."""
+    def _check_defect_failures(self, year: int, failed_defects: set) -> List[DefectFailure]:
+        """CHANGED: Check individual defect failures instead of joint failures."""
         
         year_failures = []
         
-        # Group defects by joint
-        joints_defects = {}
+        # Check each defect individually
         for defect in self.defect_states:
-            if defect.joint_number not in failed_joints:  # Skip already failed joints
-                if defect.joint_number not in joints_defects:
-                    joints_defects[defect.joint_number] = []
-                joints_defects[defect.joint_number].append(defect)
-        
-        # Check each joint for failure
-        for joint_num, joint_defects in joints_defects.items():
+            if defect.defect_id in failed_defects:
+                continue  # Skip already failed defects
             
-            # Create temporary DataFrame for this joint's defects
-            joint_defects_data = []
-            for defect in joint_defects:
-                joint_defects_data.append({
-                    'depth [%]': defect.current_depth_pct,
-                    'length [mm]': defect.current_length_mm,
-                    'width [mm]': defect.current_width_mm,
-                    'wt nom [mm]': defect.wall_thickness_mm,
-                    'stress_concentration_factor': 1 if year == 0 else defect.stress_concentration_factor
-                })
-            
-            joint_df = pd.DataFrame(joint_defects_data)
-            
-            # USE EXISTING CORROSION ASSESSMENT to calculate ERF
-            worst_erf = self._calculate_erf_using_existing_system(joint_df)
-            worst_depth = max(defect.current_depth_pct for defect in joint_defects)
+            # Calculate ERF for this individual defect
+            defect_erf = self._calculate_defect_erf(defect)
+            defect_depth = defect.current_depth_pct
 
-            # Check failure criteria
-            erf_failure = worst_erf >= self.params.erf_threshold
-            depth_failure = worst_depth >= self.params.depth_threshold
+            # Check failure criteria for this defect
+            erf_failure = defect_erf >= self.params.erf_threshold
+            depth_failure = defect_depth >= self.params.depth_threshold
 
             if erf_failure or depth_failure:
                 # Determine failure mode
@@ -290,157 +271,123 @@ class FailurePredictionSimulator:
                 else:
                     failure_mode = 'DEPTH_EXCEEDED'
                 
-                # Record failure
-                failure = JointFailure(
-                    joint_number=joint_num,
+                # Record defect failure
+                failure = DefectFailure(
+                    defect_id=defect.defect_id,
+                    joint_number=defect.joint_number,  # Keep for reference
                     failure_year=year,
                     failure_mode=failure_mode,
-                    final_erf=worst_erf,
-                    final_depth_pct=worst_depth,
-                    defect_count=len(joint_defects)
+                    final_erf=defect_erf,
+                    final_depth_pct=defect_depth,
+                    location_m=defect.location_m,
+                    was_clustered=defect.is_clustered,
+                    stress_concentration_factor=defect.stress_concentration_factor
                 )
                 
                 year_failures.append(failure)
-                failed_joints.add(joint_num)
+                failed_defects.add(defect.defect_id)
                 self.failure_history.append(failure)
         
         return year_failures
 
 
-    def _calculate_erf_using_existing_system(self, joint_df: pd.DataFrame) -> float:
-        max_erf = 0.0
-        valid_calculations = 0
-
-        # Single loop that processes each defect individually
-        for _, defect in joint_df.iterrows():
-            try:
-                # Extract CURRENT defect parameters (already grown) - INSIDE the loop
-                depth_pct = defect['depth [%]']
-                length_mm = defect['length [mm]']
-                width_mm = defect['width [mm]']
-                wt_mm = defect['wt nom [mm]']
-
-                # Call assessment method with CURRENT dimensions only
-                if self.params.assessment_method == 'b31g':
-                    result = calculate_b31g(
-                        defect_depth_pct=depth_pct,  # Current defect's parameters
-                        defect_length_mm=length_mm,
-                        pipe_diameter_mm=self.pipe_diameter * 1000,
-                        wall_thickness_mm=wt_mm,
-                        maop_mpa=self.params.max_operating_pressure,
-                        smys_mpa=self.smys,
-                        safety_factor=self.safety_factor
-                    )
-                
-                elif self.params.assessment_method == 'modified_b31g':
-                    result = calculate_modified_b31g(
-                        defect_depth_pct=depth_pct,
-                        defect_length_mm=length_mm,
-                        pipe_diameter_mm=self.pipe_diameter * 1000,
-                        wall_thickness_mm=wt_mm,
-                        maop_mpa=self.params.max_operating_pressure,
-                        smys_mpa=self.smys,
-                        safety_factor=self.safety_factor
-                    )
-                
-                elif self.params.assessment_method == 'rstreng':
-                    result = calculate_true_rstreng_method(
-                        defect_depth_pct=depth_pct,
-                        defect_length_mm=length_mm,
-                        defect_width_mm=width_mm,
-                        pipe_diameter_mm=self.pipe_diameter * 1000,
-                        wall_thickness_mm=wt_mm,
-                        maop_mpa=self.params.max_operating_pressure,
-                        smys_mpa=self.smys,
-                        safety_factor=self.safety_factor
-                    )
-                
-                # SOLUTION: Robust ERF calculation
-                safe_pressure = result.get('safe_pressure_mpa', 0)
-                calculation_safe = result.get('safe', False)
-                
-                # Only calculate ERF for valid results
-                if calculation_safe and safe_pressure > 0:
-                    erf = self.params.max_operating_pressure / safe_pressure
-                    max_erf = max(max_erf, erf)
-                    valid_calculations += 1
-                else:
-                    # Log but don't use invalid calculations
-                    print(f"Invalid calculation for defect: depth={depth_pct}%, method={self.params.assessment_method}")
-                    
-            except Exception as e:
-                print(f"Error calculating ERF for defect: {str(e)}")
-                # Continue processing other defects
-                continue
+    def _calculate_defect_erf(self, defect: DefectState) -> float:
+        """Calculate ERF for an individual defect."""
         
-        # If no valid calculations, return low ERF (safe)
-        if valid_calculations == 0:
-            print(f"Warning: No valid calculations for joint, assuming safe")
-            return 0.5  # Conservative but not failure-triggering
-        
-        return max_erf
+        try:
+            # Call appropriate assessment method for this defect
+            if self.params.assessment_method == 'b31g':
+                result = calculate_b31g(
+                    defect_depth_pct=defect.current_depth_pct,
+                    defect_length_mm=defect.current_length_mm,
+                    pipe_diameter_mm=self.pipe_diameter * 1000,
+                    wall_thickness_mm=defect.wall_thickness_mm,
+                    maop_mpa=self.params.max_operating_pressure,
+                    smys_mpa=self.smys,
+                    safety_factor=self.safety_factor
+                )
+            
+            elif self.params.assessment_method == 'modified_b31g':
+                result = calculate_modified_b31g(
+                    defect_depth_pct=defect.current_depth_pct,
+                    defect_length_mm=defect.current_length_mm,
+                    pipe_diameter_mm=self.pipe_diameter * 1000,
+                    wall_thickness_mm=defect.wall_thickness_mm,
+                    maop_mpa=self.params.max_operating_pressure,
+                    smys_mpa=self.smys,
+                    safety_factor=self.safety_factor
+                )
+            
+            elif self.params.assessment_method == 'rstreng':
+                result = calculate_true_rstreng_method(
+                    defect_depth_pct=defect.current_depth_pct,
+                    defect_length_mm=defect.current_length_mm,
+                    defect_width_mm=defect.current_width_mm,
+                    pipe_diameter_mm=self.pipe_diameter * 1000,
+                    wall_thickness_mm=defect.wall_thickness_mm,
+                    maop_mpa=self.params.max_operating_pressure,
+                    smys_mpa=self.smys,
+                    safety_factor=self.safety_factor
+                )
+            
+            # Calculate ERF
+            safe_pressure = result.get('safe_pressure_mpa', 0)
+            calculation_safe = result.get('safe', False)
+            
+            if calculation_safe and safe_pressure > 0:
+                # Apply stress concentration factor to ERF calculation
+                base_erf = self.params.max_operating_pressure / safe_pressure
+                # For clustered defects, stress concentration increases ERF (worse condition)
+                final_erf = base_erf * defect.stress_concentration_factor
+                return final_erf
+            else:
+                return 999.0  # Very high ERF for failed calculations (indicates failure)
+                
+        except Exception as e:
+            print(f"Error calculating ERF for defect {defect.defect_id}: {str(e)}")
+            return 999.0  # Conservative failure assumption
 
 
     def _calculate_max_erf(self) -> float:
-        """Calculate maximum ERF across all surviving joints."""
+        """Calculate maximum ERF across all surviving defects."""
         max_erf = 0.0
         
-        # Group defects by joint first
-        joints_defects = {}
         for defect in self.defect_states:
-            if defect.joint_number not in joints_defects:
-                joints_defects[defect.joint_number] = []
-            joints_defects[defect.joint_number].append(defect)
-        
-        # Calculate ERF per joint, then take maximum
-        for _, joint_defects in joints_defects.items():
-            # Create DataFrame directly (like you do in _calculate_erf_using_existing_system)
-            joint_defects_data = []
-            for defect in joint_defects:
-                joint_defects_data.append({
-                    'depth [%]': defect.current_depth_pct,
-                    'length [mm]': defect.current_length_mm,
-                    'width [mm]': defect.current_width_mm,
-                    'wt nom [mm]': defect.wall_thickness_mm,
-                    'stress_concentration_factor': defect.stress_concentration_factor
-                })
-            
-            joint_df = pd.DataFrame(joint_defects_data)
-            joint_erf = self._calculate_erf_using_existing_system(joint_df)
-            max_erf = max(max_erf, joint_erf)
+            defect_erf = self._calculate_defect_erf(defect)
+            max_erf = max(max_erf, defect_erf)
         
         return max_erf
     
 
     def _compile_results(self) -> Dict:
-        """Compile final simulation results."""
+        """Compile final simulation results - CHANGED to defect-based."""
         
         return {
             'simulation_params': self.params,
             'annual_results': self.annual_results,
             'failure_history': self.failure_history,
-            'total_failures': len(self.failure_history),
+            'total_failures': len(self.failure_history),  # CHANGED: Count defect failures
             'failure_timeline': self._create_failure_timeline(),
             'survival_statistics': self._calculate_survival_statistics()
         }
     
     def _create_failure_timeline(self) -> Dict[int, int]:
-        """Create timeline of failures by year."""
+        """Create timeline of defect failures by year."""
         timeline = {}
         for year in range(self.params.simulation_years + 1):
             timeline[year] = len([f for f in self.failure_history if f.failure_year == year])
         return timeline
     
     def _calculate_survival_statistics(self) -> Dict:
-        """Calculate survival statistics."""
-        total_joints = len(set(defect.joint_number for defect in self.defect_states))
-        failed_joints = len(self.failure_history)
-        surviving_joints = total_joints - failed_joints
+        """Calculate survival statistics - CHANGED to defect-based."""
+        total_defects = len(self.defect_states)  # CHANGED
+        failed_defects = len(self.failure_history)  # CHANGED
+        surviving_defects = total_defects - failed_defects  # CHANGED
         
         return {
-            'total_joints': total_joints,
-            'failed_joints': failed_joints,
-            'surviving_joints': surviving_joints,
-            'failure_rate': (failed_joints / total_joints * 100) if total_joints > 0 else 0,
-            'survival_rate': (surviving_joints / total_joints * 100) if total_joints > 0 else 100
+            'total_defects': total_defects,  # CHANGED
+            'failed_defects': failed_defects,  # CHANGED
+            'surviving_defects': surviving_defects,  # CHANGED
+            'failure_rate': (failed_defects / total_defects * 100) if total_defects > 0 else 0,
+            'survival_rate': (surviving_defects / total_defects * 100) if total_defects > 0 else 100
         }

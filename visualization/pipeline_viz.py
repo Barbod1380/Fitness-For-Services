@@ -70,7 +70,7 @@ def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter=None, colo
     
     # Use WebGL for large datasets
     use_webgl = len(plot_data) > 1000
-    scatter_class = go.Scattergl if use_webgl else go.Scatter
+    scatter_class = go.Scattergl if use_webgl else go.Scattergl
     
     # === Create Hover Template ===
     hover_template = create_hover_template(plot_data, y_axis_column, color_by)

@@ -900,12 +900,13 @@ def render_clustering_analysis_section(later_data):
     if hasattr(st.session_state, 'enhanced_clusters') and st.session_state.enhanced_clusters:
         display_clustering_results()
 
+
 def render_future_prediction_section(later_data, comparison_results):
     """
-    Future prediction section with time-forward simulation
+    Future prediction section with time-forward simulation - UPDATED for defect-based failures
     """
-    st.markdown("### 🔮 Future Failure Prediction")
-    st.markdown("Simulate defect growth and predict joint failures over time")
+    st.markdown("### 🔮 Future Defect Failure Prediction")  # CHANGED title
+    st.markdown("Simulate defect growth and predict individual defect failures over time")  # CHANGED description
     
     # Check if clustering has been performed
     if not hasattr(st.session_state, 'enhanced_clusters'):
@@ -978,7 +979,7 @@ def render_future_prediction_section(later_data, comparison_results):
                 max_value=1.0,
                 value=0.90,
                 step=0.01,
-                help="ERF threshold above which joint fails"
+                help="ERF threshold above which defect fails"  # CHANGED
             )
             
             depth_threshold = st.number_input(
@@ -987,18 +988,18 @@ def render_future_prediction_section(later_data, comparison_results):
                 max_value=95.0,
                 value=80.0,
                 step=1.0,
-                help="Depth threshold above which joint fails"
+                help="Depth threshold above which defect fails"  # CHANGED
             )
     
     # TEMPORARY: Simple test implementation
-    if st.button("🚀 Run Failure Prediction Simulation", type="primary", use_container_width=True, key="prediction_simulation"):
+    if st.button("🚀 Run Defect Failure Prediction Simulation", type="primary", use_container_width=True, key="prediction_simulation"):
         
         # Validation
         if not hasattr(st.session_state, 'enhanced_clusters'):
             st.error("❌ No clustering results available. Run clustering analysis first.")
             return
         
-        with st.spinner("🔮 Running failure prediction simulation..."):
+        with st.spinner("🔮 Running defect failure prediction simulation..."):  # CHANGED text
             try:
                 import time
                 start_time = time.time()
@@ -1015,8 +1016,8 @@ def render_future_prediction_section(later_data, comparison_results):
                     simulation_years=simulation_years,
                     erf_threshold=erf_threshold,
                     depth_threshold=depth_threshold
-                )
-                
+                )                
+
                 # Initialize simulator
                 simulator = FailurePredictionSimulator(sim_params)
                 
@@ -1030,7 +1031,7 @@ def render_future_prediction_section(later_data, comparison_results):
                     smys=smys,
                     safety_factor=safety_factor
                 )
-                
+
                 if not success:
                     st.error("❌ Failed to initialize simulation")
                     return
@@ -1045,11 +1046,10 @@ def render_future_prediction_section(later_data, comparison_results):
                 st.session_state.prediction_results = results
                 
                 st.success(f"✅ Simulation completed in {processing_time:.2f} seconds!")
-                st.success(f"📊 Predicted {results['total_failures']} joint failures over {simulation_years} years")
+                st.success(f"📊 Predicted {results['total_failures']} defect failures over {simulation_years} years")  # CHANGED
                 
-                # Display immediate results
                 display_prediction_results_simple()
-                
+
             except Exception as e:
                 st.error(f"❌ Simulation failed: {str(e)}")
                 
@@ -1059,11 +1059,11 @@ def render_future_prediction_section(later_data, comparison_results):
                     st.write(f"Assessment method: {assessment_method}")
                     st.write(f"Available clusters: {len(st.session_state.enhanced_clusters) if hasattr(st.session_state, 'enhanced_clusters') else 0}")
 
- 
-
 
 def display_prediction_results_simple():
-    """Display simulation results with simple visualizations."""
+    """
+    FIXED: Display simulation results with simple visualizations - handles pandas arrays properly.
+    """
     
     if not hasattr(st.session_state, 'prediction_results'):
         return
@@ -1073,213 +1073,137 @@ def display_prediction_results_simple():
     st.markdown("---")
     st.markdown("### 📊 Simulation Results")
     
-    # Summary metrics
-    survival_stats = results['survival_statistics']
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Joints", survival_stats['total_joints'])
-    
-    with col2:
-        st.metric(
-            "Failed Joints", 
-            survival_stats['failed_joints'],
-            f"{survival_stats['failure_rate']:.1f}% of total"
-        )
-    
-    with col3:
-        st.metric(
-            "Surviving Joints", 
-            survival_stats['surviving_joints'],
-            f"{survival_stats['survival_rate']:.1f}% survival"
-        )
-    
-    with col4:
-        if results['failure_history']:
-            first_failure_year = min(f.failure_year for f in results['failure_history'])
-            st.metric("First Failure", f"Year {first_failure_year}")
-        else:
-            st.metric("First Failure", "None predicted")
-    
-    # Failure timeline chart
+    # Summary metrics - FIXED: Safe access to nested dictionaries
     try:
-        from visualization.prediction_viz import create_failure_timeline_histogram
-        fig = create_failure_timeline_histogram(results)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    except ImportError:
-        # Fallback: simple table if visualization not available
-        st.markdown("### 📈 Failure Timeline")
-        timeline = results['failure_timeline']
-        timeline_data = [{'Year': year, 'Failures': count} for year, count in timeline.items() if count > 0]
-        if timeline_data:
-            st.dataframe(pd.DataFrame(timeline_data), use_container_width=True)
-        else:
-            st.info("🎉 No failures predicted in simulation timeframe!")
-    
-    # Failure details
-    if results['failure_history']:
-        with st.expander("📋 Failure Details"):
-            failure_data = []
-            for failure in results['failure_history']:
-                failure_data.append({
-                    'Joint Number': failure.joint_number,
-                    'Failure Year': failure.failure_year,
-                    'Failure Mode': failure.failure_mode,
-                    'Final ERF': f"{failure.final_erf:.3f}",
-                    'Final Depth (%)': f"{failure.final_depth_pct:.1f}%"
-                })
-            
-            failure_df = pd.DataFrame(failure_data)
-            st.dataframe(failure_df, use_container_width=True)
-    
-    # Risk assessment
-    st.markdown("### 💡 Risk Assessment")
-    failure_rate = survival_stats['failure_rate']
-    
-    if failure_rate > 20:
-        st.error(f"🚨 **HIGH RISK**: {failure_rate:.1f}% failure rate predicted")
-    elif failure_rate > 10:
-        st.warning(f"⚠️ **MODERATE RISK**: {failure_rate:.1f}% failure rate predicted")
-    elif failure_rate > 0:
-        st.success(f"✅ **LOW RISK**: {failure_rate:.1f}% failure rate predicted")
-    else:
-        st.success("🎉 **EXCELLENT**: No failures predicted!")
-
-
-def display_prediction_results():
-    """Display simulation results with visualizations."""
-    
-    results = st.session_state.prediction_results
-    
-    st.markdown("---")
-    st.markdown("### 📊 Simulation Results")
-    
-    # Summary metrics
-    survival_stats = results['survival_statistics']
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric(
-            "Total Joints",
-            survival_stats['total_joints']
-        )
-    
-    with col2:
-        st.metric(
-            "Failed Joints",
-            survival_stats['failed_joints'],
-            f"{survival_stats['failure_rate']:.1f}% of total"
-        )
-    
-    with col3:
-        st.metric(
-            "Surviving Joints", 
-            survival_stats['surviving_joints'],
-            f"{survival_stats['survival_rate']:.1f}% survival"
-        )
-    
-    with col4:
-        if results['failure_history']:
-            first_failure_year = min(f.failure_year for f in results['failure_history'])
-            st.metric("First Failure", f"Year {first_failure_year}")
-        else:
-            st.metric("First Failure", "None predicted")
-    
-    # Visualizations
-    st.markdown("### 📈 Failure Timeline Analysis")
-    
-
-    # Failure timeline histogram
-    fig_timeline = create_failure_timeline_histogram(results)
-    st.plotly_chart(fig_timeline, use_container_width=True)
-    
-    # Additional charts in columns
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Survival curve
-        fig_survival = create_survival_curve(results)
-        st.plotly_chart(fig_survival, use_container_width=True)
-    
-    with col2:
-        # ERF evolution
-        fig_erf = create_erf_evolution_plot(results)
-        st.plotly_chart(fig_erf, use_container_width=True)
-    
-    # Detailed failure breakdown
-    with st.expander("📋 Detailed Failure Analysis", expanded=False):
+        survival_stats = results.get('survival_statistics', {})
         
-        if results['failure_history']:
-            # Create failure details table
-            failure_data = []
-            for failure in results['failure_history']:
-                failure_data.append({
-                    'Joint Number': failure.joint_number,
-                    'Failure Year': failure.failure_year,
-                    'Failure Mode': failure.failure_mode,
-                    'Final ERF': f"{failure.final_erf:.3f}",
-                    'Final Depth (%)': f"{failure.final_depth_pct:.1f}%",
-                    'Defect Count': failure.defect_count
-                })
-            
-            failure_df = pd.DataFrame(failure_data)
-            st.dataframe(failure_df, use_container_width=True)
-            
-            # Download failure details
-            failure_csv = failure_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Failure Details",
-                data=failure_csv,
-                file_name=f"failure_prediction_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                key="failure_prediction_download"
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_defects = survival_stats.get('total_defects', 0)
+            st.metric("Total Defects", total_defects)
+        
+        with col2:
+            failed_defects = survival_stats.get('failed_defects', 0)
+            failure_rate = survival_stats.get('failure_rate', 0.0)
+            st.metric(
+                "Failed Defects", 
+                failed_defects,
+                f"{failure_rate:.1f}% of total"
             )
+
+        with col3:
+            surviving_defects = survival_stats.get('surviving_defects', 0)
+            survival_rate = survival_stats.get('survival_rate', 100.0)
+            st.metric(
+                "Surviving Defects", 
+                surviving_defects,
+                f"{survival_rate:.1f}% survival"
+            )
+        
+        with col4:
+            # FIXED: Safe check for failure history
+            failure_history = results.get('failure_history', [])
+            if failure_history and len(failure_history) > 0:
+                try:
+                    first_failure_year = min(f.failure_year for f in failure_history)
+                    st.metric("First Failure", f"Year {first_failure_year}")
+                except (AttributeError, ValueError, TypeError):
+                    st.metric("First Failure", "Error calculating")
+            else:
+                st.metric("First Failure", "None predicted")
+        
+    except Exception as e:
+        st.error(f"Error displaying summary metrics: {str(e)}")
+        return
+    
+    # Failure timeline chart - FIXED: Better error handling
+    try:
+        # Try to import and use the visualization
+        from visualization.prediction_viz import create_failure_timeline_histogram
+
+        fig = create_failure_timeline_histogram(results)
+        st.plotly_chart(fig, use_container_width=True)   
+
+    except Exception as e:
+        st.error(f"Error creating timeline chart: {str(e)}")
+    
+    # Failure details - FIXED: Much safer handling
+    try:
+        failure_history = results.get('failure_history', [])
+        
+        # FIXED: Safe check for failure history existence
+        has_failures = False
+        if failure_history:
+            if hasattr(failure_history, '__len__'):
+                has_failures = len(failure_history) > 0
+            else:
+                # If it's not a normal list/array, try to convert
+                try:
+                    failure_list = list(failure_history)
+                    has_failures = len(failure_list) > 0
+                    failure_history = failure_list
+                except:
+                    has_failures = False
+        
+        if has_failures:
+            with st.expander("📋 Defect Failure Details"):
+                try:
+                    failure_data = []
+                    for failure in failure_history:
+                        try:
+                            # FIXED: Safe attribute access with getattr
+                            failure_data.append({
+                                'Defect ID': getattr(failure, 'defect_id', 'Unknown'),
+                                'Joint Number': getattr(failure, 'joint_number', 'Unknown'),
+                                'Location (m)': f"{getattr(failure, 'location_m', 0.0):.2f}",
+                                'Failure Year': getattr(failure, 'failure_year', 'Unknown'),
+                                'Failure Mode': getattr(failure, 'failure_mode', 'Unknown'),
+                                'Final ERF': f"{getattr(failure, 'final_erf', 0.0):.3f}",
+                                'Final Depth (%)': f"{getattr(failure, 'final_depth_pct', 0.0):.1f}%",
+                                'Was Clustered': "Yes" if getattr(failure, 'was_clustered', False) else "No",
+                                'Stress Factor': f"{getattr(failure, 'stress_concentration_factor', 1.0):.2f}x"
+                            })
+                        except Exception as e:
+                            st.warning(f"Could not process failure record: {str(e)}")
+                            continue
+                    
+                    if failure_data:
+                        failure_df = pd.DataFrame(failure_data)
+                        st.dataframe(failure_df, use_container_width=True)
+                    else:
+                        st.warning("No valid failure data could be processed")
+                        
+                except Exception as e:
+                    st.error(f"Error processing failure details: {str(e)}")
+        
+    except Exception as e:
+        st.error(f"Error in failure details section: {str(e)}")
+    
+    # Risk assessment - FIXED: Safe access to stats
+    try:
+        st.markdown("### 💡 Risk Assessment")
+        
+        survival_stats = results.get('survival_statistics', {})
+        failure_rate = survival_stats.get('failure_rate', 0.0)
+        
+        # FIXED: Ensure failure_rate is a number, not an array
+        if hasattr(failure_rate, '__iter__') and not isinstance(failure_rate, str):
+            failure_rate = float(failure_rate[0]) if len(failure_rate) > 0 else 0.0
         else:
-            st.info("🎉 No joint failures predicted within the simulation timeframe!")
-    
-    # Engineering recommendations
-    st.markdown("### 💡 Engineering Recommendations")
-    
-    if results['total_failures'] > 0:
-        failure_rate = results['total_failures'] / survival_stats['total_joints'] * 100
+            failure_rate = float(failure_rate)
         
         if failure_rate > 20:
-            st.error(f"🚨 **HIGH RISK**: {failure_rate:.1f}% failure rate predicted")
-            st.markdown("""
-            **Immediate Actions Required:**
-            - Detailed inspection of high-risk joints
-            - Consider pressure reduction
-            - Implement enhanced monitoring
-            - Plan repair/replacement schedule
-            """)
+            st.error(f"🚨 **HIGH RISK**: {failure_rate:.1f}% defect failure rate predicted")
         elif failure_rate > 10:
-            st.warning(f"⚠️ **MODERATE RISK**: {failure_rate:.1f}% failure rate predicted")
-            st.markdown("""
-            **Recommended Actions:**
-            - Increase inspection frequency
-            - Monitor critical joints closely
-            - Plan preventive maintenance
-            """)
+            st.warning(f"⚠️ **MODERATE RISK**: {failure_rate:.1f}% defect failure rate predicted")
+        elif failure_rate > 0:
+            st.success(f"✅ **LOW RISK**: {failure_rate:.1f}% defect failure rate predicted")
         else:
-            st.success(f"✅ **LOW RISK**: {failure_rate:.1f}% failure rate predicted")
-            st.markdown("""
-            **Maintenance Strategy:**
-            - Continue routine monitoring
-            - Standard inspection intervals
-            - Predictive maintenance approach
-            """)
-    else:
-        st.success("🎉 **EXCELLENT**: No failures predicted within simulation timeframe!")
-        st.markdown("""
-        **Recommended Strategy:**
-        - Maintain current integrity program
-        - Consider extending inspection intervals
-        - Monitor for new defect formation
-        """)
-
+            st.success("🎉 **EXCELLENT**: No defect failures predicted!")
+            
+    except Exception as e:
+        st.error(f"Error in risk assessment: {str(e)}")
 
 
 def render_results_visualization_tab(datasets):

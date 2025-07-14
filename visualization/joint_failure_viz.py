@@ -152,7 +152,7 @@ def _add_joint_defects_to_subplot(fig, defects_df, pipe_diameter_mm, col, title,
         
         # Add rectangle trace
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=[x0, x1, x1, x0, x0],
                 y=[y0, y0, y1, y1, y0],
                 mode="lines",
@@ -419,7 +419,7 @@ def create_joint_failure_timeline_chart(joint_timeline_data: dict) -> go.Figure:
             continue
         
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=mode_data['failure_year'],
                 y=mode_data['joint_number'],
                 mode='markers',

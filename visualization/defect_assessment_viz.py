@@ -426,8 +426,7 @@ def create_rstreng_envelope_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety
         avg_wall_thickness = 10.0
     
     # Calculate RSTRENG envelope curve
-
-    length_range = np.logspace(np.log10(5), np.log10(1000), 60)  # 5mm to 1000mm
+    length_range = np.logspace(np.log10(5), np.log10(1000), 50)  # 5mm to 1000mm
     envelope_depths = []
     
     for length_mm in length_range:

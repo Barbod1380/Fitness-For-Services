@@ -468,7 +468,7 @@ def create_negative_growth_plot(comparison_results, dimension="depth"):
             )
 
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 **trace_kwargs,
                 hovertemplate=hovertemplate,
                 customdata=customdata,
@@ -589,7 +589,7 @@ def create_multi_dimensional_growth_plot(comparison_results):
         # Add scatter traces to the subplot (row=idx)
         if not positive_growth.empty:
             fig.add_trace(
-                go.Scatter(
+                go.Scattergl(
                     x=positive_growth["log_dist"],
                     y=positive_growth[growth_col],
                     mode="markers",
@@ -603,7 +603,7 @@ def create_multi_dimensional_growth_plot(comparison_results):
             )
         if not negative_growth.empty:
             fig.add_trace(
-                go.Scatter(
+                go.Scattergl(
                     x=negative_growth["log_dist"],
                     y=negative_growth[growth_col],
                     mode="markers",
@@ -619,7 +619,7 @@ def create_multi_dimensional_growth_plot(comparison_results):
             )
         if not corrected_growth.empty:
             fig.add_trace(
-                go.Scatter(
+                go.Scattergl(
                     x=corrected_growth["log_dist"],
                     y=corrected_growth[growth_col],
                     mode="markers",
