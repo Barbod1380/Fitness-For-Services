@@ -150,7 +150,8 @@ class FailurePredictionSimulator:
                     mapped_id = original_to_filtered[defect_id]
                     growth_lookup[mapped_id] = {
                         'depth_growth_pct': row.get('growth_rate_pct_per_year', 0.5),
-                        'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1)
+                        'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1),
+                        'original_defect_id': defect_id  # Keep track of original ID for debugging
                     }
             
             print(f"📈 Growth rates mapped: {len(growth_lookup)} defects")
@@ -210,6 +211,38 @@ class FailurePredictionSimulator:
                     'cluster_id': None,
                     'is_clustered': False
                 }
+
+        if use_clustering and clusters:
+            print("🔍 Validating cluster index mappings...")
+            
+            for cluster_idx, cluster in enumerate(clusters):
+                valid_indices = []
+                invalid_indices = []
+                
+                for orig_idx in cluster.defect_indices:
+                    if orig_idx in original_to_filtered:
+                        valid_indices.append(orig_idx)
+                    else:
+                        invalid_indices.append(orig_idx)
+                
+                if invalid_indices:
+                    print(f"⚠️ Cluster {cluster_idx}: Removed {len(invalid_indices)} invalid indices: {invalid_indices}")
+                    # Update cluster with only valid indices
+                    cluster.defect_indices = valid_indices
+                
+                # If cluster becomes empty or single defect, update cluster lookup
+                if len(valid_indices) <= 1:
+                    print(f"⚠️ Cluster {cluster_idx} has {len(valid_indices)} defects after validation - marking as non-clustered")
+                    for mapped_idx in valid_indices:
+                        if mapped_idx in original_to_filtered:
+                            filtered_idx = original_to_filtered[mapped_idx]
+                            cluster_lookup[filtered_idx] = {
+                                'stress_factor': 1.0,
+                                'cluster_id': None,
+                                'is_clustered': False
+                            }
+            
+            print("✅ Cluster validation complete")
         
         # STEP 7: Initialize defect states using FILTERED data
         print("🏗️ Initializing defect states...")
@@ -235,6 +268,18 @@ class FailurePredictionSimulator:
                 if pd.isna(wall_thickness) or wall_thickness <= 0:
                     wall_thickness = 10.0
                     print(f"⚠️ Using default wall thickness for joint {defect['joint number']}")
+
+
+                # Validate and convert depth
+                depth_value = defect['depth [%]']
+                if pd.isna(depth_value) or depth_value is None:
+                    print(f"⚠️ Defect {filtered_idx} has invalid depth, skipping")
+                    continue
+                
+                current_depth = float(depth_value)
+                if current_depth < 0 or current_depth > 100:
+                    print(f"⚠️ Defect {filtered_idx} has out-of-range depth {current_depth}%, clamping")
+                    current_depth = max(0, min(100, current_depth))
                 
                 # Create defect state
                 defect_state = DefectState(
@@ -291,7 +336,9 @@ class FailurePredictionSimulator:
             
             # Check for failures - CHANGED to defect-level
             year_failures = self._check_defect_failures(year, failed_defects)
-            
+            print("DPM")
+
+
             # Record annual results - CHANGED metrics
             annual_result = {
                 'year': year,
@@ -303,6 +350,7 @@ class FailurePredictionSimulator:
                 'max_depth': max(defect.current_depth_pct for defect in self.defect_states),
                 'avg_depth': np.mean([defect.current_depth_pct for defect in self.defect_states])
             }
+            print("DPM2")
             self.annual_results.append(annual_result)
         return self._compile_results()
     
@@ -318,19 +366,22 @@ class FailurePredictionSimulator:
             # NACE SP0169-2013 Section 6.3: Stress corrosion acceleration
             # Conservative power law with exponent 0.5 for general corrosion
             acceleration_factor = 1.0 + 0.2 * (stress_concentration_factor - 1.0) ** 0.5
+            max_acceleration = 1.8
             
         elif growth_type == 'length':
             # API 579-1 Part 9: Crack growth follows Paris Law da/dN = C(ΔK)^m
             # For m=2 (conservative): acceleration ∝ (K_ratio)²
             stress_intensity_ratio = stress_concentration_factor ** 0.5  # K ∝ σ√(πa)
             acceleration_factor = 1.0 + 0.15 * (stress_intensity_ratio - 1.0) ** 2.0
+            max_acceleration = 2.0
             
         else:  # width
             # Conservative linear relationship for lateral expansion
             acceleration_factor = 1.0 + 0.1 * (stress_concentration_factor - 1.0)
+            max_acceleration = 1.5
         
         # Cap at 2.5x to prevent unrealistic predictions
-        return base_growth_rate * min(acceleration_factor, 2.5)
+        return base_growth_rate * min(acceleration_factor, max_acceleration)
     
 
     def _grow_defects(self, year: int):
@@ -358,7 +409,7 @@ class FailurePredictionSimulator:
         """CHANGED: Check individual defect failures instead of joint failures."""
         
         if(year == 0):
-            print("YEAR 0 Analysis")
+            print("YEAR 0-0 Analysis")
 
         year_failures = []
         counter = 0
@@ -371,6 +422,9 @@ class FailurePredictionSimulator:
             # Calculate ERF for this individual defect
             defect_erf = self._calculate_defect_erf(defect)
             defect_depth = defect.current_depth_pct
+
+            if(defect_erf == None):
+                continue
 
             # Check failure criteria for this defect
             erf_failure = defect_erf >= self.params.erf_threshold
@@ -387,6 +441,7 @@ class FailurePredictionSimulator:
                     failure_mode = 'DEPTH_EXCEEDED'
                 
                 # Record defect failure
+                print("YEAR 0-4 Analysis")
                 failure = DefectFailure(
                     defect_id=defect.defect_id,
                     joint_number=defect.joint_number,  # Keep for reference
@@ -402,6 +457,8 @@ class FailurePredictionSimulator:
                 year_failures.append(failure)
                 failed_defects.add(defect.defect_id)
                 self.failure_history.append(failure)
+                print("YEAR 0-5 Analysis")
+        print("DONE1")
         return year_failures
     
 
@@ -460,35 +517,27 @@ class FailurePredictionSimulator:
             if safe_pressure > 0:
                 base_erf = self.params.max_operating_pressure / safe_pressure
                 
-                # FIXED: Apply stress concentration more appropriately
-                # Only apply to defects that are actually close to failure
-                if base_erf > 0.7:  # Only apply to defects approaching limits
-                    # Apply stress concentration factor
-                    stress_multiplier = defect.stress_concentration_factor
-                    
-                    # FIXED: Use graduated approach instead of direct multiplication
-                    if defect.is_clustered:
-                        # For clustered defects, apply stress concentration more gradually
-                        stress_effect = 1.0 + (stress_multiplier - 1.0) * 0.6  # Reduce impact by 40%
-                        final_erf = base_erf * stress_effect
+                # Progressive stress concentration application based on severity
+                if defect.is_clustered and defect.stress_concentration_factor > 1.0:
+                    # Apply stress factor progressively based on current ERF
+                    if base_erf < 0.5:
+                        # Low risk defects - minimal stress effect
+                        stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.1
+                    elif base_erf < 0.7:
+                        # Moderate risk - moderate stress effect
+                        stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.3
+                    elif base_erf < 0.9:
+                        # High risk - significant stress effect
+                        stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.5
                     else:
-                        # Individual defects - no stress concentration
-                        final_erf = base_erf
-                else:
-                    # FIXED: For defects well below failure threshold, 
-                    # stress concentration has minimal effect
-                    stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.2  # Only 20% effect
+                        # Critical - full stress effect
+                        stress_effect = defect.stress_concentration_factor
+                    
                     final_erf = base_erf * stress_effect
+                else:
+                    final_erf = base_erf
                 
-                final_erf = min(final_erf, 99.0)
-                return final_erf
-                
-            elif failure_pressure > 0:
-                erf_from_failure = self.params.max_operating_pressure / (failure_pressure / self.safety_factor)
-                erf_from_failure *= min(defect.stress_concentration_factor, 2.0)  # Cap stress effect
-                return min(erf_from_failure, 99.0)
-            else:
-                return 50.0
+                return min(final_erf, 99.0)
                 
         except Exception as e:
             print(f"Error calculating ERF for defect {defect.defect_id}: {str(e)}")

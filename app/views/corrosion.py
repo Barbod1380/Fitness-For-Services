@@ -123,6 +123,19 @@ def calculate_b31g(defect_depth_pct, defect_length_mm, pipe_diameter_mm, wall_th
         M_calculated = math.sqrt(1.0 + 0.8 * z) # Calculated for reporting, not used in this Pf formula.
         failure_pressure_mpa = P_o_mpa * (1.0 - d_t)
 
+
+    if M_calculated <= 0.001:  # More robust threshold
+        return {
+            "method": "B31G Original Level-1",
+            "safe": False,
+            "failure_pressure_mpa": 0.0,
+            "safe_pressure_mpa": 0.0,
+            "remaining_strength_pct": (1.0 - d_t) * 100.0,
+            "folias_factor_M": M_calculated,
+            "flaw_type_applied": flaw_type_note,
+            "note": f"Calculation error: Folias factor too small (M={M_calculated:.6f})"
+        }
+
     # 11. Apply the user-specified or default safety factor
     safe_pressure_mpa = failure_pressure_mpa / safety_factor
 

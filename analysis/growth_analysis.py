@@ -210,7 +210,7 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
 
 
 
-def calculate_engineering_weights(self, target_defect, similar_defect, joint_distance):
+def calculate_engineering_weights(target_defect, similar_defect, joint_distance):
     """
     Calculate similarity weights based on pipeline integrity engineering principles.
     
