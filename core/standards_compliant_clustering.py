@@ -18,7 +18,6 @@ from enum import Enum
 
 class ClusteringStandard(Enum):
     """Supported industry standards for defect clustering"""
-    RSTRENG = "ASME B31G Modified (RSTRENG)"
     BS7910 = "BS 7910 Flaw Interaction"
     API579 = "API 579-1 Proximity Rules"
     DNV_RP_F101 = "DNV-RP-F101 Composite Defects"
@@ -40,7 +39,7 @@ class StandardsCompliantClusterer:
     """
     
     def __init__(self, 
-                 standard: ClusteringStandard = ClusteringStandard.RSTRENG,
+                 standard: ClusteringStandard = ClusteringStandard.BS7910,
                  pipe_diameter_mm: float = 1000.0,
                  conservative_factor: float = 1.0):
         """
@@ -62,9 +61,7 @@ class StandardsCompliantClusterer:
     def _initialize_standard_parameters(self):
         """Initialize clustering parameters based on selected standard"""
         
-        if self.standard == ClusteringStandard.RSTRENG:
-            self._setup_rstreng_parameters()
-        elif self.standard == ClusteringStandard.BS7910:
+        if self.standard == ClusteringStandard.BS7910:
             self._setup_bs7910_parameters()
         elif self.standard == ClusteringStandard.API579:
             self._setup_api579_parameters()
@@ -74,21 +71,7 @@ class StandardsCompliantClusterer:
         else:
             raise ValueError(f"Unsupported standard: {self.standard}")
     
-    def _setup_rstreng_parameters(self):
-        """Setup ASME B31G Modified (RSTRENG) clustering parameters"""
-        self.standard_name = "ASME B31G Modified (RSTRENG)"
-        self.reference = "ASME B31G-2012, Modified Method"
-        
-        # Base parameters (will be calculated per joint based on wall thickness)
-        self.base_axial_formula = "sqrt(D * t)"  # Square root of diameter times thickness
-        self.base_circumferential_factor = 6.0   # 6 times wall thickness
-        self.depth_interaction_threshold = 0.1   # 10% depth difference for interaction
-        
-        self.applicability_notes = (
-            "Valid for longitudinal defects with d/t ≤ 0.8. "
-            "Interaction distance varies with wall thickness per RSTRENG methodology."
-        )
-    
+
     def _setup_bs7910_parameters(self):
         """Setup BS 7910 flaw interaction parameters"""
         self.standard_name = "BS 7910:2019 Flaw Interaction"
@@ -145,35 +128,12 @@ class StandardsCompliantClusterer:
         - InteractionCriteria object with calculated distances
         """
         
-        if self.standard == ClusteringStandard.RSTRENG:
-            return self._calculate_rstreng_criteria(wall_thickness_mm)
-        elif self.standard == ClusteringStandard.BS7910:
+        if self.standard == ClusteringStandard.BS7910:
             return self._calculate_bs7910_criteria(wall_thickness_mm)
         elif self.standard == ClusteringStandard.API579:
             return self._calculate_api579_criteria(wall_thickness_mm)
         elif self.standard == ClusteringStandard.DNV_RP_F101:
             return self._calculate_dnv_criteria(wall_thickness_mm)
-    
-    def _calculate_rstreng_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
-        """Calculate RSTRENG-based interaction criteria"""
-        
-        # Core RSTRENG formula: √(D × t)
-        axial_distance = math.sqrt(self.pipe_diameter_mm * wall_thickness_mm)
-        
-        # Circumferential interaction: 6 times wall thickness (industry practice)
-        circumferential_distance = self.base_circumferential_factor * wall_thickness_mm
-        
-        # Apply conservative factor
-        axial_distance *= self.conservative_factor
-        circumferential_distance *= self.conservative_factor
-        
-        return InteractionCriteria(
-            axial_distance_mm=axial_distance,
-            circumferential_distance_mm=circumferential_distance,
-            depth_interaction_factor=self.depth_interaction_threshold,
-            standard_name=self.standard_name,
-            applicability_notes=self.applicability_notes
-        )
     
     def _calculate_bs7910_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
         """Calculate BS 7910-based interaction criteria"""
@@ -243,16 +203,6 @@ class StandardsCompliantClusterer:
                                         math.pi * pipe_diameter_mm / 12)  # 30° arc length
             
             reference = "API 579-1/ASME FFS-1 Section 4.3.3"
-            
-        elif standard.upper() == "RSTRENG":
-            # ASME B31G Modified - Kiefner & Vieth methodology
-            # Based on plastic zone size from fracture mechanics
-            axial_distance = math.sqrt(pipe_diameter_mm * wall_thickness_mm)
-            
-            # Circumferential: Traditional 6×wall thickness
-            circumferential_distance = 6.0 * wall_thickness_mm
-            
-            reference = "ASME B31G Modified (Kiefner & Vieth)"
             
         elif standard.upper() == "BS7910":
             # BS 7910:2019 Section 7.1.7 - Size-based interaction
@@ -361,21 +311,18 @@ class StandardsCompliantClusterer:
         """Calculate conservative multi-standard criteria"""
         
         # Calculate criteria from all standards
-        rstreng_criteria = self._calculate_rstreng_criteria(wall_thickness_mm)
         bs7910_criteria = self._calculate_bs7910_criteria(wall_thickness_mm)
         api579_criteria = self._calculate_api579_criteria(wall_thickness_mm)
         dnv_criteria = self._calculate_dnv_criteria(wall_thickness_mm)
         
         # Use maximum (most conservative) distances
         max_axial = max(
-            rstreng_criteria.axial_distance_mm,
             bs7910_criteria.axial_distance_mm,
             api579_criteria.axial_distance_mm,
             dnv_criteria.axial_distance_mm
         )
         
         max_circumferential = max(
-            rstreng_criteria.circumferential_distance_mm,
             bs7910_criteria.circumferential_distance_mm,
             api579_criteria.circumferential_distance_mm,
             dnv_criteria.circumferential_distance_mm
@@ -383,7 +330,6 @@ class StandardsCompliantClusterer:
         
         # Use minimum (most sensitive) depth factor
         min_depth_factor = min(
-            rstreng_criteria.depth_interaction_factor,
             bs7910_criteria.depth_interaction_factor,
             api579_criteria.depth_interaction_factor,
             dnv_criteria.depth_interaction_factor
@@ -559,7 +505,6 @@ class StandardsCompliantClusterer:
         - DataFrame comparing criteria across standards
         """
         standards_to_compare = [
-            ClusteringStandard.RSTRENG,
             ClusteringStandard.BS7910,
             ClusteringStandard.API579,
             ClusteringStandard.DNV_RP_F101
@@ -622,14 +567,14 @@ class StandardsCompliantClusterer:
 
 
 # Example usage and integration function
-def create_standards_compliant_clusterer(standard_name: str = "RSTRENG", 
+def create_standards_compliant_clusterer(standard_name: str = "BS7910", 
                                        pipe_diameter_mm: float = 1000.0,
                                        conservative_factor: float = 1.0) -> StandardsCompliantClusterer:
     """
     Factory function to create standards-compliant clusterer.
     
     Parameters:
-    - standard_name: Name of standard ("RSTRENG", "BS7910", "API579", "DNV")
+    - standard_name: Name of standard ("BS7910", "API579", "DNV")
     - pipe_diameter_mm: Pipeline diameter in mm
     - conservative_factor: Additional conservatism factor
     
@@ -638,7 +583,6 @@ def create_standards_compliant_clusterer(standard_name: str = "RSTRENG",
     """
     
     standard_mapping = {
-        "RSTRENG": ClusteringStandard.RSTRENG,
         "BS7910": ClusteringStandard.BS7910,
         "API579": ClusteringStandard.API579,
         "DNV": ClusteringStandard.DNV_RP_F101,

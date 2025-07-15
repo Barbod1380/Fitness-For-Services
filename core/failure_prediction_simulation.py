@@ -327,7 +327,7 @@ class FailurePredictionSimulator:
         """Run the complete simulation over the specified timeframe."""
         self.failure_history = []
         self.annual_results = []
-        failed_defects = set()  # CHANGED: Track failed defect IDs instead of joint numbers
+        failed_defects = set()  # Track failed defect IDs instead of joint numbers
         
         for year in range(self.params.simulation_years + 1):
             # Grow defects for this year (except year 0)
@@ -336,23 +336,46 @@ class FailurePredictionSimulator:
             
             # Check for failures - CHANGED to defect-level
             year_failures = self._check_defect_failures(year, failed_defects)
-            print("DPM")
 
+            # MINIMAL FIX: Safe calculation with None handling
+            try:
+                max_erf = self._calculate_max_erf()
+                if max_erf is None or not isinstance(max_erf, (int, float)):
+                    max_erf = 0.0
+            except:
+                max_erf = 0.0
+            
+            try:
+                # Filter out None values before max()
+                valid_depths = [d.current_depth_pct for d in self.defect_states 
+                            if d.current_depth_pct is not None and isinstance(d.current_depth_pct, (int, float))]
+                max_depth = max(valid_depths) if valid_depths else 0.0
+            except:
+                max_depth = 0.0
+            
+            try:
+                # Filter out None values before mean()
+                valid_depths = [d.current_depth_pct for d in self.defect_states 
+                            if d.current_depth_pct is not None and isinstance(d.current_depth_pct, (int, float))]
+                avg_depth = np.mean(valid_depths) if valid_depths else 0.0
+            except:
+                avg_depth = 0.0
 
-            # Record annual results - CHANGED metrics
             annual_result = {
                 'year': year,
-                'total_defects': len(self.defect_states),  # CHANGED: Count defects
-                'failed_defects_this_year': len(year_failures),  # CHANGED
-                'cumulative_failed_defects': len(failed_defects),  # CHANGED
-                'surviving_defects': len(self.defect_states) - len(failed_defects),  # CHANGED
-                'max_erf': self._calculate_max_erf(),
-                'max_depth': max(defect.current_depth_pct for defect in self.defect_states),
-                'avg_depth': np.mean([defect.current_depth_pct for defect in self.defect_states])
+                'total_defects': len(self.defect_states),
+                'failed_defects_this_year': len(year_failures),
+                'cumulative_failed_defects': len(failed_defects),
+                'surviving_defects': len(self.defect_states) - len(failed_defects),
+                'max_erf': float(max_erf),  # Ensure it's a float
+                'max_depth': float(max_depth),  # Ensure it's a float
+                'avg_depth': float(avg_depth)   # Ensure it's a float
             }
-            print("DPM2")
+            
             self.annual_results.append(annual_result)
+        
         return self._compile_results()
+
     
 
     def calculate_stress_accelerated_growth(self, base_growth_rate, stress_concentration_factor, growth_type):
@@ -407,9 +430,6 @@ class FailurePredictionSimulator:
 
     def _check_defect_failures(self, year: int, failed_defects: set) -> List[DefectFailure]:
         """CHANGED: Check individual defect failures instead of joint failures."""
-        
-        if(year == 0):
-            print("YEAR 0-0 Analysis")
 
         year_failures = []
         counter = 0
@@ -441,7 +461,6 @@ class FailurePredictionSimulator:
                     failure_mode = 'DEPTH_EXCEEDED'
                 
                 # Record defect failure
-                print("YEAR 0-4 Analysis")
                 failure = DefectFailure(
                     defect_id=defect.defect_id,
                     joint_number=defect.joint_number,  # Keep for reference
@@ -457,10 +476,9 @@ class FailurePredictionSimulator:
                 year_failures.append(failure)
                 failed_defects.add(defect.defect_id)
                 self.failure_history.append(failure)
-                print("YEAR 0-5 Analysis")
-        print("DONE1")
         return year_failures
     
+
 
     def _calculate_defect_erf(self, defect: DefectState) -> float:
         """
@@ -512,36 +530,33 @@ class FailurePredictionSimulator:
                 )
             
             safe_pressure = result.get('safe_pressure_mpa', 0)
-            failure_pressure = result.get('failure_pressure_mpa', 0)
-            
+
             if safe_pressure > 0:
                 base_erf = self.params.max_operating_pressure / safe_pressure
                 
-                # Progressive stress concentration application based on severity
+                # Apply stress concentration (your existing logic)
                 if defect.is_clustered and defect.stress_concentration_factor > 1.0:
-                    # Apply stress factor progressively based on current ERF
                     if base_erf < 0.5:
-                        # Low risk defects - minimal stress effect
                         stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.1
                     elif base_erf < 0.7:
-                        # Moderate risk - moderate stress effect
                         stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.3
                     elif base_erf < 0.9:
-                        # High risk - significant stress effect
                         stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.5
                     else:
-                        # Critical - full stress effect
                         stress_effect = defect.stress_concentration_factor
                     
                     final_erf = base_erf * stress_effect
                 else:
                     final_erf = base_erf
                 
-                return min(final_erf, 99.0)
+                # MINIMAL FIX: Ensure we always return a valid float
+                return min(max(float(final_erf), 0.0), 99.0)
+            else:
+                return 50.0  # Default when calculation fails
                 
         except Exception as e:
             print(f"Error calculating ERF for defect {defect.defect_id}: {str(e)}")
-            return 50.0
+            return 50.0  # Default fallback value
 
 
     def _calculate_max_erf(self) -> float:

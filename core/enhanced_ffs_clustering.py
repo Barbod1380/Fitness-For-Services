@@ -39,7 +39,7 @@ class EnhancedFFSClusterer:
     """
     
     def __init__(self, 
-                 standard: str = "RSTRENG",
+                 standard: str = "BS7910",
                  pipe_diameter_mm: float = 1000.0,
                  conservative_factor: float = 1.0,
                  include_stress_concentration: bool = True):
@@ -47,7 +47,7 @@ class EnhancedFFSClusterer:
         Initialize enhanced FFS clusterer.
         
         Parameters:
-        - standard: Industry standard for clustering ("RSTRENG", "BS7910", "API579", "DNV")
+        - standard: Industry standard for clustering ("BS7910", "API579", "DNV")
         - pipe_diameter_mm: Pipeline outside diameter in mm
         - conservative_factor: Additional conservatism factor
         - include_stress_concentration: Whether to apply stress concentration factors

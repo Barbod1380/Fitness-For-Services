@@ -763,7 +763,7 @@ def render_clustering_analysis_section(later_data):
         with col1:
             clustering_standard = st.selectbox(
                 "Industry Standard",
-                options=["RSTRENG", "BS7910", "API579", "DNV"],
+                options=["BS7910", "API579", "DNV"],
                 index=0,
                 help="Select industry standard for clustering methodology"
             )
@@ -1037,10 +1037,8 @@ def render_future_prediction_section(later_data, comparison_results):
                     return
                 
                 # Run simulation
-                print("DONE PRE")
                 results = simulator.run_simulation()
-                
-                print("DONE POST")
+
                 end_time = time.time()
                 processing_time = end_time - start_time
                 
@@ -1050,9 +1048,7 @@ def render_future_prediction_section(later_data, comparison_results):
                 st.success(f"✅ Simulation completed in {processing_time:.2f} seconds!")
                 st.success(f"📊 Predicted {results['total_failures']} defect failures over {simulation_years} years")  # CHANGED
                 
-                print("DONE POSTT")
                 display_prediction_results_simple()
-                print("DONE POSTTT")
 
             except Exception as e:
                 st.error(f"❌ Simulation failed: {str(e)}")

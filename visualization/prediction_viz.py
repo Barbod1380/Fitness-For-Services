@@ -1,3 +1,4 @@
+from plotly.subplots import make_subplots
 import numpy as np
 import plotly.graph_objects as go
 from typing import Dict
@@ -73,139 +74,118 @@ def create_erf_evolution_plot(simulation_results: Dict) -> go.Figure:
         height=400,
         showlegend=True
     )
-    
     return fig
 
-"""
-Simple visualization functions for failure prediction results.
-"""
+
 def create_failure_timeline_histogram(simulation_results: dict) -> go.Figure:
-    """
-    FIXED: Create histogram of defect failures by year - handles pandas arrays properly.
-    """
-    
-    try:
-        timeline = simulation_results.get('failure_timeline', {})
-        
-        if not timeline:
-            # Empty timeline case
-            fig = go.Figure()
-            fig.add_annotation(
-                text="No failures predicted in simulation timeframe",
-                xref="paper", yref="paper", x=0.5, y=0.5,
-                showarrow=False, font=dict(size=16, color='#2C3E50')
-            )
-            fig.update_layout(title="Defect Failure Timeline - No Failures Predicted")
-            return fig
-        
-        # SOLUTION 1: Convert all timeline values to safe integers
-        safe_timeline = {}
-        for year, count in timeline.items():
-            # Handle pandas arrays/Series safely
-            try:
-                if hasattr(count, '__iter__') and not isinstance(count, (str, bytes)):
-                    # If it's an array-like object, take the first value or sum
-                    if hasattr(count, '__len__') and len(count) > 0:
-                        safe_count = int(count[0]) if len(count) == 1 else int(sum(count))
-                    else:
-                        safe_count = 0
-                else:
-                    safe_count = int(count)
-                
-                # Convert year safely too
-                if hasattr(year, '__iter__') and not isinstance(year, (str, bytes)):
-                    safe_year = int(year[0]) if hasattr(year, '__len__') and len(year) > 0 else int(year)
-                else:
-                    safe_year = int(year)
-                    
-                safe_timeline[safe_year] = safe_count
-                
-            except (ValueError, TypeError, IndexError):
-                # Skip problematic entries
-                continue
-        
-        if not safe_timeline:
-            # No valid data case
-            fig = go.Figure()
-            fig.add_annotation(
-                text="No valid timeline data available",
-                xref="paper", yref="paper", x=0.5, y=0.5,
-                showarrow=False, font=dict(size=16, color='#E74C3C')
-            )
-            fig.update_layout(title="Defect Failure Timeline - Data Error")
-            return fig
-        
-        # SOLUTION 2: Safe separation of current vs future failures
-        current_failures = safe_timeline.get(0, 0)  # Now guaranteed to be int
-        future_timeline = {k: v for k, v in safe_timeline.items() if k > 0}  # Safe comparison
-        
+    # —————————————————————————————
+    # 1. Safely sanitize the timeline data:
+    timeline = simulation_results.get('failure_timeline', {})
+    safe_timeline = {}
+    for year, count in timeline.items():
+        try:
+            # Handle array-like values
+            if hasattr(count, '__iter__') and not isinstance(count, (str, bytes)):
+                count = int(sum(count)) if len(count) > 1 else int(count[0])
+            else:
+                count = int(count)
+
+            # Handle array-like years
+            if hasattr(year, '__iter__') and not isinstance(year, (str, bytes)):
+                year = int(year[0])
+            else:
+                year = int(year)
+
+            safe_timeline[year] = safe_timeline.get(year, 0) + count
+        except Exception:
+            continue
+
+    if not safe_timeline:
         fig = go.Figure()
-        
-        # SOLUTION 3: Safe boolean check for current failures
-        if current_failures > 0:  # Now safe - current_failures is definitely an int
-            fig.add_trace(go.Bar(
-                x=[0],
-                y=[current_failures],
-                name='Current Failures',
-                marker_color='rgba(255, 0, 0, 0.9)',
-                text=[str(current_failures)],
-                textposition='outside',
-                hovertemplate='<b>Current State</b><br>Immediate Defect Failures: %{y}<extra></extra>'  # Updated text
-            ))
-        
-        # SOLUTION 4: Safe processing of future timeline
-        if future_timeline:  # Safe check - future_timeline is a regular dict
-            years = sorted(future_timeline.keys())  # Sort for better display
-            failures = [future_timeline[year] for year in years]
-            
-            # Additional safety check
-            valid_data = [(y, f) for y, f in zip(years, failures) if f > 0]
-            
-            if valid_data:
-                valid_years, valid_failures = zip(*valid_data)
-                
-                fig.add_trace(go.Bar(
-                    x=valid_years,
-                    y=valid_failures,
-                    name='Predicted Defect Failures',  # Updated text
-                    marker_color='rgba(255, 99, 71, 0.8)',
-                    text=[str(f) for f in valid_failures],
-                    textposition='outside',
-                    hovertemplate='<b>Year %{x}</b><br>Predicted Defect Failures: %{y}<extra></extra>'  # Updated text
-                ))
-        
-        # SOLUTION 5: Enhanced layout with better error handling
-        total_failures = sum(safe_timeline.values())
-        simulation_years = max(safe_timeline.keys()) if safe_timeline else 0
-        
-        fig.update_layout(
-            title=f'Defect Failure Timeline: {total_failures} failures over {simulation_years} years',  # Updated title
-            xaxis_title='Years from Now (0 = Current State)',
-            yaxis_title='Defect Failures',  # Updated label
-            height=500,
-            showlegend=True,
-            plot_bgcolor='white',
-            xaxis=dict(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)'
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.2)'
-            )
-        )
-        
+        fig.add_annotation(text="No valid timeline data available",
+                           xref="paper", yref="paper", x=0.5, y=0.5,
+                           showarrow=False,
+                           font=dict(size=16, color='red'))
+        fig.update_layout(title="Defect Failure Timeline – Data Error")
         return fig
-        
-    except Exception as e:
-        # SOLUTION 6: Comprehensive error handling with diagnostic info
-        fig = go.Figure()
-        fig.add_annotation(
-            text=f"Error creating timeline chart: {str(e)[:100]}...",
-            xref="paper", yref="paper", x=0.5, y=0.5,
-            showarrow=False, font=dict(size=14, color='#E74C3C')
-        )
-        fig.update_layout(title="Defect Failure Timeline - Error")
-        return fig
+
+    # Sort and build annual + cumulative arrays
+    years = sorted(safe_timeline.keys())
+    counts = [safe_timeline[y] for y in years]
+    cum_counts = np.cumsum(counts)
+
+    # —————————————————————————————
+    # 2. Create the dual-axis figure:
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # Assign bar colors and label
+    colors = ['red' if y == 0 else 'lightsalmon' for y in years]
+
+    fig.add_trace(
+        go.Bar(
+            x=years,
+            y=counts,
+            name='Annual Failures',
+            marker_color=colors,
+            text=[str(c) for c in counts],
+            textposition='outside',
+            hovertemplate='<b>Year %{x}</b><br>Annual: %{y}<extra></extra>'
+        ),
+        secondary_y=False
+    )
+
+    # Add cumulative line
+    fig.add_trace(
+        go.Scatter(
+            x=years,
+            y=cum_counts,
+            mode='lines+markers+text',
+            name='Cumulative Failures',
+            line=dict(color='blue', dash='dash', width=2),
+            text=[str(int(v)) for v in cum_counts],
+            textposition='top center',
+            hovertemplate='<b>Year %{x}</b><br>Cum Total: %{y}<extra></extra>'
+        ),
+        secondary_y=True
+    )
+
+    # —————————————————————————————
+    # 3. Update overall layout and interactions:
+    fig.update_layout(
+        title=f"Defect Failures & Cumulative Trend: {int(cum_counts[-1])} total over {years[-1]} years",
+        barmode='group',
+        height=600,
+        hovermode='x unified',  # unified hover with both traces :contentReference[oaicite:1]{index=1}
+        template='simple_white',
+        legend=dict(orientation='h', y=1.08, x=0.5, xanchor='center')
+    )
+
+    # Grids and spikes
+    fig.update_xaxes(title_text='Years from Now (0 = Current)',
+                     showgrid=True,
+                     gridcolor='rgba(128,128,128,0.2)',
+                     tickmode='linear',
+                     showspikes=True)
+    fig.update_yaxes(title_text='Annual Failures',
+                     secondary_y=False,
+                     showgrid=True,
+                     gridcolor='rgba(128,128,128,0.2)',
+                     showspikes=True)
+    fig.update_yaxes(title_text='Cumulative Failures',
+                     secondary_y=True,
+                     showgrid=False,
+                     showspikes=True)
+
+    # —————————————————————————————
+    # 4. Final annotation of the cumulative endpoint:
+    fig.add_annotation(
+        x=years[-1],
+        y=cum_counts[-1],
+        text=f"Total: {int(cum_counts[-1])}",
+        showarrow=True,
+        arrowhead=2,
+        ax=0, ay=-40,
+        font=dict(color='blue')
+    )
+
+    return fig
