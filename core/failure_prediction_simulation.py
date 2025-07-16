@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_true_rstreng_method
+from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area
 
 
 @dataclass
@@ -518,7 +518,7 @@ class FailurePredictionSimulator:
                 )
             
             elif self.params.assessment_method == 'rstreng':
-                result = calculate_true_rstreng_method(
+                result = calculate_rstreng_effective_area(
                     defect_depth_pct=defect.current_depth_pct,
                     defect_length_mm=defect.current_length_mm,
                     defect_width_mm=defect.current_width_mm,
