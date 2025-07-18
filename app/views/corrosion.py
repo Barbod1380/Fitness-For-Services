@@ -44,6 +44,7 @@ def calculate_b31g(
     - dict with method details, result flags, calculated pressures, etc.
     """
 
+
     # 1. Convert defect depth percentage → absolute depth (mm)
     defect_depth_mm = (defect_depth_pct / 100.0) * wall_thickness_mm
 
