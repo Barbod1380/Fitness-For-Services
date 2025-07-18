@@ -7,12 +7,14 @@ import streamlit as st
 from visualization.comparison_viz import *
 from app.services.state_manager import *
 from core.multi_year_analysis import compare_defects
-from visualization.prediction_viz import (
-    create_failure_timeline_histogram,
-)
-from core.failure_simulation import (
-    FailurePredictionSimulator, SimulationParams
-)
+from core.enhanced_ffs_clustering import enhance_existing_assessment
+from analysis.growth_analysis import correct_negative_growth_rates
+from visualization.prediction_viz import create_failure_timeline_histogram
+from core.failure_simulation import FailurePredictionSimulator, SimulationParams
+from core.standards_compliant_clustering import create_standards_compliant_clusterer
+from datetime import datetime
+import time
+                
 
 def render_enhanced_clustering_analysis(earlier_data, later_data):
     """Enhanced clustering analysis for multi-year comparison"""
@@ -28,10 +30,7 @@ def render_enhanced_clustering_analysis(earlier_data, later_data):
                 defects_df = later_data['defects_df']
                 joints_df = later_data['joints_df']
                 pipe_diameter_mm = later_data['pipe_diameter'] * 1000
-                
-                # Import and use new clustering
-                from core.enhanced_ffs_clustering import enhance_existing_assessment
-                
+
                 combined_df, clusters = enhance_existing_assessment(
                     defects_df, joints_df, pipe_diameter_mm, "RSTRENG"
                 )
@@ -67,8 +66,6 @@ def test_new_clustering():
     
     if st.button("Test Clustering Integration"):
         try:
-            # Test 1: Check imports work
-            from core.standards_compliant_clustering import create_standards_compliant_clusterer
 
             st.success("✅ All imports successful!")
             
@@ -195,7 +192,6 @@ def _apply_growth_correction(matches_df, joints_df, params):
     - corrected_df: DataFrame with corrected growth rates
     - correction_info: Dictionary with correction statistics and details
     """
-    from analysis.growth_analysis import correct_negative_growth_rates
     
     # Create wall thickness lookup for 15% threshold calculation
     wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
@@ -509,14 +505,6 @@ def _render_growth_statistics_table(comparison_results, dimension):
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
-
-# New tab structure visualization and helper functions
-
-# Add these imports to the top of comparison.py
-import streamlit as st
-import pandas as pd
-from app.services.state_manager import get_state, update_state
-
 def render_comparison_view():
     """
     UPDATED: Main function to render the multi-year comparison view with tabbed interface.
@@ -811,16 +799,7 @@ def render_clustering_analysis_section(later_data):
         
 
         try:
-            import time
             start_time = time.time()
-            
-            # More robust import handling
-            try:
-                from core.enhanced_ffs_clustering import enhance_existing_assessment
-            except ImportError as e:
-                st.error(f"❌ Import error: {e}")
-                st.info("💡 Make sure all clustering modules are properly installed")
-                return
             
             # Run with progress tracking
             combined_df, clusters = enhance_existing_assessment(
@@ -999,7 +978,6 @@ def render_future_prediction_section(later_data, comparison_results):
         
         with st.spinner("🔮 Running defect failure prediction simulation..."):  # CHANGED text
             try:
-                import time
                 start_time = time.time()
                 
                 # Create simulation parameters
@@ -1534,10 +1512,8 @@ def _render_data_export_section():
         )
         
 def _generate_correction_report(correction_results, comparison_results):
-    """Generate a detailed correction report for documentation."""
-    
-    from datetime import datetime
-    
+    """Generate a detailed correction report for documentation."""    
+
     report = f"""
 PIPELINE GROWTH RATE CORRECTION REPORT
 ======================================
