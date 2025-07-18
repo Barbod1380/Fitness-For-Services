@@ -7,6 +7,3 @@ from .defect_analysis import (
     create_combined_dimensions_plot,
     create_joint_summary
 )
-from .growth_analysis import (
-    correct_negative_growth_rates,
-)

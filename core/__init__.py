@@ -11,7 +11,6 @@ from .column_mapping import (
 from .data_processing import process_pipeline_data, validate_pipeline_data
 from .ffs_defect_interaction import *
 from .defect_matching import ClusterAwareDefectMatcher, DefectMatch
-from .growth_analysis import ClusterAwareGrowthAnalyzer
 
 from .standards_compliant_clustering import (
     StandardsCompliantClusterer,
