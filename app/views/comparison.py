@@ -4,16 +4,15 @@ Multi-year comparison view for the Pipeline Analysis application.
 
 import pandas as pd
 import streamlit as st
-import datetime
 from visualization.comparison_viz import *
 from app.services.state_manager import *
 from core.multi_year_analysis import compare_defects
 from visualization.prediction_viz import (
     create_failure_timeline_histogram,
-    create_survival_curve,
-    create_erf_evolution_plot
 )
-
+from core.failure_simulation import (
+    FailurePredictionSimulator, SimulationParams
+)
 
 def render_enhanced_clustering_analysis(earlier_data, later_data):
     """Enhanced clustering analysis for multi-year comparison"""
@@ -1003,11 +1002,6 @@ def render_future_prediction_section(later_data, comparison_results):
             try:
                 import time
                 start_time = time.time()
-                
-                # Import simulation modules
-                from core.failure_prediction_simulation import (
-                    FailurePredictionSimulator, SimulationParams
-                )
                 
                 # Create simulation parameters
                 sim_params = SimulationParams(
