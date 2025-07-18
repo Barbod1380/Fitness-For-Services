@@ -69,8 +69,7 @@ def test_new_clustering():
         try:
             # Test 1: Check imports work
             from core.standards_compliant_clustering import create_standards_compliant_clusterer
-            from core.enhanced_ffs_clustering import enhance_existing_assessment  
-            from core.failure_aware_clustering import integrate_failure_aware_clustering
+
             st.success("✅ All imports successful!")
             
             # Test 2: Check if we have data

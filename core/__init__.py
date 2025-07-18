@@ -21,7 +21,3 @@ from .enhanced_ffs_clustering import (
     EnhancedFFSClusterer,
     enhance_existing_assessment
 )
-from .failure_aware_clustering import (
-    FailureAwareClusterer,
-    integrate_failure_aware_clustering
-)
