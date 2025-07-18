@@ -3,7 +3,7 @@ Form components for the Pipeline Analysis application.
 """
 import streamlit as st
 from app.ui_components.ui_elements import info_box
-from core.column_mapping import get_missing_required_columns, STANDARD_COLUMNS, REQUIRED_COLUMNS
+from core.data_pipeline import get_missing_required_columns, STANDARD_COLUMNS, REQUIRED_COLUMNS
 
 def create_column_mapping_form(df, year, suggested_mapping):
     """

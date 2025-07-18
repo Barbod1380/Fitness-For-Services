@@ -6,8 +6,7 @@ import re
 import streamlit as st
 from app.services.state_manager import get_state, update_state, add_dataset
 from app.ui_components import info_box
-from core.column_mapping import apply_column_mapping
-from core.data_processing import process_pipeline_data
+from core.data_pipeline import apply_column_mapping, process_pipeline_data
 from utils.format_utils import float_to_clock, parse_clock
 
 def process_dataset(df, column_mapping, pipe_diameter, year):
