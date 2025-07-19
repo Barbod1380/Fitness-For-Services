@@ -61,11 +61,24 @@ class DefectFailure:
 
 
 class FailurePredictionSimulator:
-    def __init__(self, params: SimulationParams):
+    def __init__(self, params: SimulationParams, clustering_config: Optional[Dict] = None):
         self.params = params
+        self.clustering_config = clustering_config  # NEW
         self.defect_states: List[DefectState] = []
-        self.failure_history: List[DefectFailure] = []  # CHANGED: Now tracks individual defects
+        self.failure_history: List[DefectFailure] = []
         self.annual_results: List[Dict] = []
+        
+        # NEW: Store current year's clustering info
+        self.current_clusters = []
+        self.clusterer = None
+        
+        # Initialize clusterer if needed
+        if clustering_config and clustering_config['enabled']:
+            from core.standards_compliant_clustering import create_standards_compliant_clusterer
+            self.clusterer = create_standards_compliant_clusterer(
+                clustering_config['standard'],
+                clustering_config['pipe_diameter_mm']
+            )
 
     
     def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
@@ -320,58 +333,132 @@ class FailurePredictionSimulator:
     
 
     def run_simulation(self) -> Dict:
-        """Run the complete simulation over the specified timeframe."""
+        """Run simulation with dynamic clustering starting from Year 1"""
         self.failure_history = []
         self.annual_results = []
-        failed_defects = set()  # Track failed defect IDs instead of joint numbers
+        failed_defects = set()
         
         for year in range(self.params.simulation_years + 1):
-            # Grow defects for this year (except year 0)
+            # Grow defects (except year 0)
             if year > 0:
                 self._grow_defects(year)
+                
+                # NEW: Apply dynamic clustering starting from Year 1
+                if self.clusterer is not None:
+                    self._apply_dynamic_clustering(year, failed_defects)  # Pass failed_defects
             
-            # Check for failures - CHANGED to defect-level
+            # Check for failures with current clustering state
             year_failures = self._check_defect_failures(year, failed_defects)
-
-            # MINIMAL FIX: Safe calculation with None handling
-            try:
-                max_erf = self._calculate_max_erf()
-                if max_erf is None or not isinstance(max_erf, (int, float)):
-                    max_erf = 0.0
-            except:
-                max_erf = 0.0
             
-            try:
-                # Filter out None values before max()
-                valid_depths = [d.current_depth_pct for d in self.defect_states 
-                            if d.current_depth_pct is not None and isinstance(d.current_depth_pct, (int, float))]
-                max_depth = max(valid_depths) if valid_depths else 0.0
-            except:
-                max_depth = 0.0
-            
-            try:
-                # Filter out None values before mean()
-                valid_depths = [d.current_depth_pct for d in self.defect_states 
-                            if d.current_depth_pct is not None and isinstance(d.current_depth_pct, (int, float))]
-                avg_depth = np.mean(valid_depths) if valid_depths else 0.0
-            except:
-                avg_depth = 0.0
-
-            annual_result = {
-                'year': year,
-                'total_defects': len(self.defect_states),
-                'failed_defects_this_year': len(year_failures),
-                'cumulative_failed_defects': len(failed_defects),
-                'surviving_defects': len(self.defect_states) - len(failed_defects),
-                'max_erf': float(max_erf),  # Ensure it's a float
-                'max_depth': float(max_depth),  # Ensure it's a float
-                'avg_depth': float(avg_depth)   # Ensure it's a float
-            }
-            
+            # Calculate annual statistics
+            annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
             self.annual_results.append(annual_result)
         
         return self._compile_results()
+    
 
+    def _calculate_annual_stats(self, year: int, year_failures: List[DefectFailure], failed_defects: set) -> Dict:
+        """Calculate statistics for the current year"""
+        # Count clustered defects
+        clustered_count = sum(1 for d in self.defect_states if d.is_clustered and d.defect_id not in failed_defects)
+        total_active = len([d for d in self.defect_states if d.defect_id not in failed_defects])
+        
+        # Safe calculations
+        try:
+            max_erf = self._calculate_max_erf()
+            if max_erf is None or not isinstance(max_erf, (int, float)):
+                max_erf = 0.0
+        except:
+            max_erf = 0.0
+        
+        try:
+            valid_depths = [d.current_depth_pct for d in self.defect_states 
+                        if d.defect_id not in failed_defects and 
+                        d.current_depth_pct is not None and 
+                        isinstance(d.current_depth_pct, (int, float))]
+            max_depth = max(valid_depths) if valid_depths else 0.0
+            avg_depth = np.mean(valid_depths) if valid_depths else 0.0
+        except:
+            max_depth = avg_depth = 0.0
+        
+        return {
+            'year': year,
+            'total_defects': len(self.defect_states),
+            'active_defects': total_active,
+            'failed_defects_this_year': len(year_failures),
+            'cumulative_failed_defects': len(failed_defects),
+            'surviving_defects': len(self.defect_states) - len(failed_defects),
+            'clustered_defects': clustered_count,
+            'max_erf': float(max_erf),
+            'max_depth': float(max_depth),
+            'avg_depth': float(avg_depth)
+        }
+
+
+    def _apply_dynamic_clustering(self, year: int, failed_defects: set):
+        """Apply clustering based on current defect dimensions"""
+        # Create DataFrame from current defect states
+        current_data = []
+        for defect in self.defect_states:
+            if defect.defect_id not in failed_defects:  # Now we have access to failed_defects
+                current_data.append({
+                    'log dist. [m]': defect.location_m,
+                    'joint number': defect.joint_number,
+                    'depth [%]': defect.current_depth_pct,
+                    'length [mm]': defect.current_length_mm,
+                    'width [mm]': defect.current_width_mm,
+                    'wall_thickness_mm': defect.wall_thickness_mm,
+                    'defect_id': defect.defect_id
+                })
+            
+            if not current_data:
+                return
+            
+            current_df = pd.DataFrame(current_data)
+            
+            # Find clusters with current dimensions
+            cluster_indices = self.clusterer.find_interacting_defects(
+                current_df, 
+                self.joints_df,
+                show_progress=False
+            )
+            
+            # Reset all clustering info
+            for defect in self.defect_states:
+                defect.is_clustered = False
+                defect.cluster_id = None
+                defect.stress_concentration_factor = 1.0
+            
+            # Apply new clustering
+            for cluster_idx, defect_indices in enumerate(cluster_indices):
+                if len(defect_indices) > 1:  # Only real clusters
+                    # Calculate stress concentration for this cluster
+                    cluster_defects = current_df.iloc[defect_indices]
+                    stress_factor = self._calculate_cluster_stress_factor(cluster_defects)
+                    
+                    # Update defect states
+                    for idx in defect_indices:
+                        defect_id = current_df.iloc[idx]['defect_id']
+                        for defect in self.defect_states:
+                            if defect.defect_id == defect_id:
+                                defect.is_clustered = True
+                                defect.cluster_id = cluster_idx
+                                defect.stress_concentration_factor = stress_factor
+                                break
+    
+
+    def _calculate_cluster_stress_factor(self, cluster_defects: pd.DataFrame) -> float:
+        """Simple stress concentration calculation"""
+        n_defects = len(cluster_defects)
+        
+        # Use existing logic from enhanced_ffs_clustering.py
+        # Simplified version:
+        if n_defects == 2:
+            return 1.5
+        elif n_defects <= 5:
+            return 1.8
+        else:
+            return 2.0
     
 
     def calculate_stress_accelerated_growth(self, base_growth_rate, stress_concentration_factor, growth_type):

@@ -59,47 +59,6 @@ def render_enhanced_clustering_analysis(earlier_data, later_data):
                 st.error(f"Error in clustering analysis: {str(e)}")
 
 
-def test_new_clustering():
-    """Test that your new clustering files work"""
-    
-    st.markdown("## 🧪 Test New Clustering System")
-    
-    if st.button("Test Clustering Integration"):
-        try:
-
-            st.success("✅ All imports successful!")
-            
-            # Test 2: Check if we have data
-            datasets = st.session_state.get('datasets', {})
-            if not datasets:
-                st.warning("⚠️ No datasets available. Upload data first to test fully.")
-                return
-            
-            # Test 3: Try basic clustering
-            test_year = list(datasets.keys())[0]
-            defects_df = datasets[test_year]['defects_df']
-            joints_df = datasets[test_year]['joints_df']
-            pipe_diameter_mm = datasets[test_year].get('pipe_diameter', 1.0) * 1000
-            
-            # Test clustering
-            clusterer = create_standards_compliant_clusterer(
-                standard_name="RSTRENG",
-                pipe_diameter_mm=pipe_diameter_mm
-            )
-            
-            clusters = clusterer.find_interacting_defects(defects_df, joints_df)
-            
-            st.success(f"✅ Clustering works! Found {len(clusters)} clusters")
-            st.info("🎉 Integration successful! Your new clustering system is ready to use.")
-            
-        except ImportError as e:
-            st.error(f"❌ Import error: {e}")
-            st.error("Check that all 4 files are in the correct directories")
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
-            st.error("Check your data structure and file contents")
-
-
 def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, distance_tolerance, clock_tolerance):
     """
     Perform comprehensive multi-year comparison analysis with automatic growth correction.
@@ -544,19 +503,19 @@ def render_comparison_view():
     # NEW: Create main tabs for different analysis types
     main_tabs = st.tabs([
         "📈 Growth Analysis", 
-        "🔧 Advanced Clustering",
+        "🔮 Failure Prediction",  # Renamed and simplified
         "📊 Results & Visualization", 
         "📥 Export Data"
     ])
     
     with main_tabs[0]:
-        # Growth Rate Analysis Tab
         render_growth_analysis_tab(datasets, available_years)
     
     with main_tabs[1]:
-        # Advanced Clustering Tab (NEW)
-        render_clustering_analysis_tab(datasets, available_years)
+        # Direct failure prediction - no sub-tabs!
+        render_failure_prediction_section(datasets, get_state('comparison_results'))    
     
+
     with main_tabs[2]:
         # Results and Visualization Tab
         render_results_visualization_tab(datasets)
@@ -693,342 +652,136 @@ def render_growth_analysis_tab(datasets, available_years):
             st.warning(f"⚠️ Results available for {comparison_years[0]} vs {comparison_years[1]}. Run analysis again for current selection.")
 
 
-def render_clustering_analysis_tab(datasets, available_years):
-    """
-    FIXED: Clustering tab with proper function calls
-    """
-    st.markdown("### 🔧 Advanced Clustering Analysis")
-    st.markdown("Industry-standards compliant clustering with stress concentration and failure prediction.")
+def render_failure_prediction_section(datasets, comparison_results):
+    """Integrated failure prediction with dynamic clustering"""
+    st.markdown("### 🔮 Failure Prediction with Dynamic Clustering")
     
-    # Check if growth analysis has been performed
-    comparison_results = get_state('comparison_results')
     comparison_years = get_state('comparison_years')
-    
+
+    # Check prerequisites
     if not comparison_results or not comparison_years:
-        st.warning("⚠️ **Growth Analysis Required**")
-        st.info("""
-        Please complete the Growth Analysis first:
-        1. Go to the **Growth Analysis** tab
-        2. Select your years and parameters  
-        3. Run the growth rate analysis
-        4. Return here for clustering analysis
-        """)
+        st.warning("⚠️ Please complete Growth Analysis first")
         return
     
-    # Show which years are being analyzed
     earlier_year, later_year = comparison_years
-    st.info(f"🔍 **Clustering Analysis for**: {earlier_year} → {later_year}")
-    
-    # Get data
-    earlier_data = datasets[earlier_year]
     later_data = datasets[later_year]
-    
-    # Create sub-tabs for clustering and prediction
-    cluster_tabs = st.tabs([
-        "🔧 Clustering Analysis",
-        "🔮 Future Prediction"
-    ])
-    
-    with cluster_tabs[0]:
-        render_clustering_analysis_section(later_data)
-    
-    with cluster_tabs[1]:
-        render_future_prediction_section(later_data, comparison_results)
-
-
-def render_clustering_analysis_section(later_data):
-    """
-    Render the clustering analysis section (extracted from original code)
-    """
-    st.markdown("#### 🔧 Clustering Configuration")
-    
-    # Configuration section
-    with st.expander("🔧 Advanced Clustering Configuration", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            clustering_standard = st.selectbox(
-                "Industry Standard",
-                options=["BS7910", "API579", "DNV"],
-                index=0,
-                help="Select industry standard for clustering methodology"
-            )
-        
-        with col2:
-            conservative_factor = st.slider(
-                "Conservative Factor", 
-                min_value=1.0, max_value=2.0, value=1.0, step=0.1,
-                help="Additional conservatism factor (1.0 = standard, >1.0 = more conservative)"
-            )
-        
-        with col3:
-            erf_threshold = st.slider(
-                "ERF Failure Threshold",
-                min_value=0.90, max_value=1.00, value=0.99, step=0.01,
-                help="ERF threshold for failure assessment"
-            )
-    
-    # Analysis Execution
-    st.markdown("#### 🚀 Run Clustering Analysis")
-    
-    if st.button("🔬 Perform Advanced Clustering Analysis", type="primary", use_container_width=True, key="clustering_analysis_main"):
-        
-        # Pre-analysis setup
-        defects_df = later_data['defects_df']
-        joints_df = later_data['joints_df']
-        pipe_diameter_mm = later_data['pipe_diameter'] * 1000
-        
-        # Validation checks
-        if defects_df.empty:
-            st.error("❌ No defects found in the selected dataset")
-            return
-        
-        if joints_df.empty:
-            st.error("❌ No joints found in the selected dataset")
-            return
-        
-        # Check required columns
-        required_defect_cols = ['log dist. [m]', 'joint number', 'depth [%]', 'length [mm]', 'width [mm]']
-        missing_cols = [col for col in required_defect_cols if col not in defects_df.columns]
-        
-        if missing_cols:
-            st.error(f"❌ Missing required columns in defects data: {missing_cols}")
-            return
-        
-        st.info(f"🔍 **Starting clustering analysis**: {len(defects_df)} defects, {len(joints_df)} joints")
-        
-
-        try:
-            start_time = time.time()
-            
-            # Run with progress tracking
-            combined_df, clusters = enhance_existing_assessment(
-                defects_df, joints_df, pipe_diameter_mm, clustering_standard
-            )
-            
-            end_time = time.time()
-            processing_time = end_time - start_time
-            
-            # Better validation of results
-            if clusters is None:
-                st.warning("⚠️ No clusters were generated")
-                return
-            
-            if not isinstance(clusters, list):
-                st.error("❌ Invalid cluster results format")
-                return
-            
-            # Store results with performance metadata
-            st.session_state.enhanced_clusters = clusters
-            st.session_state.combined_defects = combined_df
-            st.session_state.clustering_config = {
-                'standard': clustering_standard,
-                'conservative_factor': conservative_factor,
-                'erf_threshold': erf_threshold,
-                'analysis_timestamp': pd.Timestamp.now(),
-                'processing_time_seconds': processing_time,
-                'defects_processed': len(defects_df)
-            }
-            
-            # Performance summary
-            st.success(f"✅ Clustering analysis completed in {processing_time:.2f} seconds!")
-            
-            if processing_time > 0:
-                defects_per_second = len(defects_df) / processing_time
-                st.caption(f"⚡ Performance: {defects_per_second:.1f} defects/second")
-            
-            # Show summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Clusters Found", len(clusters))
-            with col2:
-                defects_clustered = sum(len(c.defect_indices) for c in clusters)
-                st.metric("Defects Clustered", defects_clustered)
-            with col3:
-                max_stress = max([c.stress_concentration_factor for c in clusters], default=1.0)
-                st.metric("Max Stress Factor", f"{max_stress:.2f}x")
-            with col4:
-                total_defects = len(defects_df)
-                clustering_rate = (defects_clustered / total_defects) * 100 if total_defects > 0 else 0
-                st.metric("Clustering Rate", f"{clustering_rate:.1f}%")
-            
-        except AttributeError as e:
-            st.error(f"❌ Method missing: {str(e)}")
-            st.info("💡 **Solution**: Make sure all required methods are implemented in the clustering classes")
-        except ImportError as e:
-            st.error(f"❌ Import error: {str(e)}")
-            st.info("💡 **Solution**: Check that all required modules are available")
-        except Exception as e:
-            st.error(f"❌ Clustering analysis failed: {str(e)}")
-            st.info("💡 **Troubleshooting**: Ensure defects have valid location and dimension data")
-            
-            # Debug information
-            with st.expander("🔍 Debug Information"):
-                st.write("**Dataset Info:**")
-                st.write(f"- Defects shape: {defects_df.shape}")
-                st.write(f"- Joints shape: {joints_df.shape}")
-                st.write(f"- Defects columns: {defects_df.columns.tolist()}")
-                st.write(f"- Joints columns: {joints_df.columns.tolist()}")
-                
-                st.write("**Sample Data:**")
-                st.write("First defect:", defects_df.iloc[0].to_dict() if not defects_df.empty else "No data")
-    
-    # Display clustering results if available
-    if hasattr(st.session_state, 'enhanced_clusters') and st.session_state.enhanced_clusters:
-        display_clustering_results()
-
-
-def render_future_prediction_section(later_data, comparison_results):
-    """
-    Future prediction section with time-forward simulation - UPDATED for defect-based failures
-    """
-    st.markdown("### 🔮 Future Defect Failure Prediction")  # CHANGED title
-    st.markdown("Simulate defect growth and predict individual defect failures over time")  # CHANGED description
-    
-    # Check if clustering has been performed
-    if not hasattr(st.session_state, 'enhanced_clusters'):
-        st.warning("⚠️ **Clustering Analysis Required**")
-        st.info("Please run the Clustering Analysis first to enable failure prediction.")
-        return
     
     # Parameter input form
     with st.expander("⚙️ Simulation Parameters", expanded=True):
-        
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             assessment_method = st.selectbox(
-                "**Assessment Method**",
+                "Assessment Method",
                 options=['B31G', 'Modified_B31G', 'RSTRENG'],
-                index=2,  # Default to RSTRENG
-                help="Method for calculating safe operating pressure"
+                index=2
             )
             
             max_operating_pressure = st.number_input(
-                "**Maximum Allowed Operating Pressure (MPa)**",
-                min_value=1.0,
-                max_value=20.0,
-                value=8.0,
-                step=0.1,
-                help="Maximum allowed operating pressure for the pipeline"
-            )
-            
-            safety_factor = st.number_input(
-                "**Safety Factor**",
-                min_value=1.0,
-                max_value=5.0,
-                value=1.39,
-                step=0.01,
-                help="Design safety factor"
-            )
-            
-            smys = st.number_input(
-                "**Pipe Grade (SMYS) (MPa)**",
-                min_value=200.0,
-                max_value=800.0,
-                value=415.0,
-                step=5.0,
-                help="Specified Minimum Yield Strength"
-            )
-        
-        with col2:
-            pipe_diameter = st.number_input(
-                "**Pipe Diameter (mm)**",
-                min_value=100.0,
-                max_value=2000.0,
-                value=later_data['pipe_diameter'] * 1000,  # Convert to mm
-                step=1.0,
-                help="Outside diameter of the pipeline"
+                "Max Operating Pressure (MPa)",
+                min_value=1.0, max_value=20.0, value=8.0, step=0.1
             )
             
             simulation_years = st.number_input(
-                "**Simulation Years**",
-                min_value=1,
-                max_value=50,
-                value=15,
-                step=1,
-                help="Number of years to simulate into the future"
+                "Simulation Years",
+                min_value=1, max_value=50, value=15, step=1
+            )
+        
+        with col2:
+            # Clustering configuration
+            use_dynamic_clustering = st.checkbox(
+                "Enable Dynamic Clustering",
+                value=True,
+                help="Re-evaluate defect interactions each year"
             )
             
+            if use_dynamic_clustering:
+                clustering_standard = st.selectbox(
+                    "Clustering Standard",
+                    options=["RSTRENG", "BS7910", "API579", "DNV"],
+                    index=0
+                )
+            else:
+                clustering_standard = None
+            
+            safety_factor = st.number_input(
+                "Safety Factor",
+                min_value=1.0, max_value=5.0, value=1.39, step=0.01
+            )
+        
+        with col3:
             erf_threshold = st.number_input(
-                "**ERF Failure Threshold**",
-                min_value=0.5,
-                max_value=1.0,
-                value=0.90,
-                step=0.01,
-                help="ERF threshold above which defect fails"  # CHANGED
+                "ERF Failure Threshold",
+                min_value=0.5, max_value=1.0, value=0.90, step=0.01
             )
             
             depth_threshold = st.number_input(
-                "**Depth Failure Threshold (%)**",
-                min_value=50.0,
-                max_value=95.0,
-                value=80.0,
-                step=1.0,
-                help="Depth threshold above which defect fails"  # CHANGED
+                "Depth Failure Threshold (%)",
+                min_value=50.0, max_value=95.0, value=80.0, step=1.0
+            )
+            
+            smys = st.number_input(
+                "SMYS (MPa)",
+                min_value=200.0, max_value=800.0, value=415.0, step=5.0
             )
     
-    # TEMPORARY: Simple test implementation
-    if st.button("🚀 Run Defect Failure Prediction Simulation", type="primary", use_container_width=True, key="prediction_simulation"):
-        
-        # Validation
-        if not hasattr(st.session_state, 'enhanced_clusters'):
-            st.error("❌ No clustering results available. Run clustering analysis first.")
-            return
-        
-        with st.spinner("🔮 Running defect failure prediction simulation..."):  # CHANGED text
-            try:
-                start_time = time.time()
-                
-                # Create simulation parameters
-                sim_params = SimulationParams(
-                    assessment_method=assessment_method.lower().replace(' ', '_'),  # Convert to function format
-                    max_operating_pressure=max_operating_pressure,
-                    simulation_years=simulation_years,
-                    erf_threshold=erf_threshold,
-                    depth_threshold=depth_threshold
-                )                
+    # Run simulation
+    if st.button("🚀 Run Failure Prediction", type="primary", use_container_width=True):
+        with st.spinner("Running failure prediction with dynamic clustering..."):
+            # Create simulation parameters
+            sim_params = SimulationParams(
+                assessment_method=assessment_method.lower().replace('_', '_'),
+                max_operating_pressure=max_operating_pressure,
+                simulation_years=simulation_years,
+                erf_threshold=erf_threshold,
+                depth_threshold=depth_threshold
+            )
+            
+            # Create clustering config
+            clustering_config = {
+                'enabled': use_dynamic_clustering,
+                'standard': clustering_standard,
+                'pipe_diameter_mm': later_data['pipe_diameter'] * 1000
+            } if use_dynamic_clustering else None
+            
+            # Run integrated simulation
+            results = run_integrated_simulation(
+                sim_params,
+                later_data,
+                comparison_results,
+                clustering_config,
+                smys,
+                safety_factor
+            )
 
-                # Initialize simulator
-                simulator = FailurePredictionSimulator(sim_params)
-                
-                # Initialize with current data
-                success = simulator.initialize_simulation(
-                    defects_df=later_data['defects_df'],
-                    joints_df=later_data['joints_df'],
-                    growth_rates_df=comparison_results['matches_df'],
-                    clusters=st.session_state.enhanced_clusters,
-                    pipe_diameter=pipe_diameter / 1000,  # Convert mm to meters
-                    smys=smys,
-                    safety_factor=safety_factor
-                )
 
-                if not success:
-                    st.error("❌ Failed to initialize simulation")
-                    return
-                
-                # Run simulation
-                results = simulator.run_simulation()
-
-                end_time = time.time()
-                processing_time = end_time - start_time
-                
-                # Store results
-                st.session_state.prediction_results = results
-                
-                st.success(f"✅ Simulation completed in {processing_time:.2f} seconds!")
-                st.success(f"📊 Predicted {results['total_failures']} defect failures over {simulation_years} years")  # CHANGED
-                
-                display_prediction_results_simple()
-
-            except Exception as e:
-                st.error(f"❌ Simulation failed: {str(e)}")
-                
-                # Debug information
-                with st.expander("🔍 Debug Information"):
-                    st.write(f"Error details: {str(e)}")
-                    st.write(f"Assessment method: {assessment_method}")
-                    st.write(f"Available clusters: {len(st.session_state.enhanced_clusters) if hasattr(st.session_state, 'enhanced_clusters') else 0}")
+def run_integrated_simulation(sim_params, data, growth_results, clustering_config, smys, safety_factor):
+    """Run failure simulation with optional dynamic clustering"""
+    
+    # Initialize simulator with clustering config
+    simulator = FailurePredictionSimulator(sim_params, clustering_config)
+    
+    # Initialize with data
+    success = simulator.initialize_simulation(
+        defects_df=data['defects_df'],
+        joints_df=data['joints_df'],
+        growth_rates_df=growth_results['matches_df'],
+        clusters=[],  # No initial clusters!
+        pipe_diameter=data['pipe_diameter'],
+        smys=smys,
+        safety_factor=safety_factor,
+        use_clustering=False  # Disable initial clustering
+    )
+    
+    if not success:
+        st.error("Failed to initialize simulation")
+        return None
+    
+    # Run simulation
+    results = simulator.run_simulation()
+    st.session_state.prediction_results = results
+    
+    return results
 
 
 def display_prediction_results_simple():
@@ -1193,107 +946,6 @@ def render_results_visualization_tab(datasets):
     # Use the existing results display function
     display_data_preview_and_results(earlier_data, later_data)
 
-
-def display_clustering_results():
-    """
-    FIXED: Display detailed clustering results without styling errors
-    """
-    clusters = st.session_state.enhanced_clusters
-    config = st.session_state.clustering_config
-    
-    st.markdown("#### 🔍 Clustering Results Details")
-    
-    # Configuration summary
-    with st.expander("📋 Analysis Configuration", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Standard", config['standard'])
-        with col2:
-            st.metric("Conservative Factor", f"{config['conservative_factor']:.1f}x")
-        with col3:
-            st.metric("ERF Threshold", f"{config['erf_threshold']:.2f}")
-        
-        st.caption(f"Analysis performed: {config['analysis_timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Cluster details table
-    if clusters:
-        st.markdown("#### 📋 Cluster Details")
-        
-        cluster_data = []
-        for i, cluster in enumerate(clusters):
-            # Format stress factor with emoji indicators instead of complex styling
-            stress_factor = cluster.stress_concentration_factor
-            if stress_factor >= 2.0:
-                stress_display = f"{stress_factor:.2f}x 🔴"
-            elif stress_factor >= 1.5:
-                stress_display = f"{stress_factor:.2f}x 🟡"
-            elif stress_factor > 1.0:
-                stress_display = f"{stress_factor:.2f}x 🟢"
-            else:
-                stress_display = f"{stress_factor:.2f}x"
-            
-            cluster_data.append({
-                'Cluster ID': f'Cluster {i+1}',
-                'Defect Count': len(cluster.defect_indices),
-                'Max Depth (%)': f"{cluster.max_depth_pct:.1f}%",
-                'Combined Length (mm)': f"{cluster.combined_length_mm:.1f}mm",
-                'Combined Width (mm)': f"{cluster.combined_width_mm:.1f}mm",
-                'Stress Factor': stress_display, 
-                'Center Location (m)': f"{cluster.center_location_m:.2f}m",
-                'Interaction Type': cluster.interaction_type,
-                'Standard Used': cluster.standard_used
-            })
-        
-        cluster_df = pd.DataFrame(cluster_data)
-        
-        # Simple dataframe display without problematic styling
-        st.dataframe(cluster_df, use_container_width=True)
-        
-        # Add simple legend
-        st.markdown("**Stress Factor Guide:** 🟢 Low (1.0-1.5x) | 🟡 Moderate (1.5-2.0x) | 🔴 High (>2.0x)")
-        
-        # Download cluster results
-        cluster_csv = cluster_df.to_csv(index=False)
-        st.download_button(
-            label="📥 Download Cluster Results",
-            data=cluster_csv,
-            file_name=f"clustering_results_{config['analysis_timestamp'].strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-            key="clustering_results_download_button"
-        )
-        
-        # Additional summary metrics
-        st.markdown("#### 📊 Cluster Summary")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            stress_factors = [cluster.stress_concentration_factor for cluster in clusters]
-            avg_stress = sum(stress_factors) / len(stress_factors)
-            st.metric("Average Stress Factor", f"{avg_stress:.2f}x")
-        
-        with col2:
-            cluster_sizes = [len(cluster.defect_indices) for cluster in clusters]
-            avg_size = sum(cluster_sizes) / len(cluster_sizes)
-            st.metric("Average Cluster Size", f"{avg_size:.1f} defects")
-        
-        with col3:
-            total_defects_clustered = sum(cluster_sizes)
-            st.metric("Total Defects Clustered", total_defects_clustered)
-    
-    else:
-        st.info("No clusters found with current parameters.")
-        st.markdown("""
-        **Possible reasons:**
-        - Defects are too far apart to interact
-        - Conservative clustering parameters
-        - Limited defect data
-        
-        **Try:**
-        - Increasing the conservative factor
-        - Using a different clustering standard
-        - Checking defect location data quality
-        """)
-        
 
 def render_export_tab():
     """
