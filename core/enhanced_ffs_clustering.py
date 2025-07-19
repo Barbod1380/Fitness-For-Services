@@ -9,16 +9,11 @@ This module replaces the existing proprietary clustering and adds:
 3. Integration with existing ERF calculations
 """
 
-import numpy as np
 import pandas as pd
 import math
 from typing import List, Tuple
 from dataclasses import dataclass
-
-# Import the standards-compliant clusterer
-from .standards_compliant_clustering import (
-    create_standards_compliant_clusterer,
-)
+from .standards_compliant_clustering import create_standards_compliant_clusterer
 
 @dataclass
 class ClusterProperties:
