@@ -244,7 +244,7 @@ def _calculate_b31g_allowable_curve(length_range_mm, pipe_diameter_mm, wall_thic
     if method == 'original':
         flow_stress_mpa = 1.1 * smys_mpa
     elif method == 'modified':
-        flow_stress_mpa = smys_mpa + 69.0  # 69 MPa ≈ 10 ksi
+        flow_stress_mpa = smys_mpa + 68.95
     else:
         raise ValueError("Method must be either 'original' or 'modified'")
     

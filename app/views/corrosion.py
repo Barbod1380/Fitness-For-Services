@@ -247,7 +247,7 @@ def calculate_modified_b31g(
     M = math.sqrt(m_term)
 
     # 4 ─ flow stress (cap at 0.9 SMTS)
-    S_flow = smys_mpa + 69.0
+    S_flow = smys_mpa + 68.95
     if smts_mpa is not None:
         S_flow = min(S_flow, 0.9 * smts_mpa)
 
