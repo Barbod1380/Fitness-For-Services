@@ -4,9 +4,7 @@ Professional navigation components for Pipeline FFS application.
 import streamlit as st
 from datetime import datetime
 from app.services.state_manager import get_state, clear_datasets
-from app.services.navigation_service import (
-    get_navigation_items, set_current_page, get_breadcrumb_items
-)
+from app.services.navigation_service import get_navigation_items, set_current_page, get_breadcrumb_items
 from app.config import APP_VERSION
 
 def get_logo_base64():

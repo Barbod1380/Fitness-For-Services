@@ -4,7 +4,6 @@ Industry-standards compliant defect clustering for pipeline FFS applications.
 Replaces proprietary clustering parameters with validated industry standards.
 
 Standards implemented:
-- ASME B31G Modified (RSTRENG) interaction rules
 - BS 7910 flaw interaction methodology  
 - API 579-1 proximity guidelines
 - DNV-RP-F101 composite defect criteria

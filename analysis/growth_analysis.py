@@ -4,6 +4,7 @@ import math
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import NearestNeighbors
 
+
 def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
     """
     Correct negative depth growth rates using K-Nearest Neighbors from similar defects 

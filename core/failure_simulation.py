@@ -4,7 +4,6 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area
 
-
 """
 Time-forward failure prediction simulation engine.
 Uses existing corrosion assessment functionality.

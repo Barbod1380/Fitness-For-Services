@@ -3,9 +3,8 @@
 Advanced defect matching system that handles FFS clustering
 for multi-year growth analysis.
 """
-import numpy as np
-import pandas as pd
-from typing import Dict, List
+
+from typing import List
 from dataclasses import dataclass
 
 @dataclass

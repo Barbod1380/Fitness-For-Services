@@ -1,7 +1,6 @@
 import numpy as np
 import plotly.graph_objects as go
 
-
 def create_unwrapped_pipeline_visualization(defects_df, pipe_diameter=None, color_by="Depth (%)", y_axis_column="Clock Position"):
     """
     Create an enhanced unwrapped cylinder visualization of pipeline defects,

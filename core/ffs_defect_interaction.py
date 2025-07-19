@@ -1,4 +1,3 @@
-# core/ffs_defect_interaction_fixed.py
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Tuple
