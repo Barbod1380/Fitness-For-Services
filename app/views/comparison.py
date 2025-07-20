@@ -780,7 +780,6 @@ def run_integrated_simulation(sim_params, data, growth_results, clustering_confi
     # Run simulation
     results = simulator.run_simulation()
     st.session_state.prediction_results = results
-    
     return results
 
 

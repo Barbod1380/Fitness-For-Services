@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area
+from core.standards_compliant_clustering import create_standards_compliant_clusterer
 
 """
 Time-forward failure prediction simulation engine.
@@ -28,6 +29,7 @@ class SimulationParams:
         
         if self.assessment_method in method_mapping:
             self.assessment_method = method_mapping[self.assessment_method]
+
 
 @dataclass
 class DefectState:
@@ -71,10 +73,10 @@ class FailurePredictionSimulator:
         # NEW: Store current year's clustering info
         self.current_clusters = []
         self.clusterer = None
+        self.joints_df = None
         
         # Initialize clusterer if needed
         if clustering_config and clustering_config['enabled']:
-            from core.standards_compliant_clustering import create_standards_compliant_clusterer
             self.clusterer = create_standards_compliant_clusterer(
                 clustering_config['standard'],
                 clustering_config['pipe_diameter_mm']
@@ -89,6 +91,7 @@ class FailurePredictionSimulator:
         # STEP 1: Filter valid defects FIRST and track index mapping
         print("🔍 Filtering valid defects...")
         
+        self.joints_df = joints_df
         original_count = len(defects_df)
         
         valid_defects = defects_df[
@@ -339,21 +342,27 @@ class FailurePredictionSimulator:
         failed_defects = set()
         
         for year in range(self.params.simulation_years + 1):
+            print("YEAR:", year)
             # Grow defects (except year 0)
             if year > 0:
+                print("HERE1")
                 self._grow_defects(year)
                 
                 # NEW: Apply dynamic clustering starting from Year 1
                 if self.clusterer is not None:
+                    print("HERE2")
                     self._apply_dynamic_clustering(year, failed_defects)  # Pass failed_defects
             
+            print("HERE3")
             # Check for failures with current clustering state
             year_failures = self._check_defect_failures(year, failed_defects)
             
+            print("HERE4")
             # Calculate annual statistics
             annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
             self.annual_results.append(annual_result)
         
+        print("HERE5")
         return self._compile_results()
     
 
