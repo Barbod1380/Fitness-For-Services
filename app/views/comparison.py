@@ -753,7 +753,6 @@ def render_failure_prediction_section(datasets, comparison_results):
                 smys,
                 safety_factor
             )
-            print("FORTHABLE DONE")
     display_prediction_results_simple()
 
 
@@ -781,10 +780,8 @@ def run_integrated_simulation(sim_params, data, growth_results, clustering_confi
     
     # Run simulation
     results = simulator.run_simulation()
-    print("SIMULATION IS DOUBLE DONE")
     st.session_state.prediction_results = results
-    
-    print("SIMULATION IS TRIPLE DONE")
+
     return results
 
 

@@ -240,6 +240,7 @@ class EnhancedFFSClusterer:
             kt_final = min(kt_combined, 1.6)  # Even lower for very large clusters
         
         kt_final = max(kt_final, 1.0)  # Cannot be less than 1.0
+        kt_final = min(kt_final, 1)
         
         return kt_final
 
@@ -345,9 +346,7 @@ class EnhancedFFSClusterer:
         
         return modified_erf
     
-    def create_combined_defects_dataframe(self, 
-                                        defects_df: pd.DataFrame,
-                                        clusters: List[ClusterProperties]) -> pd.DataFrame:
+    def create_combined_defects_dataframe(self, defects_df: pd.DataFrame, clusters: List[ClusterProperties]) -> pd.DataFrame:
         """
         Create a new DataFrame with combined defects for assessment.
         

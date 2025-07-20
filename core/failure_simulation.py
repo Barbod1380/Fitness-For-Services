@@ -49,6 +49,7 @@ class DefectState:
 
 
 @dataclass
+@dataclass
 class DefectFailure:
     """Record of an individual defect failure - CHANGED FROM JOINT TO DEFECT"""
     defect_id: int
@@ -60,12 +61,17 @@ class DefectFailure:
     location_m: float
     was_clustered: bool
     stress_concentration_factor: float
+    
+
+    original_defect_count: int = 1             # How many original defects this represents
+    represents_cluster: bool = False           # Is this a combined defect?
+    original_defect_indices: List[int] = None  # Which original defects were combined
 
 
 class FailurePredictionSimulator:
     def __init__(self, params: SimulationParams, clustering_config: Optional[Dict] = None):
         self.params = params
-        self.clustering_config = clustering_config  # NEW
+        self.clustering_config = clustering_config  
         self.defect_states: List[DefectState] = []
         self.failure_history: List[DefectFailure] = []
         self.annual_results: List[Dict] = []
@@ -86,8 +92,33 @@ class FailurePredictionSimulator:
     
     def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
         """
-        FIXED: Proper initialization without index mismatches
+        Proper initialization without index mismatches
         """
+
+        if use_clustering and clusters and self.clustering_config and self.clustering_config.get('enabled'):        
+            # ✅ Use the existing clusterer that was already configured with user's standard
+            if hasattr(self, 'clusterer') and self.clusterer is not None:
+                
+                # ✅ Create enhanced clusterer using the SAME standard the user selected
+                from core.enhanced_ffs_clustering import EnhancedFFSClusterer
+                
+                enhanced_clusterer = EnhancedFFSClusterer(
+                    standard=self.clustering_config['standard'],  # ✅ User's selected standard
+                    pipe_diameter_mm=self.clustering_config['pipe_diameter_mm'],  # ✅ User's pipe diameter
+                    include_stress_concentration=True
+                )
+                
+                # ✅ Replace clusters with combined defects
+                combined_defects_df = enhanced_clusterer.create_combined_defects_dataframe(
+                    defects_df, clusters
+                )
+                
+                print(f"✅ Using combined defects with {self.clustering_config['standard']} standard: "
+                    f"{len(combined_defects_df)} total ({len(defects_df)} original)")
+                defects_df = combined_defects_df  # ✅ Use combined defects, not originals
+            else:
+                print("⚠️ Clustering requested but no clusterer available - using individual defects")
+        
         
         # STEP 1: Filter valid defects FIRST and track index mapping
         print("🔍 Filtering valid defects...")
@@ -341,28 +372,30 @@ class FailurePredictionSimulator:
     
 
     def run_simulation(self) -> Dict:
-        """Run simulation with dynamic clustering starting from Year 1"""
+        """Run simulation with proper failed defect tracking."""
         self.failure_history = []
         self.annual_results = []
         failed_defects = set()
         
         for year in range(self.params.simulation_years + 1):
-            # Grow defects (except year 0)
-            if year > 0:
-                self._grow_defects(year)
+            # Check initial failures (year 0) before any growth
+            if year == 0:
+                year_failures = self._check_defect_failures(year, failed_defects)
+            else:
+                # Grow defects BEFORE clustering, passing failed_defects
+                self._grow_defects(year, failed_defects)  # <-- Pass failed_defects
                 
-                # NEW: Apply dynamic clustering starting from Year 1
+                # Apply dynamic clustering (if enabled)
                 if self.clusterer is not None:
-                    self._apply_dynamic_clustering(year, failed_defects)  # Pass failed_defects
-            
-            # Check for failures with current clustering state
-            year_failures = self._check_defect_failures(year, failed_defects)
+                    self._apply_dynamic_clustering(year, failed_defects)
+                
+                # Check for failures after growth
+                year_failures = self._check_defect_failures(year, failed_defects)
             
             # Calculate annual statistics
             annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
             self.annual_results.append(annual_result)
         
-        print("SIMULATION IS DONE")
         return self._compile_results()
     
 
@@ -472,84 +505,77 @@ class FailurePredictionSimulator:
         elif n_defects <= 5:
             return 1.8
         else:
-            return 2.0
-    
+            return 2.0    
 
     def calculate_stress_accelerated_growth(self, base_growth_rate, stress_concentration_factor, growth_type):
-        """
-        Calculate stress-accelerated growth using NACE SP0169 and API 579-1 principles
-        """
+        """Calculate stress-accelerated growth - FIXED to return total growth, not multiplier."""
         if stress_concentration_factor <= 1.0:
-            return base_growth_rate
+            return base_growth_rate  # Return the rate itself, not 1.0
         
         if growth_type == 'depth':
-            # NACE SP0169-2013 Section 6.3: Stress corrosion acceleration
-            # Conservative power law with exponent 0.5 for general corrosion
             acceleration_factor = 1.0 + 0.2 * (stress_concentration_factor - 1.0) ** 0.5
             max_acceleration = 1.8
-            
         elif growth_type == 'length':
-            # API 579-1 Part 9: Crack growth follows Paris Law da/dN = C(ΔK)^m
-            # For m=2 (conservative): acceleration ∝ (K_ratio)²
-            stress_intensity_ratio = stress_concentration_factor ** 0.5  # K ∝ σ√(πa)
+            stress_intensity_ratio = stress_concentration_factor ** 0.5
             acceleration_factor = 1.0 + 0.15 * (stress_intensity_ratio - 1.0) ** 2.0
             max_acceleration = 2.0
-            
         else:  # width
-            # Conservative linear relationship for lateral expansion
             acceleration_factor = 1.0 + 0.1 * (stress_concentration_factor - 1.0)
             max_acceleration = 1.5
         
-        # Cap at 2.5x to prevent unrealistic predictions
+        # Return the accelerated growth rate, not just the multiplier
         return base_growth_rate * min(acceleration_factor, max_acceleration)
-    
+        
 
-    def _grow_defects(self, year: int):
-        """Grow all defects based on their growth rates and clustering effects."""
+    def _grow_defects(self, year: int, failed_defects: set):
+        """Grow only active (non-failed) defects."""
         
         for defect in self.defect_states:
+            # CRITICAL FIX: Skip failed defects
+            if defect.defect_id in failed_defects:
+                continue
+                
             if defect.is_clustered:
-                # USE CORRECT STRESS ACCELERATION
-                depth_acceleration = self.calculate_stress_accelerated_growth(base_growth_rate = 1.0, stress_concentration_factor = defect.stress_concentration_factor, growth_type = 'depth')
-                length_acceleration = self.calculate_stress_accelerated_growth(base_growth_rate = 1.0, stress_concentration_factor = defect.stress_concentration_factor, growth_type = 'length')
+                # Fix the acceleration calculation
+                depth_acceleration = self.calculate_stress_accelerated_growth(
+                    base_growth_rate=defect.growth_rate_pct_per_year,  # Use actual rate
+                    stress_concentration_factor=defect.stress_concentration_factor,
+                    growth_type='depth'
+                )
+                length_acceleration = self.calculate_stress_accelerated_growth(
+                    base_growth_rate=defect.length_growth_rate_mm_per_year,  # Use actual rate
+                    stress_concentration_factor=defect.stress_concentration_factor,
+                    growth_type='length'
+                )
             else:
-                depth_acceleration = 1.0
-                length_acceleration = 1.0
+                depth_acceleration = defect.growth_rate_pct_per_year
+                length_acceleration = defect.length_growth_rate_mm_per_year
             
-            # Apply accelerated growth
-            depth_growth = defect.growth_rate_pct_per_year * depth_acceleration
-            defect.current_depth_pct += depth_growth
+            # Apply growth (not double multiplication)
+            defect.current_depth_pct += depth_acceleration
             defect.current_depth_pct = min(defect.current_depth_pct, 95.0)
             
-            length_growth = defect.length_growth_rate_mm_per_year * length_acceleration
-            defect.current_length_mm += length_growth
+            defect.current_length_mm += length_acceleration
     
 
     def _check_defect_failures(self, year: int, failed_defects: set) -> List[DefectFailure]:
-        """CHANGED: Check individual defect failures instead of joint failures."""
-
+        """Check failures with all required DefectFailure fields"""
+        
         year_failures = []
-        counter = 0
-
-        # Check each defect individually
+        
         for defect in self.defect_states:
             if defect.defect_id in failed_defects:
-                continue  # Skip already failed defects
+                continue
             
-            # Calculate ERF for this individual defect
             defect_erf = self._calculate_defect_erf(defect)
             defect_depth = defect.current_depth_pct
-
-            if(defect_erf == None):
-                continue
-
-            # Check failure criteria for this defect
+            
+            # Check failure criteria
             erf_failure = defect_erf >= self.params.erf_threshold
             depth_failure = defect_depth >= self.params.depth_threshold
-
+            
             if erf_failure or depth_failure:
                 # Determine failure mode
-                counter += 1
                 if erf_failure and depth_failure:
                     failure_mode = 'BOTH'
                 elif erf_failure:
@@ -557,22 +583,26 @@ class FailurePredictionSimulator:
                 else:
                     failure_mode = 'DEPTH_EXCEEDED'
                 
-                # Record defect failure
+                # ✅ Create DefectFailure with ALL required fields
                 failure = DefectFailure(
                     defect_id=defect.defect_id,
-                    joint_number=defect.joint_number,  # Keep for reference
+                    joint_number=defect.joint_number,
                     failure_year=year,
                     failure_mode=failure_mode,
                     final_erf=defect_erf,
                     final_depth_pct=defect_depth,
                     location_m=defect.location_m,
                     was_clustered=defect.is_clustered,
-                    stress_concentration_factor=defect.stress_concentration_factor
+                    stress_concentration_factor=defect.stress_concentration_factor,
+                    # ✅ Additional tracking fields
+                    original_defect_count=getattr(defect, 'original_defect_count', 1),
+                    represents_cluster=getattr(defect, 'is_combined', False),
+                    original_defect_indices=getattr(defect, 'original_defect_indices', None)
                 )
-                
+                                
                 year_failures.append(failure)
                 failed_defects.add(defect.defect_id)
-                self.failure_history.append(failure)
+        
         return year_failures
     
 
@@ -686,16 +716,28 @@ class FailurePredictionSimulator:
             timeline[year] = len([f for f in self.failure_history if f.failure_year == year])
         return timeline
     
+
     def _calculate_survival_statistics(self) -> Dict:
-        """Calculate survival statistics - CHANGED to defect-based."""
-        total_defects = len(self.defect_states)  # CHANGED
-        failed_defects = len(self.failure_history)  # CHANGED
-        surviving_defects = total_defects - failed_defects  # CHANGED
+        """Calculate statistics accounting for combined defects"""
+        
+        total_physical_defects = 0
+        failed_physical_defects = 0
+        
+        for defect_state in self.defect_states:
+            # Count physical defects (original count for combined defects)
+            physical_count = getattr(defect_state, 'original_defect_count', 1)
+            total_physical_defects += physical_count
+        
+        for failure in self.failure_history:
+            physical_count = getattr(failure, 'original_defect_count', 1)
+            failed_physical_defects += physical_count
+        
+        surviving_physical_defects = total_physical_defects - failed_physical_defects
         
         return {
-            'total_defects': total_defects,  # CHANGED
-            'failed_defects': failed_defects,  # CHANGED
-            'surviving_defects': surviving_defects,  # CHANGED
-            'failure_rate': (failed_defects / total_defects * 100) if total_defects > 0 else 0,
-            'survival_rate': (surviving_defects / total_defects * 100) if total_defects > 0 else 100
+            'total_defects': total_physical_defects,  # ✅ Physical defect count
+            'failed_defects': failed_physical_defects,
+            'surviving_defects': surviving_physical_defects,
+            'failure_rate': (failed_physical_defects / total_physical_defects * 100) if total_physical_defects > 0 else 0,
+            'simulation_used_combined_defects': any(getattr(d, 'is_combined', False) for d in self.defect_states)
         }

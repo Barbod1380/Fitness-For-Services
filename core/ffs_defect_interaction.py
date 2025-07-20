@@ -20,67 +20,108 @@ class FFSDefectInteraction:
         self.circ_method = circumferential_interaction_method
         self.custom_circ_distance = custom_circ_distance_mm
     
-    def find_interacting_defects(self, 
-                               defects_df: pd.DataFrame, 
-                               joints_df: pd.DataFrame, 
-                               pipe_diameter_mm: float) -> List[List[int]]:
+    def find_interacting_defects(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame,show_progress: bool = True) -> List[List[int]]:
         """
-        FIXED: Implement missing core method for finding interacting defects per API 579-1.
-        
-        Per API 579-1 Part 4 Section 4.3.3, defects interact if:
-        - Axial separation < min(25.4mm, 2√(R×t))
-        - Circumferential separation < √(D×t) or 4√(R×t)
-        
-        Parameters:
-        - defects_df: DataFrame with defect positions and dimensions
-        - joints_df: DataFrame with wall thickness data
-        - pipe_diameter_mm: Pipe outside diameter in mm
-        
-        Returns:
-        - List of defect index groups that interact
+        FIXED: Find clusters using Union-Find for proper transitive clustering
         """
-        if len(defects_df) <= 1:
-            return [[i] for i in range(len(defects_df))]
+        import streamlit as st
         
-        # Create wall thickness lookup
+        # Validation and setup (unchanged)
+        required_defect_cols = ['log dist. [m]', 'joint number', 'depth [%]']
+        required_joint_cols = ['joint number', 'wt nom [mm]']
+        
+        missing_defect_cols = [col for col in required_defect_cols if col not in defects_df.columns]
+        missing_joint_cols = [col for col in required_joint_cols if col not in joints_df.columns]
+        
+        if missing_defect_cols or missing_joint_cols:
+            raise ValueError(f"Missing required columns: {missing_defect_cols + missing_joint_cols}")
+        
+        # Pre-compute wall thickness lookup
         wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
-        radius_mm = pipe_diameter_mm / 2
         
-        # Calculate interaction criteria for each defect
-        interaction_data = []
-        for idx, defect in defects_df.iterrows():
-            wall_thickness = wt_lookup.get(defect['joint number'], 10.0)  # 10mm default
-            
-            # API 579-1 interaction distances
-            # Calculate dynamic interaction distances
-            distance_result = self.calculate_interaction_distance("API579", wall_thickness, pipe_diameter_mm)
-            axial_criterion = distance_result['axial_distance_mm']
-
-            if self.circ_method == 'sqrt_dt':
-                circ_criterion = np.sqrt(pipe_diameter_mm * wall_thickness)
-            elif self.circ_method == 'sqrt_rt':
-                circ_criterion = 4 * np.sqrt(radius_mm * wall_thickness)
+        # Sort defects by location for spatial indexing
+        defects_sorted = defects_df.sort_values('log dist. [m]').reset_index()
+        original_indices = defects_sorted['index'].tolist()
+        n_defects = len(defects_sorted)
+        
+        # FIXED: Initialize Union-Find data structure
+        parent = list(range(n_defects))
+        rank = [0] * n_defects
+        
+        def find(x):
+            if parent[x] != x:
+                parent[x] = find(parent[x])  # Path compression
+            return parent[x]
+        
+        def union(x, y):
+            px, py = find(x), find(y)
+            if px == py:
+                return
+            # Union by rank
+            if rank[px] < rank[py]:
+                parent[px] = py
+            elif rank[px] > rank[py]:
+                parent[py] = px
             else:
-                circ_criterion = self.custom_circ_distance or 50.0  # 50mm default
+                parent[py] = px
+                rank[px] += 1
+        
+        # Progress bar setup
+        if show_progress:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+        
+        # Find all pairwise interactions
+        interactions_found = 0
+        total_comparisons = 0
+        
+        for i in range(n_defects):
+            if show_progress and i % max(1, n_defects // 20) == 0:
+                progress = i / n_defects
+                progress_bar.progress(progress)
+                status_text.text(f"Checking interactions: {i}/{n_defects} ({interactions_found} found)")
             
-            interaction_data.append({
-                'index': idx,
-                'axial_pos': defect['log dist. [m]'] * 1000,  # Convert to mm
-                'clock_hours': self.parse_clock_to_decimal_hours(defect['clock']),
-                'axial_criterion': axial_criterion,
-                'circ_criterion': circ_criterion
-            })
+            defect_i = defects_sorted.iloc[i]
+            wall_thickness = wt_lookup.get(defect_i['joint number'], 10.0)
+            criteria = self.calculate_interaction_criteria(wall_thickness)
+            
+            # Spatial indexing - only check nearby defects
+            location_i = defect_i['log dist. [m]']
+            max_distance_m = criteria.axial_distance_mm / 1000.0
+            
+            start_idx = self._find_nearby_start(defects_sorted, location_i - max_distance_m)
+            end_idx = self._find_nearby_end(defects_sorted, location_i + max_distance_m)
+            
+            # Check interactions with nearby defects
+            for j in range(start_idx, min(end_idx + 1, n_defects)):
+                if i >= j:  # Avoid duplicate checks
+                    continue
+                
+                defect_j = defects_sorted.iloc[j]
+                total_comparisons += 1
+                
+                # FIXED: Use proper interaction check
+                if self._defects_interact_vectorized(defect_i, defect_j, criteria):
+                    union(i, j)  # Union the defects in same cluster
+                    interactions_found += 1
         
-        # Find interacting groups using union-find algorithm
-        clusters = self._find_interaction_clusters(interaction_data, radius_mm)
+        # Extract clusters from Union-Find structure
+        cluster_map = {}
+        for i in range(n_defects):
+            root = find(i)
+            if root not in cluster_map:
+                cluster_map[root] = []
+            cluster_map[root].append(original_indices[i])
         
-        # Convert to list of index lists
-        result_clusters = []
-        for cluster_indices in clusters:
-            if len(cluster_indices) >= 1:  # Include single defects as well
-                result_clusters.append(sorted(cluster_indices))
+        # Convert to list format (filter out single-defect "clusters" if desired)
+        clusters = [cluster for cluster in cluster_map.values() if len(cluster) >= 1]
         
-        return result_clusters
+        if show_progress:
+            progress_bar.progress(1.0)
+            status_text.text(f"✅ Clustering complete: {len([c for c in clusters if len(c) > 1])} multi-defect clusters found")
+        
+        return clusters
+
     
     def calculate_interaction_distance(self, standard: str, wall_thickness_mm: float, pipe_diameter_mm: float, defect_length_mm: float = None) -> Dict:
         """
