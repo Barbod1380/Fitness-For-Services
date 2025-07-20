@@ -74,6 +74,7 @@ class FailurePredictionSimulator:
         self.current_clusters = []
         self.clusterer = None
         self.joints_df = None
+        self.defect_id_to_index = {}
         
         # Initialize clusterer if needed
         if clustering_config and clustering_config['enabled']:
@@ -315,6 +316,10 @@ class FailurePredictionSimulator:
                 print(f"❌ Error creating defect state for index {filtered_idx}: {e}")
                 continue
         
+        self.defect_id_to_index = {
+            defect.defect_id: idx 
+            for idx, defect in enumerate(self.defect_states)
+        }
         final_count = len(self.defect_states)
         print(f"✅ Initialization complete: {final_count} defect states created")
         
@@ -342,27 +347,22 @@ class FailurePredictionSimulator:
         failed_defects = set()
         
         for year in range(self.params.simulation_years + 1):
-            print("YEAR:", year)
             # Grow defects (except year 0)
             if year > 0:
-                print("HERE1")
                 self._grow_defects(year)
                 
                 # NEW: Apply dynamic clustering starting from Year 1
                 if self.clusterer is not None:
-                    print("HERE2")
                     self._apply_dynamic_clustering(year, failed_defects)  # Pass failed_defects
             
-            print("HERE3")
             # Check for failures with current clustering state
             year_failures = self._check_defect_failures(year, failed_defects)
             
-            print("HERE4")
             # Calculate annual statistics
             annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
             self.annual_results.append(annual_result)
         
-        print("HERE5")
+        print("SIMULATION IS DONE")
         return self._compile_results()
     
 
@@ -405,56 +405,61 @@ class FailurePredictionSimulator:
 
 
     def _apply_dynamic_clustering(self, year: int, failed_defects: set):
-        """Apply clustering based on current defect dimensions"""
-        # Create DataFrame from current defect states
-        current_data = []
+        """Apply clustering with performance optimizations for 100k+ defects"""
+        
+        # Quick Fix #1: Only cluster every 2 years
+        if year % 2 != 0 and year > 1:
+            return
+        
+        # Quick Fix #3: Pre-filter active defects
+        active_defects = [
+            defect for defect in self.defect_states 
+            if defect.defect_id not in failed_defects
+        ]
+        
+        if len(active_defects) < 2:
+            return
+        
+        # Quick Fix #3: Vectorized DataFrame creation
+        current_df = pd.DataFrame({
+            'log dist. [m]': [d.location_m for d in active_defects],
+            'joint number': [d.joint_number for d in active_defects],
+            'depth [%]': [d.current_depth_pct for d in active_defects],
+            'length [mm]': [d.current_length_mm for d in active_defects],
+            'width [mm]': [d.current_width_mm for d in active_defects],
+            'wall_thickness_mm': [d.wall_thickness_mm for d in active_defects],
+            'defect_id': [d.defect_id for d in active_defects]
+        })
+        
+        # Find clusters with current dimensions
+        cluster_indices = self.clusterer.find_interacting_defects(
+            current_df, 
+            self.joints_df,
+            show_progress=False
+        )
+        
+        # Reset all clustering info (existing code)
         for defect in self.defect_states:
-            if defect.defect_id not in failed_defects:  # Now we have access to failed_defects
-                current_data.append({
-                    'log dist. [m]': defect.location_m,
-                    'joint number': defect.joint_number,
-                    'depth [%]': defect.current_depth_pct,
-                    'length [mm]': defect.current_length_mm,
-                    'width [mm]': defect.current_width_mm,
-                    'wall_thickness_mm': defect.wall_thickness_mm,
-                    'defect_id': defect.defect_id
-                })
-            
-            if not current_data:
-                return
-            
-            current_df = pd.DataFrame(current_data)
-            
-            # Find clusters with current dimensions
-            cluster_indices = self.clusterer.find_interacting_defects(
-                current_df, 
-                self.joints_df,
-                show_progress=False
-            )
-            
-            # Reset all clustering info
-            for defect in self.defect_states:
-                defect.is_clustered = False
-                defect.cluster_id = None
-                defect.stress_concentration_factor = 1.0
-            
-            # Apply new clustering
-            for cluster_idx, defect_indices in enumerate(cluster_indices):
-                if len(defect_indices) > 1:  # Only real clusters
-                    # Calculate stress concentration for this cluster
-                    cluster_defects = current_df.iloc[defect_indices]
-                    stress_factor = self._calculate_cluster_stress_factor(cluster_defects)
+            defect.is_clustered = False
+            defect.cluster_id = None
+            defect.stress_concentration_factor = 1.0
+        
+        # Quick Fix #2: Apply new clustering with direct lookup
+        for cluster_idx, defect_indices in enumerate(cluster_indices):
+            if len(defect_indices) > 1:  # Only real clusters
+                # Calculate stress concentration for this cluster
+                cluster_defects = current_df.iloc[defect_indices]
+                stress_factor = self._calculate_cluster_stress_factor(cluster_defects)
+                
+                # Quick Fix #2: Direct index lookup instead of nested loop
+                for idx in defect_indices:
+                    defect_id = current_df.iloc[idx]['defect_id']
+                    defect_index = self.defect_id_to_index[defect_id]  # O(1) lookup!
+                    defect = self.defect_states[defect_index]
                     
-                    # Update defect states
-                    for idx in defect_indices:
-                        defect_id = current_df.iloc[idx]['defect_id']
-                        for defect in self.defect_states:
-                            if defect.defect_id == defect_id:
-                                defect.is_clustered = True
-                                defect.cluster_id = cluster_idx
-                                defect.stress_concentration_factor = stress_factor
-                                break
-    
+                    defect.is_clustered = True
+                    defect.cluster_id = cluster_idx
+                    defect.stress_concentration_factor = stress_factor
 
     def _calculate_cluster_stress_factor(self, cluster_defects: pd.DataFrame) -> float:
         """Simple stress concentration calculation"""
