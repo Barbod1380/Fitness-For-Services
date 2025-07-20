@@ -240,8 +240,6 @@ class EnhancedFFSClusterer:
             kt_final = min(kt_combined, 1.6)  # Even lower for very large clusters
         
         kt_final = max(kt_final, 1.0)  # Cannot be less than 1.0
-        kt_final = min(kt_final, 1)
-        
         return kt_final
 
 

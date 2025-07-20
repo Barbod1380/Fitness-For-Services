@@ -335,8 +335,8 @@ class StandardsCompliantClusterer:
         )
         
         # Apply additional conservative multiplier
-        max_axial *= self.conservative_multiplier
-        max_circumferential *= self.conservative_multiplier
+        max_axial *= self.conservative_factor
+        max_circumferential *= self.conservative_factor
         
         return InteractionCriteria(
             axial_distance_mm=max_axial,

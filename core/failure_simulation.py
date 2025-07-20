@@ -380,24 +380,26 @@ class FailurePredictionSimulator:
         for year in range(self.params.simulation_years + 1):
             # Check initial failures (year 0) before any growth
             if year == 0:
-                year_failures = self._check_defect_failures(year, failed_defects)
+                year_failures, failed_defects = self._check_defect_failures(year, failed_defects)
+                self.failure_history.extend(year_failures)  # ✅ ADD THIS LINE
             else:
                 # Grow defects BEFORE clustering, passing failed_defects
-                self._grow_defects(year, failed_defects)  # <-- Pass failed_defects
+                self._grow_defects(year, failed_defects)
                 
                 # Apply dynamic clustering (if enabled)
                 if self.clusterer is not None:
                     self._apply_dynamic_clustering(year, failed_defects)
                 
                 # Check for failures after growth
-                year_failures = self._check_defect_failures(year, failed_defects)
+                year_failures, failed_defects = self._check_defect_failures(year, failed_defects)
+                self.failure_history.extend(year_failures)  # ✅ ADD THIS LINE
             
             # Calculate annual statistics
             annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
             self.annual_results.append(annual_result)
         
         return self._compile_results()
-    
+
 
     def _calculate_annual_stats(self, year: int, year_failures: List[DefectFailure], failed_defects: set) -> Dict:
         """Calculate statistics for the current year"""
@@ -603,7 +605,7 @@ class FailurePredictionSimulator:
                 year_failures.append(failure)
                 failed_defects.add(defect.defect_id)
         
-        return year_failures
+        return year_failures, failed_defects
     
 
 
@@ -699,6 +701,10 @@ class FailurePredictionSimulator:
 
     def _compile_results(self) -> Dict:
         """Compile final simulation results - CHANGED to defect-based."""
+
+        print("ANNUAL IN COMPILE_RESULTS:")
+        print(self.failure_history)
+        print(len(self.failure_history))
         
         return {
             'simulation_params': self.params,
