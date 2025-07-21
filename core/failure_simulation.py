@@ -381,7 +381,7 @@ class FailurePredictionSimulator:
             # Check initial failures (year 0) before any growth
             if year == 0:
                 year_failures, failed_defects = self._check_defect_failures(year, failed_defects)
-                self.failure_history.extend(year_failures)  # ✅ ADD THIS LINE
+                self.failure_history.extend(year_failures) 
             else:
                 # Grow defects BEFORE clustering, passing failed_defects
                 self._grow_defects(year, failed_defects)
@@ -392,7 +392,7 @@ class FailurePredictionSimulator:
                 
                 # Check for failures after growth
                 year_failures, failed_defects = self._check_defect_failures(year, failed_defects)
-                self.failure_history.extend(year_failures)  # ✅ ADD THIS LINE
+                self.failure_history.extend(year_failures) 
             
             # Calculate annual statistics
             annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
