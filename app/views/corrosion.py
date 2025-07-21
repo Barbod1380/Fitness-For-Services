@@ -80,7 +80,6 @@ def calculate_b31g(
     z = (defect_length_mm ** 2) / (pipe_diameter_mm * wall_thickness_mm)
 
     # 5. B31G Level 1 not valid for z > 50 (ϕ > 7.07)
-    print("Z:", z)
     if z > 50:
         return {
             "method": "B31G Original Level-1",
@@ -123,7 +122,6 @@ def calculate_b31g(
     # 9. Folias factor (applies for all flaws z <= 50)
     M_calculated = math.sqrt(1.0 + 0.8 * z)
 
-    print("M:", M_calculated)
     if M_calculated <= 0.001:
         return {
             "method": "B31G Original Level-1",
@@ -138,7 +136,6 @@ def calculate_b31g(
 
     # 10. Failure pressure using full B31G equation
     denominator = 1.0 - (A_A0_ratio / M_calculated)
-    print("Dominator:", denominator)
     if denominator <= 0:
         return {
             "method": "B31G Original Level-1",

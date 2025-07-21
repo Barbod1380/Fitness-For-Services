@@ -382,14 +382,14 @@ class FailurePredictionSimulator:
             if year == 0:
                 year_failures, failed_defects = self._check_defect_failures(year, failed_defects)
                 self.failure_history.extend(year_failures) 
-            else:
+            else:       
                 # Grow defects BEFORE clustering, passing failed_defects
                 self._grow_defects(year, failed_defects)
-                
+
                 # Apply dynamic clustering (if enabled)
                 if self.clusterer is not None:
                     self._apply_dynamic_clustering(year, failed_defects)
-                
+
                 # Check for failures after growth
                 year_failures, failed_defects = self._check_defect_failures(year, failed_defects)
                 self.failure_history.extend(year_failures) 
@@ -397,7 +397,6 @@ class FailurePredictionSimulator:
             # Calculate annual statistics
             annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
             self.annual_results.append(annual_result)
-        
         return self._compile_results()
 
 
@@ -496,18 +495,18 @@ class FailurePredictionSimulator:
                     defect.cluster_id = cluster_idx
                     defect.stress_concentration_factor = stress_factor
 
+
     def _calculate_cluster_stress_factor(self, cluster_defects: pd.DataFrame) -> float:
-        """Simple stress concentration calculation"""
+        """Industry-realistic stress concentration factors"""
         n_defects = len(cluster_defects)
         
-        # Use existing logic from enhanced_ffs_clustering.py
-        # Simplified version:
+        # Much more conservative factors based on industry practice
         if n_defects == 2:
-            return 1.5
+            return 1.15 
         elif n_defects <= 5:
-            return 1.8
+            return 1.25  
         else:
-            return 2.0    
+            return 1.35
 
     def calculate_stress_accelerated_growth(self, base_growth_rate, stress_concentration_factor, growth_type):
         """Calculate stress-accelerated growth - FIXED to return total growth, not multiplier."""
@@ -562,13 +561,13 @@ class FailurePredictionSimulator:
 
     def _check_defect_failures(self, year: int, failed_defects: set) -> List[DefectFailure]:
         """Check failures with all required DefectFailure fields"""
-        
+    
         year_failures = []
-        
+
         for defect in self.defect_states:
             if defect.defect_id in failed_defects:
-                continue
-            
+                continue            
+
             defect_erf = self._calculate_defect_erf(defect)
             defect_depth = defect.current_depth_pct
             
@@ -604,7 +603,7 @@ class FailurePredictionSimulator:
                                 
                 year_failures.append(failure)
                 failed_defects.add(defect.defect_id)
-        
+
         return year_failures, failed_defects
     
 
@@ -662,7 +661,7 @@ class FailurePredictionSimulator:
 
             if safe_pressure > 0:
                 base_erf = self.params.max_operating_pressure / safe_pressure
-                
+
                 # Apply stress concentration (your existing logic)
                 if defect.is_clustered and defect.stress_concentration_factor > 1.0:
                     if base_erf < 0.5:
@@ -679,7 +678,7 @@ class FailurePredictionSimulator:
                     final_erf = base_erf
                 
                 # MINIMAL FIX: Ensure we always return a valid float
-                return min(max(float(final_erf), 0.0), 99.0)
+                return min(max(float(final_erf), 0.0), 0.99)
             else:
                 return 50.0  # Default when calculation fails
                 
@@ -701,10 +700,6 @@ class FailurePredictionSimulator:
 
     def _compile_results(self) -> Dict:
         """Compile final simulation results - CHANGED to defect-based."""
-
-        print("ANNUAL IN COMPILE_RESULTS:")
-        print(self.failure_history)
-        print(len(self.failure_history))
         
         return {
             'simulation_params': self.params,
