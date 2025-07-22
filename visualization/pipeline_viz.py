@@ -304,7 +304,6 @@ def get_y_axis_info_for_hover(y_axis_column):
     return info_map.get(y_axis_column, {"label": "Value", "unit": "", "precision": 2})
 
 
-
 def create_custom_data(plot_data, y_axis_column, color_by):
     """Create custom data array for hover information."""
     
