@@ -20,16 +20,22 @@ def get_logo_base64():
 
 
 def create_professional_header():
-    """Create professional header with branding."""
+    """Create polished professional header with better spacing."""
     logo_b64 = get_logo_base64()
     
     header_html = f"""
-    <div class="main-header">
-        <div class="logo-container">
-            <img src="{logo_b64}" style="width:60px;height:60px;margin-right:20px;border-radius:8px;">
-            <div>
-                <h1 class="custom-title">Pipeline Integrity FFS</h1>
-                <p class="custom-subtitle">Fitness-for-Service Assessment Platform</p>
+    <div class="polished-header">
+        <div class="header-content">
+            <div class="logo-section">
+                <img src="{logo_b64}" class="header-logo">
+                <div class="brand-info">
+                    <h1 class="brand-title">Pipeline Integrity FFS</h1>
+                    <p class="brand-subtitle">Professional Fitness-for-Service Assessment Platform</p>
+                </div>
+            </div>
+            <div class="header-status">
+                <div class="status-dot"></div>
+                <span class="status-text">System Operational</span>
             </div>
         </div>
     </div>
@@ -62,28 +68,31 @@ def create_professional_sidebar(session_state):
 
         nav_items = get_navigation_items()
         for item in nav_items:
-            # Create professional navigation item
             icon = item['icon']
             title = item['title']
             item_id = item['id']
             available = item['available']
             active = item['active']
 
+            # Enhanced navigation with better states
             if active:
                 st.markdown(f"""
-                <div class="nav-item active">
-                    {icon} {title}
+                <div class="nav-item-active">
+                    <span class="nav-icon">{icon}</span> 
+                    <span class="nav-title">{title}</span>
+                    <span class="nav-indicator">●</span>
                 </div>
                 """, unsafe_allow_html=True)
             elif available:
-                # Use columns to create clickable navigation
                 if st.button(f"{icon} {title}", key=f"nav_{item_id}", use_container_width=True):
                     set_current_page(item_id)
                     st.rerun()
             else:
                 st.markdown(f"""
-                <div class="nav-item disabled">
-                    {icon} {title}
+                <div class="nav-item-disabled">
+                    <span class="nav-icon">{icon}</span>
+                    <span class="nav-title">{title}</span> 
+                    <span class="nav-lock">🔒</span>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -97,9 +106,18 @@ def create_professional_sidebar(session_state):
                 defect_count = len(datasets[year]['defects_df'])
                 joint_count = len(datasets[year]['joints_df'])
                 
+                # Quick data quality check
+                has_depth = 'depth [%]' in datasets[year]['defects_df'].columns
+                has_location = 'log dist. [m]' in datasets[year]['defects_df'].columns
+                quality = "🟢" if has_depth and has_location else "🟡" if has_depth or has_location else "🔴"
+                
                 st.markdown(f"""
-                <div class="dataset-status">
-                    {year} Dataset: {defect_count} defects, {joint_count} joints
+                <div class="dataset-status-card">
+                    <div class="dataset-year">{year}</div>
+                    <div class="dataset-info">
+                        <small>{defect_count:,} defects • {joint_count:,} joints</small>
+                    </div>
+                    <div class="dataset-quality">{quality}</div>
                 </div>
                 """, unsafe_allow_html=True)
 

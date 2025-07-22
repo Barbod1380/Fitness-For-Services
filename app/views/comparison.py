@@ -564,7 +564,8 @@ def render_growth_analysis_tab(datasets, available_years):
                 value=previous_params.get('distance_tolerance', 0.01),
                 step=0.001,
                 key="distance_tolerance_input",
-                help="Maximum distance difference to consider defects as the same location"
+                help="Maximum distance difference to consider defects as the same location",
+                format="%.3f"
             )
         
         with col2:
@@ -577,14 +578,6 @@ def render_growth_analysis_tab(datasets, available_years):
                 key="clock_tolerance_input",
                 help="Maximum clock position difference to consider defects at same position"
             )
-        
-        # Parameter confirmation
-        with st.expander("🔍 Current Parameters", expanded=False):
-            param_col1, param_col2 = st.columns(2)
-            with param_col1:
-                st.metric("Distance Tolerance", f"{distance_tolerance} m")
-            with param_col2:
-                st.metric("Clock Tolerance", f"{clock_tolerance} min")
     
     # Analysis Execution
     st.markdown("#### 🔍 Run Analysis")
