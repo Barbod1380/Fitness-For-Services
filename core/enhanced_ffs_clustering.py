@@ -179,18 +179,17 @@ class EnhancedFFSClusterer:
         if len(cluster_defects) == 1:
             return 1.0  # No interaction for single defect
         
-        # STEP 1: Calculate realistic individual defect stress factors
-        # Using pipeline-specific approach instead of Peterson's general formula
+        # STEP 1: Calculate realistic individual defect stress factors Using pipeline-specific approach instead of Peterson's general formula
         individual_kt_factors = []
         
-        for idx, defect in cluster_defects.iterrows():
+        for _, defect in cluster_defects.iterrows():
             depth_mm = defect['depth [%]'] * defect.get('wall_thickness_mm', 10.0) / 100.0
             length_mm = defect['length [mm]']
             width_mm = defect.get('width [mm]', length_mm * 0.5)  # More realistic default
             
             # Use pipeline-specific stress concentration approach Based on aspect ratio rather than absolute notch radius
-            aspect_ratio = length_mm / max(width_mm, 1.0)  # Prevent division by zero
-            depth_ratio = depth_mm / defect.get('wall_thickness_mm', 10.0)
+            aspect_ratio = length_mm / max(width_mm, 1.0) 
+            depth_ratio = depth_mm / defect.get('wall_thickness_mm')
             
             # API 579-1 based formula for surface flaws in pipelines Much more conservative and realistic than Peterson's formula
             if aspect_ratio > 6.0:
@@ -204,7 +203,6 @@ class EnhancedFFSClusterer:
                 kt_base = 1.0 + 1.0 * depth_ratio
             
             # Apply size-dependent factor for small defects
-            # Small defects shouldn't have excessive stress concentration
             size_factor = min(length_mm / 10.0, 1.0)  # Reduces effect for defects < 10mm
             kt_individual = 1.0 + (kt_base - 1.0) * (0.5 + 0.5 * size_factor)
             

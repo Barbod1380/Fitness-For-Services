@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
 from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area
 from core.standards_compliant_clustering import create_standards_compliant_clusterer
+from core.enhanced_ffs_clustering import EnhancedFFSClusterer
 
 """
 Time-forward failure prediction simulation engine.
@@ -95,14 +96,17 @@ class FailurePredictionSimulator:
     
     def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
         """
-        Proper initialization without index mismatches
+        FIXED: Proper initialization with robust index mapping and validation.
+        
+        Critical fixes:
+        1. Validates index alignment between defects and growth rates
+        2. Uses explicit defect ID mapping instead of assuming index correspondence
+        3. Provides detailed logging for debugging index issues
         """
-
+        
         if use_clustering and clusters and self.clustering_config and self.clustering_config.get('enabled'):        
-            # ✅ Use the existing clusterer that was already configured with user's standard
+            # Use clustering if requested (existing logic)
             if hasattr(self, 'clusterer') and self.clusterer is not None:
-                
-                # ✅ Create enhanced clusterer using the SAME standard the user selected
                 from core.enhanced_ffs_clustering import EnhancedFFSClusterer
                 
                 enhanced_clusterer = EnhancedFFSClusterer(
@@ -111,32 +115,35 @@ class FailurePredictionSimulator:
                     include_stress_concentration=True
                 )
                 
-                # ✅ Replace clusters with combined defects
                 combined_defects_df = enhanced_clusterer.create_combined_defects_dataframe(defects_df, clusters)
-                
-                print(f"✅ Using combined defects with {self.clustering_config['standard']} standard: "
-                    f"{len(combined_defects_df)} total ({len(defects_df)} original)")
-                defects_df = combined_defects_df  # ✅ Use combined defects, not originals
-            else:
-                print("⚠️ Clustering requested but no clusterer available - using individual defects")
+                print(f"✅ Using combined defects: {len(combined_defects_df)} total ({len(defects_df)} original)")
+                defects_df = combined_defects_df
         
-        
-        # STEP 1: Filter valid defects FIRST and track index mapping
-        print("🔍 Filtering valid defects...")
+        # STEP 1: Filter valid defects FIRST and create robust ID mapping
+        print("🔍 Filtering valid defects with robust ID tracking...")
         
         self.joints_df = joints_df
         original_count = len(defects_df)
         
-        valid_defects = defects_df[
-            (defects_df['depth [%]'].notna()) & 
-            (defects_df['depth [%]'] > 0) & 
-            (defects_df['depth [%]'] <= 100) &
-            (defects_df['length [mm]'].notna()) & 
-            (defects_df['length [mm]'] > 0) &
-            (defects_df['width [mm]'].notna()) & 
-            (defects_df['width [mm]'] > 0)
-        ].copy()
+        # CRITICAL: Preserve original index information
+        defects_df_with_original_idx = defects_df.reset_index()
+        if 'index' not in defects_df_with_original_idx.columns:
+            defects_df_with_original_idx['original_index'] = defects_df_with_original_idx.index
+        else:
+            defects_df_with_original_idx['original_index'] = defects_df_with_original_idx['index']
         
+        # Filter valid defects while preserving original index
+        valid_mask = (
+            (defects_df_with_original_idx['depth [%]'].notna()) & 
+            (defects_df_with_original_idx['depth [%]'] > 0) & 
+            (defects_df_with_original_idx['depth [%]'] <= 100) &
+            (defects_df_with_original_idx['length [mm]'].notna()) & 
+            (defects_df_with_original_idx['length [mm]'] > 0) &
+            (defects_df_with_original_idx['width [mm]'].notna()) & 
+            (defects_df_with_original_idx['width [mm]'] > 0)
+        )
+        
+        valid_defects = defects_df_with_original_idx[valid_mask].copy()
         valid_count = len(valid_defects)
         
         print(f"✅ Filtered: {valid_count} valid defects (from {original_count})")
@@ -145,13 +152,18 @@ class FailurePredictionSimulator:
             print("❌ No valid defects found!")
             return False
         
-        # STEP 2: Create index mapping from original to filtered
-        original_to_filtered = {}
-        filtered_to_original = {}
+        # STEP 2: FIXED - Create robust index mapping with validation
+        print("🔧 Creating robust index mapping...")
         
-        for new_idx, (original_idx, _) in enumerate(valid_defects.iterrows()):
-            original_to_filtered[original_idx] = new_idx
-            filtered_to_original[new_idx] = original_idx
+        # Reset index for valid defects to create clean sequential IDs
+        valid_defects = valid_defects.reset_index(drop=True)
+        valid_defects['simulation_id'] = range(len(valid_defects))
+        
+        # Create bidirectional mapping
+        original_to_simulation = dict(zip(valid_defects['original_index'], valid_defects['simulation_id']))
+        simulation_to_original = dict(zip(valid_defects['simulation_id'], valid_defects['original_index']))
+        
+        print(f"📋 Index mapping created: {len(original_to_simulation)} defects mapped")
         
         # STEP 3: Store pipe parameters
         try:
@@ -171,35 +183,69 @@ class FailurePredictionSimulator:
             print(f"❌ Error creating wall thickness lookup: {e}")
             return False
         
-        # STEP 5: Create growth rate lookup with proper index mapping
+        # STEP 5: CRITICAL FIX - Create growth rate lookup with proper ID resolution
         growth_lookup = {}
         if not growth_rates_df.empty:
-            print("📈 Processing growth rates...")
+            print("📈 Processing growth rates with robust ID matching...")
             
-            for idx, row in growth_rates_df.iterrows():
-                # Try multiple ways to get the defect ID
-                defect_id = None
+            # Method 1: Try to match using explicit ID columns if available
+            id_columns_to_try = ['new_defect_id', 'defect_id', 'old_defect_id']
+            
+            # Check if growth_rates_df has explicit defect ID columns
+            available_id_cols = [col for col in id_columns_to_try if col in growth_rates_df.columns]
+            
+            if available_id_cols:
+                print(f"📋 Using explicit ID columns: {available_id_cols}")
                 
-                # Method 1: Direct ID columns
-                for id_col in ['new_defect_id', 'defect_id', 'old_defect_id']:
-                    if id_col in row and pd.notna(row[id_col]):
-                        defect_id = int(row[id_col])
-                        break
+                for idx, row in growth_rates_df.iterrows():
+                    # Try to get defect ID from explicit columns
+                    defect_id = None
+                    for id_col in available_id_cols:
+                        if pd.notna(row[id_col]):
+                            defect_id = int(row[id_col])
+                            break
+                    
+                    if defect_id is not None:
+                        # Check if this original defect ID exists in our valid defects
+                        if defect_id in original_to_simulation:
+                            sim_id = original_to_simulation[defect_id]
+                            growth_lookup[sim_id] = {
+                                'depth_growth_pct': row.get('growth_rate_pct_per_year', 0.5),
+                                'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1),
+                                'original_defect_id': defect_id,
+                                'growth_source': f'matched_via_{id_col}'
+                            }
+                        else:
+                            print(f"⚠️ Growth rate for defect ID {defect_id} - defect not in valid set")
+            
+            else:
+                print("📋 No explicit ID columns found, using index-based matching")
                 
-                # Method 2: Use index if no ID found
-                if defect_id is None:
-                    defect_id = idx
-                
-                # Only store growth data for valid defects
-                if defect_id in original_to_filtered:
-                    mapped_id = original_to_filtered[defect_id]
-                    growth_lookup[mapped_id] = {
-                        'depth_growth_pct': row.get('growth_rate_pct_per_year', 0.5),
-                        'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1),
-                        'original_defect_id': defect_id  # Keep track of original ID for debugging
-                    }
+                # Method 2: Index-based matching with validation
+                # Assume growth_rates_df index corresponds to original defects_df index
+                for growth_idx, row in growth_rates_df.iterrows():
+                    # Check if this growth index corresponds to a valid defect
+                    if growth_idx in original_to_simulation:
+                        sim_id = original_to_simulation[growth_idx]
+                        growth_lookup[sim_id] = {
+                            'depth_growth_pct': row.get('growth_rate_pct_per_year', 0.5),
+                            'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1),
+                            'original_defect_id': growth_idx,
+                            'growth_source': 'index_based'
+                        }
+                    else:
+                        print(f"⚠️ Growth rate at index {growth_idx} - no corresponding valid defect")
             
             print(f"📈 Growth rates mapped: {len(growth_lookup)} defects")
+            
+            # VALIDATION: Check mapping success rate
+            mapping_rate = len(growth_lookup) / len(valid_defects) * 100
+            if mapping_rate < 50:
+                print(f"⚠️ WARNING: Low growth rate mapping success ({mapping_rate:.1f}%)")
+                print("   This may indicate index misalignment issues")
+            else:
+                print(f"✅ Good growth rate mapping: {mapping_rate:.1f}% of defects have growth data")
+        
         else:
             print("⚠️ No growth rate data provided - using defaults")
         
@@ -207,7 +253,7 @@ class FailurePredictionSimulator:
         cluster_lookup = {}
         
         if use_clustering and clusters:
-            print("🔗 Processing clustering data...")
+            print("🔗 Processing clustering data with index validation...")
             processed_defects = set()
             
             for cluster_idx, cluster in enumerate(clusters):
@@ -215,15 +261,15 @@ class FailurePredictionSimulator:
                     stress_factor = getattr(cluster, 'stress_concentration_factor', 1.0)
                     defect_indices = getattr(cluster, 'defect_indices', [])
                     
-                    # Map original cluster indices to filtered indices
+                    # FIXED: Map cluster indices to simulation IDs
                     mapped_indices = []
                     for orig_idx in defect_indices:
-                        if orig_idx in original_to_filtered:
-                            mapped_idx = original_to_filtered[orig_idx]
-                            mapped_indices.append(mapped_idx)
-                            processed_defects.add(mapped_idx)
+                        if orig_idx in original_to_simulation:
+                            sim_id = original_to_simulation[orig_idx]
+                            mapped_indices.append(sim_id)
+                            processed_defects.add(sim_id)
                             
-                            cluster_lookup[mapped_idx] = {
+                            cluster_lookup[sim_id] = {
                                 'stress_factor': stress_factor,
                                 'cluster_id': cluster_idx,
                                 'is_clustered': True
@@ -231,78 +277,48 @@ class FailurePredictionSimulator:
                     
                     if mapped_indices:
                         print(f"  Cluster {cluster_idx}: {len(mapped_indices)} defects, stress={stress_factor:.2f}")
+                    else:
+                        print(f"  Cluster {cluster_idx}: No valid defects found")
                     
                 except Exception as e:
                     print(f"⚠️ Error processing cluster {cluster_idx}: {e}")
                     continue
             
             # Add non-clustered defects
-            for filtered_idx in range(len(valid_defects)):
-                if filtered_idx not in processed_defects:
-                    cluster_lookup[filtered_idx] = {
+            for sim_id in range(len(valid_defects)):
+                if sim_id not in processed_defects:
+                    cluster_lookup[sim_id] = {
                         'stress_factor': 1.0,
                         'cluster_id': None,
                         'is_clustered': False
                     }
             
-            print(f"🔗 Clustering complete: {len([v for v in cluster_lookup.values() if v['is_clustered']])} clustered, {len([v for v in cluster_lookup.values() if not v['is_clustered']])} individual")
+            print(f"🔗 Clustering complete: {len([v for v in cluster_lookup.values() if v['is_clustered']])} clustered")
         
         else:
             print("📍 No clustering - treating all defects as individual")
-            # All defects individual
-            for filtered_idx in range(len(valid_defects)):
-                cluster_lookup[filtered_idx] = {
+            for sim_id in range(len(valid_defects)):
+                cluster_lookup[sim_id] = {
                     'stress_factor': 1.0,
                     'cluster_id': None,
                     'is_clustered': False
                 }
-
-        if use_clustering and clusters:
-            print("🔍 Validating cluster index mappings...")
-            
-            for cluster_idx, cluster in enumerate(clusters):
-                valid_indices = []
-                invalid_indices = []
-                
-                for orig_idx in cluster.defect_indices:
-                    if orig_idx in original_to_filtered:
-                        valid_indices.append(orig_idx)
-                    else:
-                        invalid_indices.append(orig_idx)
-                
-                if invalid_indices:
-                    print(f"⚠️ Cluster {cluster_idx}: Removed {len(invalid_indices)} invalid indices: {invalid_indices}")
-                    # Update cluster with only valid indices
-                    cluster.defect_indices = valid_indices
-                
-                # If cluster becomes empty or single defect, update cluster lookup
-                if len(valid_indices) <= 1:
-                    print(f"⚠️ Cluster {cluster_idx} has {len(valid_indices)} defects after validation - marking as non-clustered")
-                    for mapped_idx in valid_indices:
-                        if mapped_idx in original_to_filtered:
-                            filtered_idx = original_to_filtered[mapped_idx]
-                            cluster_lookup[filtered_idx] = {
-                                'stress_factor': 1.0,
-                                'cluster_id': None,
-                                'is_clustered': False
-                            }
-            
-            print("✅ Cluster validation complete")
         
-        # STEP 7: Initialize defect states using FILTERED data
-        print("🏗️ Initializing defect states...")
+        # STEP 7: Initialize defect states with validated data
+        print("🏗️ Initializing defect states with validated mappings...")
         self.defect_states = []
         
-        for filtered_idx, (original_idx, defect) in enumerate(valid_defects.iterrows()):
+        for sim_id, (_, defect) in enumerate(valid_defects.iterrows()):
             try:
-                # Get growth data (use defaults if not found)
-                growth_data = growth_lookup.get(filtered_idx, {
-                    'depth_growth_pct': 0.5,  # 0.5% per year default
-                    'length_growth_mm': 0.1   # 0.1 mm per year default
+                # Get growth data with fallback
+                growth_data = growth_lookup.get(sim_id, {
+                    'depth_growth_pct': 0.5,
+                    'length_growth_mm': 0.1,
+                    'growth_source': 'default'
                 })
                 
                 # Get clustering data
-                cluster_info = cluster_lookup.get(filtered_idx, {
+                cluster_info = cluster_lookup.get(sim_id, {
                     'stress_factor': 1.0,
                     'cluster_id': None,
                     'is_clustered': False
@@ -313,22 +329,10 @@ class FailurePredictionSimulator:
                 if pd.isna(wall_thickness) or wall_thickness <= 0:
                     wall_thickness = 10.0
                     print(f"⚠️ Using default wall thickness for joint {defect['joint number']}")
-
-
-                # Validate and convert depth
-                depth_value = defect['depth [%]']
-                if pd.isna(depth_value) or depth_value is None:
-                    print(f"⚠️ Defect {filtered_idx} has invalid depth, skipping")
-                    continue
                 
-                current_depth = float(depth_value)
-                if current_depth < 0 or current_depth > 100:
-                    print(f"⚠️ Defect {filtered_idx} has out-of-range depth {current_depth}%, clamping")
-                    current_depth = max(0, min(100, current_depth))
-                
-                # Create defect state
+                # Create defect state with simulation ID
                 defect_state = DefectState(
-                    defect_id=filtered_idx,  # Use filtered index as ID
+                    defect_id=sim_id,  # Use simulation ID for consistency
                     joint_number=defect['joint number'],
                     current_depth_pct=float(defect['depth [%]']),
                     current_length_mm=float(defect['length [mm]']),
@@ -345,30 +349,41 @@ class FailurePredictionSimulator:
                 self.defect_states.append(defect_state)
                 
             except Exception as e:
-                print(f"❌ Error creating defect state for index {filtered_idx}: {e}")
+                print(f"❌ Error creating defect state for simulation ID {sim_id}: {e}")
                 continue
         
+        # Create final ID mapping for simulation use
         self.defect_id_to_index = {
             defect.defect_id: idx 
             for idx, defect in enumerate(self.defect_states)
         }
+        
         final_count = len(self.defect_states)
         print(f"✅ Initialization complete: {final_count} defect states created")
         
-        # STEP 8: Validation
+        # FINAL VALIDATION
         if final_count == 0:
             print("❌ No defect states created!")
             return False
         
-        # Quick sanity check
-        severe_defects = sum(1 for ds in self.defect_states if ds.current_depth_pct > 80)
-        clustered_defects = sum(1 for ds in self.defect_states if ds.is_clustered)
+        # Detailed validation report
+        growth_data_count = sum(1 for s in self.defect_states if hasattr(s, 'growth_rate_pct_per_year'))
+        clustered_count = sum(1 for s in self.defect_states if s.is_clustered)
+        severe_count = sum(1 for s in self.defect_states if s.current_depth_pct > 80)
         
-        print(f"📊 Validation: {severe_defects} severe defects (>80%), {clustered_defects} clustered")
+        print(f"📊 Validation Summary:")
+        print(f"   - Total defects: {final_count}")
+        print(f"   - With growth data: {growth_data_count}")
+        print(f"   - Clustered: {clustered_count}")
+        print(f"   - Severe (>80%): {severe_count}")
         
-        if severe_defects > final_count * 0.5:
-            print("⚠️ WARNING: >50% of defects are severe (>80% depth)")
-        
+        # Store mapping for debugging
+        self.index_mapping = {
+            'original_to_simulation': original_to_simulation,
+            'simulation_to_original': simulation_to_original,
+            'growth_mapping_count': len(growth_lookup),
+            'cluster_mapping_count': len([v for v in cluster_lookup.values() if v['is_clustered']])
+        }
         return True
     
 

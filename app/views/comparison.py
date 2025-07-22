@@ -7,7 +7,6 @@ import streamlit as st
 from visualization.comparison_viz import *
 from app.services.state_manager import *
 from core.multi_year_analysis import compare_defects
-from core.enhanced_ffs_clustering import enhance_existing_assessment
 from analysis.growth_analysis import correct_negative_growth_rates
 from visualization.prediction_viz import create_failure_timeline_histogram
 from core.failure_simulation import FailurePredictionSimulator, SimulationParams
@@ -26,6 +25,7 @@ def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, di
         'clock_tolerance': clock_tolerance,
         'analysis_timestamp': pd.Timestamp.now()
     }
+
     update_state('analysis_parameters', analysis_params)
     
     with st.spinner("🔄 Processing advanced multi-year comparison..."):
@@ -58,8 +58,13 @@ def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, di
                 corrected_df, correction_info = _apply_growth_correction(
                     comparison_results['matches_df'],
                     earlier_data['joints_df'],
-                    analysis_params  # Pass the user parameters
+                    analysis_params  
                 )
+
+                if correction_info.get('auto_corrected', 0) > 0:
+                    st.write(f"✅ Applied KNN corrections to {correction_info['auto_corrected']} defects")
+                else:
+                    st.write("ℹ️ No KNN corrections needed - all growth rates realistic")
                 
                 # Update comparison results with corrected data
                 comparison_results['matches_df'] = corrected_df
@@ -708,8 +713,32 @@ def render_failure_prediction_section(datasets, comparison_results):
 
 
 def run_integrated_simulation(sim_params, data, growth_results, clustering_config, smys, safety_factor):
-    """Run failure simulation with optional dynamic clustering"""
     
+    """Run failure simulation with CORRECTED growth rates from KNN analysis. with optional dynamic clustering"""
+    
+
+    # Verify we're using corrected growth rates
+    if 'matches_df' not in growth_results:
+        raise ValueError("Growth results missing matches_df - cannot run simulation")
+    
+    matches_df = growth_results['matches_df']
+    
+    # VERIFICATION: Check if growth corrections were applied
+    has_corrections = False
+    correction_columns = ['is_corrected', 'correction_applied']
+    
+    for col in correction_columns:
+        if col in matches_df.columns:
+            corrected_count = matches_df[col].sum() if matches_df[col].dtype == bool else len(matches_df[matches_df[col] != 'none'])
+            if corrected_count > 0:
+                has_corrections = True
+                print(f"✅ Using corrected growth rates: {corrected_count} defects corrected")
+                break
+    
+    if not has_corrections:
+        print("⚠️ Warning: No growth corrections detected - ensure KNN correction was applied")
+
+
     # Initialize simulator with clustering config
     simulator = FailurePredictionSimulator(sim_params, clustering_config)
     
