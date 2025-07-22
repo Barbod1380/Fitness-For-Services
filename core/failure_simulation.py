@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
 from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area
 from core.standards_compliant_clustering import create_standards_compliant_clusterer
@@ -88,6 +88,9 @@ class FailurePredictionSimulator:
                 clustering_config['standard'],
                 clustering_config['pipe_diameter_mm']
             )
+
+        self.failed_joints: Set[int] = set()
+        self.joint_failure_timeline: Dict[int, int] = {}  # year -> number of joints that failed that year
 
     
     def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
@@ -370,16 +373,22 @@ class FailurePredictionSimulator:
     
 
     def run_simulation(self) -> Dict:
-        """Run simulation with proper failed defect tracking."""
+        """Run simulation with proper failed defect & joint tracking."""
         self.failure_history = []
         self.annual_results = []
         failed_defects = set()
+
+        # Initialize joint failure timeline
+        for year in range(self.params.simulation_years + 1):
+            self.joint_failure_timeline[year] = 0
         
         for year in range(self.params.simulation_years + 1):
             # Check initial failures (year 0) before any growth
             if year == 0:
                 year_failures, failed_defects = self._check_defect_failures(year, failed_defects)
                 self.failure_history.extend(year_failures) 
+                self._track_joint_failures(year, year_failures)
+
             else:       
                 # Grow defects BEFORE clustering, passing failed_defects
                 self._grow_defects(year, failed_defects)
@@ -391,6 +400,7 @@ class FailurePredictionSimulator:
                 # Check for failures after growth
                 year_failures, failed_defects = self._check_defect_failures(year, failed_defects)
                 self.failure_history.extend(year_failures) 
+                self._track_joint_failures(year, year_failures)
             
             # Calculate annual statistics
             annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
@@ -398,13 +408,33 @@ class FailurePredictionSimulator:
         return self._compile_results()
 
 
+    def _track_joint_failures(self, year: int, year_failures: List[DefectFailure]):
+        """Track which joints failed this year (simple implementation)."""
+        joints_failed_this_year = 0
+        
+        for failure in year_failures:
+            joint_number = failure.joint_number
+            if joint_number not in self.failed_joints:
+                # This joint is failing for the first time
+                self.failed_joints.add(joint_number)
+                joints_failed_this_year += 1
+        
+        self.joint_failure_timeline[year] = joints_failed_this_year
+
+
     def _calculate_annual_stats(self, year: int, year_failures: List[DefectFailure], failed_defects: set) -> Dict:
-        """Calculate statistics for the current year"""
-        # Count clustered defects
+        """Calculate statistics for the current year - now includes joint stats."""
+        
+        # Existing defect stats
         clustered_count = sum(1 for d in self.defect_states if d.is_clustered and d.defect_id not in failed_defects)
         total_active = len([d for d in self.defect_states if d.defect_id not in failed_defects])
         
-        # Safe calculations
+        # NEW: Calculate total joints and surviving joints
+        all_joints = set(d.joint_number for d in self.defect_states)
+        total_joints = len(all_joints)
+        surviving_joints = total_joints - len(self.failed_joints)
+        
+        # Safe calculations for max ERF and depths
         try:
             max_erf = self._calculate_max_erf()
             if max_erf is None or not isinstance(max_erf, (int, float)):
@@ -424,6 +454,7 @@ class FailurePredictionSimulator:
         
         return {
             'year': year,
+            # Defect-level stats (existing)
             'total_defects': len(self.defect_states),
             'active_defects': total_active,
             'failed_defects_this_year': len(year_failures),
@@ -432,7 +463,14 @@ class FailurePredictionSimulator:
             'clustered_defects': clustered_count,
             'max_erf': float(max_erf),
             'max_depth': float(max_depth),
-            'avg_depth': float(avg_depth)
+            'avg_depth': float(avg_depth),
+            
+            # NEW: Joint-level stats
+            'total_joints': total_joints,
+            'failed_joints_this_year': self.joint_failure_timeline[year],
+            'cumulative_failed_joints': len(self.failed_joints),
+            'surviving_joints': surviving_joints,
+            'joint_survival_rate': (surviving_joints / total_joints * 100) if total_joints > 0 else 100.0
         }
 
 
@@ -697,16 +735,33 @@ class FailurePredictionSimulator:
     
 
     def _compile_results(self) -> Dict:
-        """Compile final simulation results - CHANGED to defect-based."""
+        """Compile final simulation results - now includes joint data."""
+        
+        # Calculate joint survival statistics
+        all_joints = set(d.joint_number for d in self.defect_states)
+        total_joints = len(all_joints)
+        failed_joints_count = len(self.failed_joints)
+        surviving_joints_count = total_joints - failed_joints_count
         
         return {
             'simulation_params': self.params,
             'annual_results': self.annual_results,
             'failure_history': self.failure_history,
-            'total_failures': len(self.failure_history),  # CHANGED: Count defect failures
+            'total_failures': len(self.failure_history),
             'failure_timeline': self._create_failure_timeline(),
-            'survival_statistics': self._calculate_survival_statistics()
+            'survival_statistics': self._calculate_survival_statistics(),
+            
+            # Joint-specific results
+            'joint_failure_timeline': self.joint_failure_timeline,
+            'joint_survival_statistics': {
+                'total_joints': total_joints,
+                'failed_joints': failed_joints_count,
+                'surviving_joints': surviving_joints_count,
+                'joint_failure_rate': (failed_joints_count / total_joints * 100) if total_joints > 0 else 0,
+                'joint_survival_rate': (surviving_joints_count / total_joints * 100) if total_joints > 0 else 100
+            }
         }
+
     
     def _create_failure_timeline(self) -> Dict[int, int]:
         """Create timeline of defect failures by year."""

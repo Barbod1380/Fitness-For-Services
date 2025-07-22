@@ -12,49 +12,6 @@ from analysis.growth_analysis import correct_negative_growth_rates
 from visualization.prediction_viz import create_failure_timeline_histogram
 from core.failure_simulation import FailurePredictionSimulator, SimulationParams
 from datetime import datetime
-                
-
-def render_enhanced_clustering_analysis(earlier_data, later_data):
-    """Enhanced clustering analysis for multi-year comparison"""
-    
-    st.markdown("---")
-    st.markdown("### 🔬 Enhanced Clustering Analysis")
-    
-    if st.button("🚀 Analyze Defect Clustering", key="clustering_analysis"):
-        
-        with st.spinner("Performing enhanced clustering analysis..."):
-            try:
-                # Get data
-                defects_df = later_data['defects_df']
-                joints_df = later_data['joints_df']
-                pipe_diameter_mm = later_data['pipe_diameter'] * 1000
-
-                combined_df, clusters = enhance_existing_assessment(
-                    defects_df, joints_df, pipe_diameter_mm, "RSTRENG"
-                )
-                
-                # Display results
-                st.success(f"✅ Found {len(clusters)} clusters with enhanced analysis")
-                
-                # Show cluster details
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Clusters Found", len(clusters))
-                with col2:
-                    defects_clustered = sum(len(c.defect_indices) for c in clusters)
-                    st.metric("Defects Clustered", defects_clustered)
-                with col3:
-                    max_stress = max([c.stress_concentration_factor for c in clusters], default=1.0)
-                    st.metric("Max Stress Factor", f"{max_stress:.2f}x")
-                
-                # Store results for future use
-                st.session_state.enhanced_clusters = clusters
-                st.session_state.combined_defects = combined_df
-                
-                st.info("💡 **Ready for simulation**: Clustering results stored for 15-year failure prediction")
-                
-            except Exception as e:
-                st.error(f"Error in clustering analysis: {str(e)}")
 
 
 def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, distance_tolerance, clock_tolerance):
@@ -288,7 +245,7 @@ def display_data_preview_and_results(earlier_data, later_data):
     tabs = st.tabs([
         "📊 Overview", 
         "📈 Growth Analysis",
-        "🔧 Correction Review",  # New tab for detailed correction review
+        "🔧 Correction Review", 
         "📋 Data Export"
     ])
     
@@ -315,8 +272,6 @@ def display_data_preview_and_results(earlier_data, later_data):
     with tabs[3]:
         # Data export capabilities
         _render_data_export_section()
-
-    render_enhanced_clustering_analysis(earlier_data, later_data)
 
 
 def _render_growth_analysis_visualizations():
@@ -784,9 +739,7 @@ def run_integrated_simulation(sim_params, data, growth_results, clustering_confi
 
 
 def display_prediction_results_simple():
-    """
-    FIXED: Display simulation results with simple visualizations - handles pandas arrays properly.
-    """
+    """Display simulation results with joint AND defect statistics."""
     
     if not hasattr(st.session_state, 'prediction_results'):
         return
@@ -796,10 +749,15 @@ def display_prediction_results_simple():
     st.markdown("---")
     st.markdown("### 📊 Simulation Results")
     
-    # Summary metrics - FIXED: Safe access to nested dictionaries
+    # Get both defect and joint statistics
     try:
         survival_stats = results.get('survival_statistics', {})
+        joint_stats = results.get('joint_survival_statistics', {})
         
+        # Display metrics in two rows: Defects and Joints
+        
+        # DEFECT STATISTICS (existing)
+        st.markdown("#### 🔧 Defect-Level Results")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -825,21 +783,61 @@ def display_prediction_results_simple():
             )
         
         with col4:
-            # FIXED: Safe check for failure history
             failure_history = results.get('failure_history', [])
             if failure_history and len(failure_history) > 0:
                 try:
                     first_failure_year = min(f.failure_year for f in failure_history)
-                    st.metric("First Failure", f"Year {first_failure_year}")
-                except (AttributeError, ValueError, TypeError):
-                    st.metric("First Failure", "Error calculating")
+                    st.metric("First Defect Failure", f"Year {first_failure_year}")
+                except:
+                    st.metric("First Defect Failure", "Error calculating")
             else:
-                st.metric("First Failure", "None predicted")
+                st.metric("First Defect Failure", "None predicted")
+        
+        # NEW: JOINT STATISTICS
+        st.markdown("#### 🏗️ Joint-Level Results")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_joints = joint_stats.get('total_joints', 0)
+            st.metric("Total Joints", total_joints)
+        
+        with col2:
+            failed_joints = joint_stats.get('failed_joints', 0)
+            joint_failure_rate = joint_stats.get('joint_failure_rate', 0.0)
+            st.metric(
+                "Failed Joints", 
+                failed_joints,
+                f"{joint_failure_rate:.1f}% of total"
+            )
+
+        with col3:
+            surviving_joints = joint_stats.get('surviving_joints', 0)
+            joint_survival_rate = joint_stats.get('joint_survival_rate', 100.0)
+            st.metric(
+                "Surviving Joints", 
+                surviving_joints,
+                f"{joint_survival_rate:.1f}% survival"
+            )
+        
+        with col4:
+            # Find first joint failure year
+            joint_timeline = results.get('joint_failure_timeline', {})
+            first_joint_failure = None
+            for year in sorted(joint_timeline.keys()):
+                if joint_timeline[year] > 0:
+                    first_joint_failure = year
+                    break
+            
+            if first_joint_failure is not None:
+                st.metric("First Joint Failure", f"Year {first_joint_failure}")
+            else:
+                st.metric("First Joint Failure", "None predicted")
         
     except Exception as e:
         st.error(f"Error displaying summary metrics: {str(e)}")
         return
     
+    # Enhanced timeline visualization (now includes joints)
     try:
         fig = create_failure_timeline_histogram(results)
         st.plotly_chart(fig, use_container_width=True)   
@@ -847,82 +845,55 @@ def display_prediction_results_simple():
     except Exception as e:
         st.error(f"Error creating timeline chart: {str(e)}")
     
-    # Failure details - FIXED: Much safer handling
-    try:
-        failure_history = results.get('failure_history', [])
-        
-        # FIXED: Safe check for failure history existence
-        has_failures = False
-        if failure_history:
-            if hasattr(failure_history, '__len__'):
-                has_failures = len(failure_history) > 0
-            else:
-                # If it's not a normal list/array, try to convert
-                try:
-                    failure_list = list(failure_history)
-                    has_failures = len(failure_list) > 0
-                    failure_history = failure_list
-                except:
-                    has_failures = False
-        
-        if has_failures:
-            with st.expander("📋 Defect Failure Details"):
-                try:
-                    failure_data = []
-                    for failure in failure_history:
-                        try:
-                            # FIXED: Safe attribute access with getattr
-                            failure_data.append({
-                                'Defect ID': getattr(failure, 'defect_id', 'Unknown'),
-                                'Joint Number': getattr(failure, 'joint_number', 'Unknown'),
-                                'Location (m)': f"{getattr(failure, 'location_m', 0.0):.2f}",
-                                'Failure Year': getattr(failure, 'failure_year', 'Unknown'),
-                                'Failure Mode': getattr(failure, 'failure_mode', 'Unknown'),
-                                'Final ERF': f"{getattr(failure, 'final_erf', 0.0):.3f}",
-                                'Final Depth (%)': f"{getattr(failure, 'final_depth_pct', 0.0):.1f}%",
-                                'Was Clustered': "Yes" if getattr(failure, 'was_clustered', False) else "No",
-                                'Stress Factor': f"{getattr(failure, 'stress_concentration_factor', 1.0):.2f}x"
-                            })
-                        except Exception as e:
-                            st.warning(f"Could not process failure record: {str(e)}")
-                            continue
-                    
-                    if failure_data:
-                        failure_df = pd.DataFrame(failure_data)
-                        st.dataframe(failure_df, use_container_width=True)
-                    else:
-                        st.warning("No valid failure data could be processed")
-                        
-                except Exception as e:
-                    st.error(f"Error processing failure details: {str(e)}")
-        
-    except Exception as e:
-        st.error(f"Error in failure details section: {str(e)}")
-    
-    # Risk assessment - FIXED: Safe access to stats
+    # Risk assessment based on JOINT failures (more critical)
     try:
         st.markdown("### 💡 Risk Assessment")
         
-        survival_stats = results.get('survival_statistics', {})
-        failure_rate = survival_stats.get('failure_rate', 0.0)
+        joint_stats = results.get('joint_survival_statistics', {})
+        joint_failure_rate = joint_stats.get('joint_failure_rate', 0.0)
         
-        # FIXED: Ensure failure_rate is a number, not an array
-        if hasattr(failure_rate, '__iter__') and not isinstance(failure_rate, str):
-            failure_rate = float(failure_rate[0]) if len(failure_rate) > 0 else 0.0
+        # Ensure failure_rate is a number
+        if hasattr(joint_failure_rate, '__iter__') and not isinstance(joint_failure_rate, str):
+            joint_failure_rate = float(joint_failure_rate[0]) if len(joint_failure_rate) > 0 else 0.0
         else:
-            failure_rate = float(failure_rate)
+            joint_failure_rate = float(joint_failure_rate)
         
-        if failure_rate > 20:
-            st.error(f"🚨 **HIGH RISK**: {failure_rate:.1f}% defect failure rate predicted")
-        elif failure_rate > 10:
-            st.warning(f"⚠️ **MODERATE RISK**: {failure_rate:.1f}% defect failure rate predicted")
-        elif failure_rate > 0:
-            st.success(f"✅ **LOW RISK**: {failure_rate:.1f}% defect failure rate predicted")
+        # Risk assessment based on JOINT failures (more critical than defect failures)
+        if joint_failure_rate > 15:
+            st.error(f"🚨 **CRITICAL RISK**: {joint_failure_rate:.1f}% joint failure rate predicted")
+            st.error("⚠️ **Immediate Action Required**: Multiple pipeline segments at risk")
+        elif joint_failure_rate > 5:
+            st.warning(f"⚠️ **HIGH RISK**: {joint_failure_rate:.1f}% joint failure rate predicted")
+            st.warning("🔧 **Targeted Maintenance Required**: Focus on failing joints")
+        elif joint_failure_rate > 0:
+            st.info(f"ℹ️ **MODERATE RISK**: {joint_failure_rate:.1f}% joint failure rate predicted")
+            st.info("👀 **Monitor Closely**: Some joints may require attention")
         else:
-            st.success("🎉 **EXCELLENT**: No defect failures predicted!")
+            st.success("🎉 **EXCELLENT**: No joint failures predicted!")
             
     except Exception as e:
         st.error(f"Error in risk assessment: {str(e)}")
+
+    # Joint failure details (if any)
+    joint_timeline = results.get('joint_failure_timeline', {})
+    total_joint_failures = sum(joint_timeline.values()) if joint_timeline else 0
+    
+    if total_joint_failures > 0:
+        with st.expander("🏗️ Joint Failure Timeline Details"):
+            timeline_data = []
+            for year in sorted(joint_timeline.keys()):
+                if joint_timeline[year] > 0:
+                    timeline_data.append({
+                        'Year': year,
+                        'Joints Failed': joint_timeline[year],
+                        'Impact': 'High' if joint_timeline[year] > 2 else 'Moderate'
+                    })
+            
+            if timeline_data:
+                timeline_df = pd.DataFrame(timeline_data)
+                st.dataframe(timeline_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No joint failures predicted during simulation period")
 
 
 def render_results_visualization_tab(datasets):
