@@ -22,7 +22,7 @@ class FFSDefectInteraction:
     
     def find_interacting_defects(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame,show_progress: bool = True) -> List[List[int]]:
         """
-        FIXED: Find clusters using Union-Find for proper transitive clustering
+        Find clusters using Union-Find for proper transitive clustering
         """
         import streamlit as st
         
@@ -44,7 +44,7 @@ class FFSDefectInteraction:
         original_indices = defects_sorted['index'].tolist()
         n_defects = len(defects_sorted)
         
-        # FIXED: Initialize Union-Find data structure
+        # Initialize Union-Find data structure
         parent = list(range(n_defects))
         rank = [0] * n_defects
         
@@ -100,7 +100,7 @@ class FFSDefectInteraction:
                 defect_j = defects_sorted.iloc[j]
                 total_comparisons += 1
                 
-                # FIXED: Use proper interaction check
+                # Use proper interaction check
                 if self._defects_interact_vectorized(defect_i, defect_j, criteria):
                     union(i, j)  # Union the defects in same cluster
                     interactions_found += 1
@@ -473,7 +473,7 @@ class FFSDefectInteraction:
 
     def _calculate_vector_summed_width(self, defect_vectors: List[Dict], pipe_diameter_mm: float) -> float:
         """
-        FIXED: Calculate combined circumferential width using proper arc-length conversion.
+        Calculate combined circumferential width using proper arc-length conversion.
         
         Properly accounts for pipe curvature and circumferential extent.
         """

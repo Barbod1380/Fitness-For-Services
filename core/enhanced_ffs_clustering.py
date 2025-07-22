@@ -188,13 +188,11 @@ class EnhancedFFSClusterer:
             length_mm = defect['length [mm]']
             width_mm = defect.get('width [mm]', length_mm * 0.5)  # More realistic default
             
-            # FIXED: Use pipeline-specific stress concentration approach
-            # Based on aspect ratio rather than absolute notch radius
+            # Use pipeline-specific stress concentration approach Based on aspect ratio rather than absolute notch radius
             aspect_ratio = length_mm / max(width_mm, 1.0)  # Prevent division by zero
             depth_ratio = depth_mm / defect.get('wall_thickness_mm', 10.0)
             
-            # API 579-1 based formula for surface flaws in pipelines
-            # Much more conservative and realistic than Peterson's formula
+            # API 579-1 based formula for surface flaws in pipelines Much more conservative and realistic than Peterson's formula
             if aspect_ratio > 6.0:
                 # Long defect - lower stress concentration
                 kt_base = 1.0 + 0.5 * depth_ratio
@@ -210,8 +208,7 @@ class EnhancedFFSClusterer:
             size_factor = min(length_mm / 10.0, 1.0)  # Reduces effect for defects < 10mm
             kt_individual = 1.0 + (kt_base - 1.0) * (0.5 + 0.5 * size_factor)
             
-            # FIXED: More realistic upper limit for pipeline defects
-            kt_individual = min(kt_individual, 2.5)  # Reduced from 5.0
+            kt_individual = min(kt_individual, 2.5)  
             kt_individual = max(kt_individual, 1.0)
             
             individual_kt_factors.append(kt_individual)
@@ -219,7 +216,7 @@ class EnhancedFFSClusterer:
         # STEP 2: Calculate interaction effects with validation
         interaction_factor = self._calculate_api579_interaction_factor(cluster_defects)
         
-        # STEP 3: FIXED - More realistic combination approach
+        # STEP 3: More realistic combination approach
         num_defects = len(cluster_defects)
         
         if num_defects == 2:
@@ -230,7 +227,6 @@ class EnhancedFFSClusterer:
             avg_kt = sum(individual_kt_factors) / len(individual_kt_factors)
             kt_combined = avg_kt * interaction_factor
         
-        # STEP 4: FIXED - Apply realistic physical limits
         # Real pipeline defects rarely exceed 2.0x stress concentration
         if num_defects <= 3:
             kt_final = min(kt_combined, 2.0)  # Conservative but realistic

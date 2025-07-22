@@ -17,8 +17,6 @@ from datetime import datetime
 def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, distance_tolerance, clock_tolerance):
     """
     Perform comprehensive multi-year comparison analysis with automatic growth correction.
-    
-    FIXED: Now accepts tolerance parameters directly from user input
     """
     st.success(f"✅ Analysis initialized for {earlier_year} vs {later_year}")
     
@@ -918,9 +916,6 @@ def render_results_visualization_tab(datasets):
 
 
 def render_export_tab():
-    """
-    FIXED: Enhanced export tab with unique keys for all download buttons
-    """
     st.markdown("### 📥 Data Export & Documentation")
     
     comparison_results = get_state('comparison_results')
@@ -935,7 +930,7 @@ def render_export_tab():
     with col1:
         st.markdown("#### 📊 Growth Analysis Data")
         
-        # Export matched defects - FIXED: Added unique key
+        # Export matched defects - Added unique key
         if not comparison_results['matches_df'].empty:
             matches_csv = comparison_results['matches_df'].to_csv(index=False)
             st.download_button(
@@ -946,7 +941,7 @@ def render_export_tab():
                 key="export_tab_matched_defects_download"  # UNIQUE KEY
             )
         
-        # Export new defects - FIXED: Added unique key
+        # Export new defects - Added unique key
         if not comparison_results['new_defects'].empty:
             new_defects_csv = comparison_results['new_defects'].to_csv(index=False)
             st.download_button(
@@ -960,7 +955,7 @@ def render_export_tab():
     with col2:
         st.markdown("#### 🔧 Clustering Data")
         
-        # Export clustering results if available - FIXED: Added unique key
+        # Export clustering results if available - Added unique key
         if hasattr(st.session_state, 'enhanced_clusters') and st.session_state.enhanced_clusters:
             # Combined defects export
             if hasattr(st.session_state, 'combined_defects'):
@@ -981,7 +976,7 @@ def render_export_tab():
     col1, col2 = st.columns(2)
     
     with col1:
-        # Growth correction report - FIXED: Added unique key
+        # Growth correction report - Added unique key
         if correction_results:
             report_content = _generate_correction_report(correction_results, comparison_results)
             st.download_button(
@@ -993,7 +988,7 @@ def render_export_tab():
             )
     
     with col2:
-        # Methodology documentation - FIXED: Added unique key
+        # Methodology documentation -  Added unique key
         methodology_doc = _generate_methodology_documentation()
         st.download_button(
             label="📖 Download Methodology Documentation",
@@ -1070,7 +1065,7 @@ def _render_correction_review_section():
 
 def _render_data_export_section():
     """
-    FIXED: Render data export capabilities with unique keys for download buttons
+    Render data export capabilities with unique keys for download buttons
     """
     
     comparison_results = get_state('comparison_results')
@@ -1087,7 +1082,7 @@ def _render_data_export_section():
     with col1:
         st.markdown("#### Analysis Data")
         
-        # Export matched defects with corrections - FIXED: Added unique key
+        # Export matched defects with corrections - Added unique key
         if not comparison_results['matches_df'].empty:
             matches_csv = comparison_results['matches_df'].to_csv(index=False)
             st.download_button(
