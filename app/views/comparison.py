@@ -11,9 +11,7 @@ from core.enhanced_ffs_clustering import enhance_existing_assessment
 from analysis.growth_analysis import correct_negative_growth_rates
 from visualization.prediction_viz import create_failure_timeline_histogram
 from core.failure_simulation import FailurePredictionSimulator, SimulationParams
-from core.standards_compliant_clustering import create_standards_compliant_clusterer
 from datetime import datetime
-import time
                 
 
 def render_enhanced_clustering_analysis(earlier_data, later_data):

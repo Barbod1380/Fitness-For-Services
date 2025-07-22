@@ -103,15 +103,13 @@ class FailurePredictionSimulator:
                 from core.enhanced_ffs_clustering import EnhancedFFSClusterer
                 
                 enhanced_clusterer = EnhancedFFSClusterer(
-                    standard=self.clustering_config['standard'],  # ✅ User's selected standard
-                    pipe_diameter_mm=self.clustering_config['pipe_diameter_mm'],  # ✅ User's pipe diameter
+                    standard=self.clustering_config['standard'],  
+                    pipe_diameter_mm=self.clustering_config['pipe_diameter_mm'],  
                     include_stress_concentration=True
                 )
                 
                 # ✅ Replace clusters with combined defects
-                combined_defects_df = enhanced_clusterer.create_combined_defects_dataframe(
-                    defects_df, clusters
-                )
+                combined_defects_df = enhanced_clusterer.create_combined_defects_dataframe(defects_df, clusters)
                 
                 print(f"✅ Using combined defects with {self.clustering_config['standard']} standard: "
                     f"{len(combined_defects_df)} total ({len(defects_df)} original)")
