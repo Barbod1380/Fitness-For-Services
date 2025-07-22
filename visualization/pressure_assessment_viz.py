@@ -98,4 +98,3 @@ def create_pressure_assessment_visualization(enhanced_df, method='b31g'):
     fig.update_layout(**layout_params)
     
     return fig
-
