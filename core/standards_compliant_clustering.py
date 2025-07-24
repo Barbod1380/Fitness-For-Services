@@ -382,7 +382,7 @@ class StandardsCompliantClusterer:
             progress_bar = st.progress(0)
             status_text = st.empty()
         
-        # OPTIMIZATION: Batch process defects in chunks to update progress
+        # Batch process defects in chunks to update progress
         batch_size = max(1, n_defects // 20)  # 20 progress updates
         
         for batch_start in range(0, n_defects, batch_size):
@@ -403,11 +403,11 @@ class StandardsCompliantClusterer:
                 
                 defect_i = defects_sorted.iloc[i]
                 
-                # OPTIMIZATION: Get wall thickness once per defect
+                # Get wall thickness once per defect
                 wall_thickness = wt_lookup.get(defect_i['joint number'], 10.0)
                 criteria = self.calculate_interaction_criteria(wall_thickness)
                 
-                # OPTIMIZATION: Spatial indexing - only check nearby defects
+                # Spatial indexing - only check nearby defects
                 cluster = [original_i]
                 location_i = defect_i['log dist. [m]']
                 max_distance_m = criteria.axial_distance_mm / 1000.0  # Convert to meters
@@ -444,39 +444,25 @@ class StandardsCompliantClusterer:
 
 
     def _defects_interact_vectorized(self, defect1: pd.Series, defect2: pd.Series, criteria: InteractionCriteria) -> bool:
-        """
-        OPTIMIZED: Vectorized interaction check 
-        """
         if defect1['joint number'] != defect2['joint number']:
             return False
 
-        # Fast axial separation check (most common rejection)
+        # Fast axial separation check
         axial_separation_mm = abs(defect1['log dist. [m]'] - defect2['log dist. [m]']) * 1000
         if axial_separation_mm > criteria.axial_distance_mm:
-            return False  # Early return saves 70% of calculations
+            return False
         
-        # Only check circumferential if axial passes (lazy evaluation)
+        # Check circumferential ONLY if clock data is available
         if 'clock_float' in defect1.index and 'clock_float' in defect2.index:
             clock1, clock2 = defect1['clock_float'], defect2['clock_float']
             
             if pd.notna(clock1) and pd.notna(clock2):
-                # Vectorized clock difference calculation
                 clock_diff = min(abs(clock1 - clock2), 12 - abs(clock1 - clock2))
                 arc_length_mm = (clock_diff / 12.0) * math.pi * self.pipe_diameter_mm
                 
                 if arc_length_mm > criteria.circumferential_distance_mm:
                     return False
-        
-        else:
-            return False
-        
-        # Optional depth check (fastest last)
-        if 'depth [%]' in defect1.index and 'depth [%]' in defect2.index:
-            depth_diff = abs(defect1['depth [%]'] - defect2['depth [%]'])
-            if depth_diff > 20.0:
-                return False
-        
-        return True
+        return True  
 
     def get_standard_info(self) -> Dict:
         """

@@ -12,7 +12,7 @@ from app.services.state_manager import get_state
 from core.ffs_defect_interaction import *
 from visualization.defect_assessment_viz import create_defect_assessment_scatter_plot, create_defect_assessment_summary_table, create_rstreng_envelope_plot
 from visualization.pressure_assessment_viz import create_pressure_assessment_visualization
-from typing import Optional
+from typing import Optional, Sequence
 
 
 def calculate_b31g(
@@ -30,7 +30,6 @@ def calculate_b31g(
     Original ASME B31G Level‑1 (2012) – corrected implementation.
     Follows the two‑segment Folias factor and the full flow‑stress rule set.
     """
-    import math
     method = "B31G Original Level‑1"
 
     # ── 1  basic checks ─────────────────────────────────────────
@@ -115,8 +114,6 @@ def calculate_modified_b31g(
     ASME Modified B31G (0.85 dL) — Level‑1 corrosion assessment.
     Implements z‑limit (≤50), d/t‑limit (≤0.80), and 0.85 dL area rule.
     """
-
-    import math
     method = "Modified B31G (0.85 dL)"
 
     # 1 ─ basic depth & geometry checks
@@ -278,6 +275,90 @@ def calculate_rstreng_effective_area_single(
         psi_parameter=psi,
         note=f"L2/DT={L2DT:.2f}, psi={psi:.2f}, Mt={M:.3f}, α={alpha}, d/t={d:.4f}"
     )
+
+
+def calculate_rstreng_effective_area_cluster(
+    depth_profile_mm: Sequence[float],
+    axial_step_mm: float,
+    pipe_diameter_mm: float,
+    wall_thickness_mm: float,
+    maop_mpa: float,
+    smys_mpa: float,
+    safety_factor: float = 1.39,
+    smts_mpa: Optional[float] = None,
+) -> dict:
+    """
+    RSTRENG (Effective Area) calculation for a corrosion cluster (using river-bottom profile).
+
+    Parameters:
+        depth_profile_mm: Sequence of defect depths at each axial position (mm)
+        axial_step_mm: Axial interval (mm)
+        pipe_diameter_mm: Pipe OD (mm)
+        wall_thickness_mm: Wall thickness (mm)
+        maop_mpa: Maximum allowable operating pressure (MPa)
+        smys_mpa: Specified minimum yield strength (MPa)
+        safety_factor: Safety factor for pressure (default: 1.39)
+        smts_mpa: (Optional) Specified minimum tensile strength for flow stress cap
+
+    Returns:
+        dict with calculation results and metadata.
+    """
+    method = "RSTRENG (Cluster, river-bottom profile)"
+
+    D = pipe_diameter_mm
+    t = wall_thickness_mm
+    L_total = len(depth_profile_mm) * axial_step_mm
+
+    if D <= 0 or t <= 0 or L_total <= 0 or np.any(np.array(depth_profile_mm) < 0):
+        return dict(method=method, safe=False, note="Invalid geometry or negative depth.")
+
+    # Metal loss area (sq mm)
+    area_lost = np.trapz(depth_profile_mm, dx=axial_step_mm)
+
+    # Reference area (sq mm)
+    area_ref = L_total * t
+
+    # Area ratio (RSF)
+    RSF = area_lost / area_ref
+
+    if RSF >= 1.0:
+        return dict(method=method, safe=False, failure_pressure_mpa=0.0, note="Full wall loss (RSF ≥ 1.0)")
+
+    # Folias factor (using total cluster length)
+    L2DT = (L_total ** 2) / (D * t)
+    if L2DT <= 50.0:
+        M = math.sqrt(1.0 + 0.6275 * L2DT - 0.003375 * (L2DT ** 2))
+    else:
+        M = 0.032 * L2DT + 3.3
+
+    # Flow stress (MPa)
+    S_flow = smys_mpa + 68.95
+    if smts_mpa is not None:
+        S_flow = min(S_flow, 0.9 * smts_mpa)
+
+    numer = 1.0 - RSF
+    denom = 1.0 - (RSF / M)
+    if denom <= 0.0:
+        return dict(method=method, safe=False, note="Denominator ≤ 0 — unphysical cluster geometry.")
+
+    Sf = S_flow * (numer / denom)
+    Pf = 2.0 * Sf * t / D           # Failure pressure (MPa)
+    P_safe = Pf / safety_factor     # Safe/allowable pressure (MPa)
+    RSF_pct = (Sf / S_flow) * 100.0
+
+    return dict(
+        method=method,
+        safe=P_safe >= maop_mpa,
+        failure_pressure_mpa=Pf,
+        safe_pressure_mpa=P_safe,
+        remaining_strength_pct=RSF_pct,
+        folias_factor_Mt=M,
+        flow_stress_mpa=S_flow,
+        area_ratio_RSF=RSF,
+        L2DT=L2DT,
+        note=f"L2/DT={L2DT:.2f}, M={M:.3f}, RSF={RSF:.4f}, len={L_total:.2f}mm"
+    )
+
 
 
 def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, analysis_pressure_mpa, max_allowable_pressure_mpa):

@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
-from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area_single
+from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area_single, calculate_rstreng_effective_area_cluster
 from core.standards_compliant_clustering import create_standards_compliant_clusterer
 
 """
@@ -92,6 +92,9 @@ class FailurePredictionSimulator:
 
         self.failed_joints: Set[int] = set()
         self.joint_failure_timeline: Dict[int, int] = {}  # year -> number of joints that failed that year
+
+        # Add cluster profiles storage
+        self.cluster_profiles: Dict[int, Dict] = {}  # {cluster_id: profile_data}
 
     
     def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
@@ -249,6 +252,7 @@ class FailurePredictionSimulator:
         else:
             print("⚠️ No growth rate data provided - using defaults")
         
+
         # STEP 6: Process clustering with proper index mapping
         cluster_lookup = {}
         
@@ -261,7 +265,7 @@ class FailurePredictionSimulator:
                     stress_factor = getattr(cluster, 'stress_concentration_factor', 1.0)
                     defect_indices = getattr(cluster, 'defect_indices', [])
                     
-                    # FIXED: Map cluster indices to simulation IDs
+                    # Map cluster indices to simulation IDs
                     mapped_indices = []
                     for orig_idx in defect_indices:
                         if orig_idx in original_to_simulation:
@@ -394,6 +398,9 @@ class FailurePredictionSimulator:
         self.annual_results = []
         failed_defects = set()
 
+        # Initialize cluster profiles dictionary for each simulation
+        self.cluster_profiles = {}
+
         # Initialize joint failure timeline
         for year in range(self.params.simulation_years + 1):
             self.joint_failure_timeline[year] = 0
@@ -422,6 +429,76 @@ class FailurePredictionSimulator:
             annual_result = self._calculate_annual_stats(year, year_failures, failed_defects)
             self.annual_results.append(annual_result)
         return self._compile_results()
+    
+
+    def _generate_river_bottom_profile(self, cluster_defects: List[DefectState], cluster_id: int) -> Dict:
+        """
+        Generate river-bottom profile for a cluster of defects.
+        
+        Parameters:
+        - cluster_defects: List of DefectState objects in the cluster
+        - cluster_id: Unique cluster identifier
+        
+        Returns:
+        - Dictionary with profile data ready for RSTRENG calculation
+        """
+        if len(cluster_defects) <= 1:
+            # Single defect - no need for complex profile
+            return None
+        
+        # Step 1: Calculate defect boundaries (using START positions)
+        defect_boundaries = []
+        for defect in cluster_defects:
+            start_pos_mm = defect.location_m * 1000  
+            end_pos_mm = start_pos_mm + defect.current_length_mm
+            
+            defect_boundaries.append({
+                'defect_id': defect.defect_id,
+                'start_mm': start_pos_mm,
+                'end_mm': end_pos_mm,
+                'depth_mm': defect.current_depth_pct * defect.wall_thickness_mm / 100.0  
+            })
+        
+        # Step 2: Find overall cluster boundaries
+        cluster_start_mm = min(d['start_mm'] for d in defect_boundaries)
+        cluster_end_mm = max(d['end_mm'] for d in defect_boundaries)
+        cluster_length_mm = cluster_end_mm - cluster_start_mm
+        
+        # Step 3: Generate depth profile (1mm increments)
+        axial_step_mm = 1.0
+        num_points = int(cluster_length_mm) + 1  # +1 to include end point
+        depth_profile_mm = []
+        
+        for i in range(num_points):
+            current_position_mm = cluster_start_mm + i * axial_step_mm
+            
+            # Find maximum depth at this position from all overlapping defects
+            max_depth_at_position = 0.0
+            
+            for boundary in defect_boundaries:
+                if boundary['start_mm'] <= current_position_mm <= boundary['end_mm']:
+                    # This defect overlaps at current position
+                    # Using option C: constant max depth across defect
+                    max_depth_at_position = max(max_depth_at_position, boundary['depth_mm'])
+            
+            depth_profile_mm.append(max_depth_at_position)
+        
+        # Step 4: Create profile data structure
+        profile_data = {
+            'depth_profile_mm': depth_profile_mm,
+            'axial_step_mm': axial_step_mm,
+            'cluster_start_mm': cluster_start_mm,
+            'cluster_end_mm': cluster_end_mm,
+            'cluster_length_mm': cluster_length_mm,
+            'defect_ids': [d.defect_id for d in cluster_defects],
+            'num_defects': len(cluster_defects),
+            'profile_generation_timestamp': f"Year_{getattr(self, 'current_simulation_year', 0)}"
+        }
+        
+        # Store in simulator
+        self.cluster_profiles[cluster_id] = profile_data
+        
+        return profile_data
 
 
     def _track_joint_failures(self, year: int, year_failures: List[DefectFailure]):
@@ -491,61 +568,89 @@ class FailurePredictionSimulator:
 
 
     def _apply_dynamic_clustering(self, year: int, failed_defects: set):
-        """Apply clustering with performance optimizations for 100k+ defects"""
+        """Apply clustering with river-bottom profile generation"""
         
-        # Quick Fix #1: Only cluster every 2 years
+        # Store current year for profile metadata
+        self.current_simulation_year = year
+        
+        # OPTIMIZATION: Only cluster every 2 years for performance
         if year % 2 != 0 and year > 1:
             return
         
-        # Quick Fix #3: Pre-filter active defects
-        active_defects = [
-            defect for defect in self.defect_states 
-            if defect.defect_id not in failed_defects
-        ]
-        
+        # Get only active (non-failed) defects
+        active_defects = [defect for defect in self.defect_states if defect.defect_id not in failed_defects]
+
         if len(active_defects) < 2:
             return
         
-        # Quick Fix #3: Vectorized DataFrame creation
+        # Create current DataFrame with grown dimensions
         current_df = pd.DataFrame({
             'log dist. [m]': [d.location_m for d in active_defects],
             'joint number': [d.joint_number for d in active_defects],
             'depth [%]': [d.current_depth_pct for d in active_defects],
             'length [mm]': [d.current_length_mm for d in active_defects],
             'width [mm]': [d.current_width_mm for d in active_defects],
-            'wall_thickness_mm': [d.wall_thickness_mm for d in active_defects],
             'defect_id': [d.defect_id for d in active_defects]
         })
         
-        # Find clusters with current dimensions
+        # Find new clusters with current dimensions
         cluster_indices = self.clusterer.find_interacting_defects(
             current_df, 
             self.joints_df,
             show_progress=False
         )
         
-        # Reset all clustering info (existing code)
+        # Reset all clustering info and clear old profiles
         for defect in self.defect_states:
             defect.is_clustered = False
             defect.cluster_id = None
             defect.stress_concentration_factor = 1.0
         
-        # Quick Fix #2: Apply new clustering with direct lookup
+        # Clear old cluster profiles
+        self.cluster_profiles.clear()
+        
+        # Apply new clustering and generate profiles
+        clusters_with_profiles = 0
+        
         for cluster_idx, defect_indices in enumerate(cluster_indices):
-            if len(defect_indices) > 1:  # Only real clusters
-                # Calculate stress concentration for this cluster
-                cluster_defects = current_df.iloc[defect_indices]
-                stress_factor = self._calculate_cluster_stress_factor(cluster_defects)
+            if len(defect_indices) > 1:  # Real clusters only
                 
-                # Quick Fix #2: Direct index lookup instead of nested loop
+                # Get defect objects for this cluster
+                cluster_defects = []
                 for idx in defect_indices:
                     defect_id = current_df.iloc[idx]['defect_id']
-                    defect_index = self.defect_id_to_index[defect_id]  # O(1) lookup!
-                    defect = self.defect_states[defect_index]
-                    
+                    defect_index = self.defect_id_to_index[defect_id]
+                    cluster_defects.append(self.defect_states[defect_index])
+                
+                # Calculate stress concentration for this cluster
+                cluster_defects_df = current_df.iloc[defect_indices]
+                stress_factor = self._calculate_cluster_stress_factor(cluster_defects_df)
+                
+                # NEW: Generate river-bottom profile for multi-defect cluster
+                try:
+                    profile_data = self._generate_river_bottom_profile(cluster_defects, cluster_idx)
+                    if profile_data is not None:
+                        clusters_with_profiles += 1
+                        print(f"  Generated profile for cluster {cluster_idx}: "
+                            f"{len(cluster_defects)} defects, "
+                            f"{profile_data['cluster_length_mm']:.1f}mm span")
+        
+                except Exception as e:
+                    print(f"  WARNING: Failed to generate profile for cluster {cluster_idx}: {e}")
+                    # Continue without profile - will fall back to single-defect method
+                
+                # Apply clustering info to defects
+                for defect in cluster_defects:
                     defect.is_clustered = True
                     defect.cluster_id = cluster_idx
                     defect.stress_concentration_factor = stress_factor
+        
+        
+        # Summary logging
+        total_clusters = len([c for c in cluster_indices if len(c) > 1])
+        if total_clusters > 0:
+            print(f"Year {year}: {total_clusters} clusters formed, "
+                f"{clusters_with_profiles} with river-bottom profiles")
 
 
     def _calculate_cluster_stress_factor(self, cluster_defects: pd.DataFrame) -> float:
@@ -559,6 +664,7 @@ class FailurePredictionSimulator:
             return 1.25  
         else:
             return 1.35
+
 
     def calculate_stress_accelerated_growth(self, base_growth_rate, stress_concentration_factor, growth_type):
         """Calculate stress-accelerated growth - FIXED to return total growth, not multiplier."""
@@ -661,13 +767,11 @@ class FailurePredictionSimulator:
                 failed_defects.add(defect.defect_id)
 
         return year_failures, failed_defects
-    
 
 
     def _calculate_defect_erf(self, defect: DefectState) -> float:
         """
-        FIXED: Calculate ERF with proper stress concentration application.
-        Addresses immediate failures from overly aggressive stress factors.
+        Calculate ERF using cluster profile for clustered defects, single-defect method otherwise.
         """
         
         try:
@@ -678,7 +782,35 @@ class FailurePredictionSimulator:
             if defect.current_length_mm <= 0 or defect.wall_thickness_mm <= 0:
                 return 99.0
             
-            # Calculate base assessment (unchanged)
+            # Check if this defect is in a cluster with a profile
+            if defect.is_clustered and defect.cluster_id is not None:
+
+                cluster_profile = self.cluster_profiles.get(defect.cluster_id)
+                
+                if cluster_profile is not None:
+                    # Use cluster-based RSTRENG calculation
+                    result = self._calculate_cluster_erf(defect, cluster_profile)
+                    
+                    # Apply stress concentration (existing logic)
+                    if defect.stress_concentration_factor > 1.0:
+                        base_erf = result
+                        
+                        if base_erf < 0.5:
+                            stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.1
+                        elif base_erf < 0.7:
+                            stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.3
+                        elif base_erf < 0.9:
+                            stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.5
+                        else:
+                            stress_effect = defect.stress_concentration_factor
+                        
+                        final_erf = base_erf * stress_effect
+                    else:
+                        final_erf = result
+                    
+                    return min(max(float(final_erf), 0.0), 1.5)
+            
+            # Fall back to single-defect calculation (existing code)
             if self.params.assessment_method == 'b31g':
                 result = calculate_b31g(
                     defect_depth_pct=defect.current_depth_pct,
@@ -714,34 +846,67 @@ class FailurePredictionSimulator:
                 )
             
             safe_pressure = result.get('safe_pressure_mpa', 0)
-
             if safe_pressure > 0:
-                base_erf = self.params.max_operating_pressure / safe_pressure
-
-                # Apply stress concentration (your existing logic)
-                if defect.is_clustered and defect.stress_concentration_factor > 1.0:
-                    if base_erf < 0.5:
-                        stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.1
-                    elif base_erf < 0.7:
-                        stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.3
-                    elif base_erf < 0.9:
-                        stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.5
-                    else:
-                        stress_effect = defect.stress_concentration_factor
-                    
-                    final_erf = base_erf * stress_effect
-                else:
-                    final_erf = base_erf
-                
-                # MINIMAL FIX: Ensure we always return a valid float
-                return min(max(float(final_erf), 0.0), 1.5)
+                return min(max(float(self.params.max_operating_pressure / safe_pressure), 0.0), 1.5)
             else:
-                return 50.0  # Default when calculation fails
+                return 50.0
                 
         except Exception as e:
             print(f"Error calculating ERF for defect {defect.defect_id}: {str(e)}")
-            return 50.0  # Default fallback value
+            return 50.0
+        
 
+
+    def _calculate_cluster_erf(self, defect: DefectState, cluster_profile: Dict) -> float:
+        """
+        Calculate ERF using cluster river-bottom profile with RSTRENG method.
+        
+        Parameters:
+        - defect: The defect (representative of cluster)
+        - cluster_profile: Profile data dictionary
+        
+        Returns:
+        - ERF value for the cluster
+        """
+        
+        try:
+            # Extract profile data
+            depth_profile_mm = cluster_profile['depth_profile_mm']
+            axial_step_mm = cluster_profile['axial_step_mm']
+            
+            # Use defect's wall thickness (should be consistent within joint)
+            wall_thickness_mm = defect.wall_thickness_mm
+            
+            # Call the new RSTRENG cluster function
+            result = calculate_rstreng_effective_area_cluster(
+                depth_profile_mm=depth_profile_mm,
+                axial_step_mm=axial_step_mm,
+                pipe_diameter_mm=self.pipe_diameter * 1000,  # Convert to mm
+                wall_thickness_mm=wall_thickness_mm,
+                maop_mpa=self.params.max_operating_pressure,
+                smys_mpa=self.smys,
+                safety_factor=self.safety_factor,
+                smts_mpa=None  # Optional parameter
+            )
+            
+            # Check if calculation was successful
+            if not result.get('safe', True):
+                print(f"WARNING: Cluster RSTRENG calculation failed for cluster {defect.cluster_id}: {result.get('note', 'Unknown error')}")
+                return 50.0  # Conservative fallback
+            
+            # Extract safe pressure and calculate ERF
+            safe_pressure_mpa = result.get('safe_pressure_mpa', 0)
+            
+            if safe_pressure_mpa > 0:
+                cluster_erf = self.params.max_operating_pressure / safe_pressure_mpa
+                return cluster_erf
+            else:
+                print(f"WARNING: Zero safe pressure for cluster {defect.cluster_id}")
+                return 50.0  # Conservative fallback
+                
+        except Exception as e:
+            print(f"ERROR: Cluster ERF calculation failed for defect {defect.defect_id}, cluster {defect.cluster_id}: {str(e)}")
+            return 50.0  # Conservative fallback
 
     def _calculate_max_erf(self) -> float:
         """Calculate maximum ERF across all surviving defects."""
