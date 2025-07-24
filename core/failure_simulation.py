@@ -46,6 +46,7 @@ class DefectState:
     stress_concentration_factor: float
     is_clustered: bool
     cluster_id: Optional[int] = None
+    erf_rst_ea: Optional[float] = None  
 
 
 @dataclass
@@ -342,7 +343,8 @@ class FailurePredictionSimulator:
                     wall_thickness_mm=float(wall_thickness),
                     stress_concentration_factor=float(cluster_info['stress_factor']),
                     is_clustered=bool(cluster_info['is_clustered']),
-                    cluster_id=cluster_info['cluster_id']
+                    cluster_id=cluster_info['cluster_id'],
+                    erf_rst_ea = defect['ERF RST EA']
                 )
                 
                 self.defect_states.append(defect_state)
@@ -617,8 +619,12 @@ class FailurePredictionSimulator:
         for defect in self.defect_states:
             if defect.defect_id in failed_defects:
                 continue            
+            
+            if(defect.erf_rst_ea == None or year > 0):
+                defect_erf = self._calculate_defect_erf(defect)
+            elif( year == 0 ):
+                defect_erf = defect.erf_rst_ea
 
-            defect_erf = self._calculate_defect_erf(defect)
             defect_depth = defect.current_depth_pct
             
             # Check failure criteria
