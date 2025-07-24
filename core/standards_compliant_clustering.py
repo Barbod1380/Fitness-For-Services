@@ -552,7 +552,6 @@ class StandardsCompliantClusterer:
         return min(len(locations) - 1, right + 1)  # Include one after for safety
 
 
-# Example usage and integration function
 def create_standards_compliant_clusterer(standard_name: str = "BS7910", 
                                        pipe_diameter_mm: float = 1000.0,
                                        conservative_factor: float = 1.0) -> StandardsCompliantClusterer:
