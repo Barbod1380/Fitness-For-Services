@@ -325,92 +325,91 @@ def _build_match_record(
         match_data["clock_diff_hours"] = clock_diff
         match_data["clock_diff_minutes"] = clock_diff * 60
 
-    if calculate_growth and year_difference:
-        if year_difference <= 0:
-            logger.warning(f"Invalid year difference: {year_difference}. Growth rates will not be calculated.")
-            calculate_growth = False
-        else:
-            # Depth growth
-            if has_depth_data:
-                old_depth = old_defect["depth [%]"]
-                new_depth = new_defect["depth [%]"]
+    if calculate_growth and year_difference > 0:
+        # Depth growth
+        if has_depth_data:
+            old_depth = old_defect["depth [%]"]
+            new_depth = new_defect["depth [%]"]
 
-                if not (0 <= old_depth <= 100):
-                    logger.warning(f"Invalid old depth {old_depth}% for defect at {old_defect['log dist. [m]']}m")
-                    old_depth = max(0, min(100, old_depth))  # Clamp to valid range
-                    
-                if not (0 <= new_depth <= 100):
-                    logger.warning(f"Invalid new depth {new_depth}% for defect at {new_defect['log dist. [m]']}m")
-                    new_depth = max(0, min(100, new_depth))  # Clamp to valid range
+            if not (0 <= old_depth <= 100):
+                logger.warning(f"Invalid old depth {old_depth}% for defect at {old_defect['log dist. [m]']}m")
+                old_depth = max(0, min(100, old_depth))  # Clamp to valid range
                 
-                depth_change = new_depth - old_depth
-
-                match_data.update(
-                    {
-                        "old_depth_pct": old_depth,
-                        "new_depth_pct": new_depth,
-                        "depth_change_pct": depth_change,
-                        "growth_rate_pct_per_year": depth_change / year_difference,
-                        "is_negative_growth": depth_change < 0,
-                    }
-                )
-
-                if has_wt_data and has_joint_num:
-                    try:
-                        old_joint = old_defect["joint number"]
-                        new_joint = new_defect["joint number"]
-                        old_wt = old_wt_lookup.get(old_joint)
-                        new_wt = new_wt_lookup.get(new_joint)
-                        if old_wt is not None and new_wt is not None:
-                            avg_wt = (old_wt + new_wt) / 2
-                            old_depth_mm = old_depth * avg_wt / 100
-                            new_depth_mm = new_depth * avg_wt / 100
-
-                            match_data.update(
-                                {
-                                    "old_wt_mm": old_wt,
-                                    "new_wt_mm": new_wt,
-                                    "old_depth_mm": old_depth_mm,
-                                    "new_depth_mm": new_depth_mm,
-                                    "depth_change_mm": new_depth_mm - old_depth_mm,
-                                    "growth_rate_mm_per_year": (new_depth_mm - old_depth_mm) / year_difference,
-                                }
-                            )
-                    except Exception as e:
-                        logger.warning(f"Could not calculate mm-based depth growth for joint {new_joint}: {e}")
-
-        # Length growth
-        if has_length_data:
-            old_length = old_defect["length [mm]"]
-            new_length = new_defect["length [mm]"]
-            length_change = new_length - old_length
+            if not (0 <= new_depth <= 100):
+                logger.warning(f"Invalid new depth {new_depth}% for defect at {new_defect['log dist. [m]']}m")
+                new_depth = max(0, min(100, new_depth))  # Clamp to valid range
+            
+            depth_change = new_depth - old_depth
 
             match_data.update(
                 {
-                    "old_length_mm": old_length,
-                    "new_length_mm": new_length,
-                    "length_change_mm": length_change,
-                    "length_growth_rate_mm_per_year": length_change / year_difference,
-                    "is_negative_length_growth": length_change < 0,
+                    "old_depth_pct": old_depth,
+                    "new_depth_pct": new_depth,
+                    "depth_change_pct": depth_change,
+                    "growth_rate_pct_per_year": depth_change / year_difference,
+                    "is_negative_growth": depth_change < 0,
                 }
             )
 
-        # Width growth
-        if has_width_data:
-            old_width = old_defect["width [mm]"]
-            new_width = new_defect["width [mm]"]
-            width_change = new_width - old_width
+            if has_wt_data and has_joint_num:
+                try:
+                    old_joint = old_defect["joint number"]
+                    new_joint = new_defect["joint number"]
+                    old_wt = old_wt_lookup.get(old_joint)
+                    new_wt = new_wt_lookup.get(new_joint)
+                    if old_wt is not None and new_wt is not None:
+                        avg_wt = (old_wt + new_wt) / 2
+                        old_depth_mm = old_depth * avg_wt / 100
+                        new_depth_mm = new_depth * avg_wt / 100
 
-            match_data.update(
-                {
-                    "old_width_mm": old_width,
-                    "new_width_mm": new_width,
-                    "width_change_mm": width_change,
-                    "width_growth_rate_mm_per_year": width_change / year_difference,
-                    "is_negative_width_growth": width_change < 0,
-                }
-            )
+                        match_data.update(
+                            {
+                                "old_wt_mm": old_wt,
+                                "new_wt_mm": new_wt,
+                                "old_depth_mm": old_depth_mm,
+                                "new_depth_mm": new_depth_mm,
+                                "depth_change_mm": new_depth_mm - old_depth_mm,
+                                "growth_rate_mm_per_year": (new_depth_mm - old_depth_mm) / year_difference,
+                            }
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not calculate mm-based depth growth for joint {new_joint}: {e}")
 
+    # Length growth
+    if has_length_data:
+        old_length = old_defect["length [mm]"]
+        new_length = new_defect["length [mm]"]
+        length_change = new_length - old_length
+
+        match_data.update(
+            {
+                "old_length_mm": old_length,
+                "new_length_mm": new_length,
+                "length_change_mm": length_change,
+                "length_growth_rate_mm_per_year": length_change / year_difference,
+                "is_negative_length_growth": length_change < 0,
+            }
+        )
+
+    # Width growth
+    if has_width_data:
+        old_width = old_defect["width [mm]"]
+        new_width = new_defect["width [mm]"]
+        width_change = new_width - old_width
+
+        match_data.update(
+            {
+                "old_width_mm": old_width,
+                "new_width_mm": new_width,
+                "width_change_mm": width_change,
+                "width_growth_rate_mm_per_year": width_change / year_difference,
+                "is_negative_width_growth": width_change < 0,
+            }
+        )
+
+    else:
+        logger.warning(f"Invalid year difference: {year_difference}. Growth rates will not be calculated.")
+        calculate_growth = False
     return match_data
 
 

@@ -18,6 +18,7 @@ STANDARD_COLUMNS = [
     "clock",
     "depth [%]",
     "ERF B31G",
+    "ERF RST EA",  # NEW: Added ERF RSTRENG Effective Area column
     "length [mm]",
     "width [mm]",
     "surface location",
@@ -57,6 +58,21 @@ COLUMN_VARIANTS = {
     "clock": ["o'clock", "oclock", "clock position", "angular position", "clock_position"],
     "depth [%]": ["depth percent", "depth percentage", "defect depth", "depth_%", "depth_pct"],
     "ERF B31G": ["ERF_AS2885", "ERF", "B31G", "expansion_ratio_factor", "erf_b31g"],
+    "ERF RST EA": [  # NEW: Added variants for ERF RSTRENG Effective Area
+        "ERF_RST_EA", 
+        "ERF RSTRENG", 
+        "ERF_RSTRENG", 
+        "ERF RST", 
+        "ERF_RST", 
+        "RSTRENG ERF",
+        "RST EA",
+        "RST_EA",
+        "EFFECTIVE_AREA_ERF",
+        "EA_ERF",
+        "erf_rst_ea",
+        "erf_rstreng",
+        "rstreng_erf"
+    ],
     "length [mm]": ["defect length", "anomaly length", "feature length", "length_mm", "defect_length"],
     "width [mm]": ["defect width", "anomaly width", "feature width", "width_mm", "defect_width"],
     "surface location": ["internal", "external", "location", "orientation", "surface_loc", "surface"],
@@ -72,6 +88,7 @@ KNOWN_MAPPINGS = {
     "to u/s w. [m]": "up weld dist. [m]",
     "o'clock": "clock",
     "ERF_AS2885": "ERF B31G",
+    "ERF_RST_EA": "ERF RST EA",  # NEW: Direct mapping for ERF RST EA
     "internal": "surface location",
 }
 
@@ -90,6 +107,7 @@ REQUIRED_COLUMNS = [
     "width [mm]",
     "surface location",
 ]
+
 
 def clean_column_name(col_name):
     """Clean column name for better matching"""
@@ -258,7 +276,8 @@ def process_pipeline_data(df):
     # === Batch numeric conversion ===
     numeric_columns = [
         "joint number", "joint length [m]", "wt nom [mm]", 
-        "up weld dist. [m]", "depth [%]", "length [mm]", "width [mm]"
+        "up weld dist. [m]", "depth [%]", "length [mm]", "width [mm]",
+        "ERF B31G", "ERF RST EA"  # NEW: Include ERF columns in numeric conversion
     ]
     
     # Convert multiple columns at once
@@ -302,7 +321,8 @@ def process_pipeline_data(df):
         
         defect_columns = [
             "log dist. [m]", "component / anomaly identification", "joint number",
-            "up weld dist. [m]", "clock", "depth [%]", "length [mm]", "width [mm]", "surface location"
+            "up weld dist. [m]", "clock", "depth [%]", "length [mm]", "width [mm]", 
+            "surface location", "ERF B31G", "ERF RST EA"  # NEW: Include ERF columns
         ]
         existing_defect_cols = [col for col in defect_columns if col in df_view.columns]
         
@@ -330,7 +350,6 @@ def process_pipeline_data(df):
     return joints_df, defects_df
 
 
-# DATA PROCESSING SECTION
 def validate_pipeline_data(joints_df, defects_df):
     """
     Validate that pipeline data is complete and consistent.

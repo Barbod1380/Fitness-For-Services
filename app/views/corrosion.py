@@ -12,162 +12,93 @@ from app.services.state_manager import get_state
 from core.ffs_defect_interaction import *
 from visualization.defect_assessment_viz import create_defect_assessment_scatter_plot, create_defect_assessment_summary_table, create_rstreng_envelope_plot
 from visualization.pressure_assessment_viz import create_pressure_assessment_visualization
+from typing import Optional
 
 
 def calculate_b31g(
-    defect_depth_pct,
-    defect_length_mm,
-    pipe_diameter_mm,
-    wall_thickness_mm,
-    maop_mpa,
-    smys_mpa,
-    safety_factor=1.39,
-    smts_mpa=None,               # Optional for flow stress cap
-    area_shape="parabolic",      # or "rectangular"
+    defect_depth_pct: float,
+    defect_length_mm: float,
+    pipe_diameter_mm: float,
+    wall_thickness_mm: float,
+    maop_mpa: float,
+    smys_mpa: float,
+    safety_factor: float = 1.39,
+    smts_mpa: float | None = None,
+    area_shape: str = "parabolic",        # “parabolic” is the official B31G shape
 ):
     """
-    Calculate remaining strength and failure pressure using the
-    Original ASME B31G Level-1 method (2012 edition), with defect depth given as a percentage.
-
-    Parameters:
-    - defect_depth_pct: Corrosion depth, as a percentage of wall thickness (e.g., 40 for 40 %).
-    - defect_length_mm: Longitudinal extent of corrosion (L) in millimeters.
-    - pipe_diameter_mm: Outside diameter of pipe (D) in millimeters.
-    - wall_thickness_mm: Nominal wall thickness (t) in millimeters.
-    - maop_mpa: Maximum allowed operating pressure.
-    - smys_mpa: Specified Minimum Yield Strength (SMYS) in MPa.
-    - smts_mpa: Specified Minimum Tensile Strength (SMTS) in MPa (optional, for cap per B31G).
-    - safety_factor: Safety factor to apply (default: 1.39 for gas pipelines).
-    - area_shape: "parabolic" (default, recommended by B31G) or "rectangular".
-
-    Returns:
-    - dict with method details, result flags, calculated pressures, etc.
+    Original ASME B31G Level‑1 (2012) – corrected implementation.
+    Follows the two‑segment Folias factor and the full flow‑stress rule set.
     """
+    import math
+    method = "B31G Original Level‑1"
 
+    # ── 1  basic checks ─────────────────────────────────────────
+    if defect_depth_pct <= 0:
+        return dict(method=method, safe=False,
+                    note="Defect depth must be positive")
 
-    # 1. Convert defect depth percentage → absolute depth (mm)
-    defect_depth_mm = (defect_depth_pct / 100.0) * wall_thickness_mm
+    d_over_t = defect_depth_pct / 100.0
+    if d_over_t > 0.80:
+        return dict(method=method, safe=False,
+                    note="d/t > 0.80 – Level‑1 not applicable")
 
-    # 2. Compute depth-to-thickness ratio d/t
-    d_t = defect_depth_mm / wall_thickness_mm
-
-    # 3. B31G not valid if d/t > 0.80
-    if d_t > 0.8:
-        return {
-            "method": "B31G Original Level-1",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "folias_factor_M": None,
-            "flaw_type_applied": "N/A",
-            "note": "Defect depth exceeds 80% of wall thickness (d/t > 0.8): Level-1 B31G not applicable."
-        }
-
-    # 4. Compute z = L² / (D * t)
     if pipe_diameter_mm <= 0 or wall_thickness_mm <= 0:
-        return {
-            "method": "B31G Original Level-1",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "folias_factor_M": None,
-            "flaw_type_applied": "N/A",
-            "note": "Pipe diameter and wall thickness must be positive values."
-        }
+        return dict(method=method, safe=False,
+                    note="Diameter and wall thickness must be positive")
 
+    # ── 2  z‑parameter & Folias factor ─────────────────────────
     z = (defect_length_mm ** 2) / (pipe_diameter_mm * wall_thickness_mm)
+    if z > 50.0:
+        return dict(method=method, safe=False,
+                    note=f"z = {z:.2f} > 50 – Level‑1 table required")
 
-    # 5. B31G Level 1 not valid for z > 50 (ϕ > 7.07)
-    if z > 50:
-        return {
-            "method": "B31G Original Level-1",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "folias_factor_M": None,
-            "flaw_type_applied": "N/A",
-            "note": f"Defect parameter z = L²/(D·t) = {z:.2f} exceeds 50: Level-1 B31G not applicable for this simplified model."
-        }
+    if z <= 20.0:
+        M = math.sqrt(1.0 + 0.8 * z)             # B31G eqn 1‑2
+    else:                                        # 20 < z ≤ 50
+        M = math.sqrt(1.6 + 0.16 * z)            # B31G eqn 1‑3
 
-    # 6. Compute flow stress per B31G: S_flow = min(1.1*SMYS, 0.9*SMTS)
-    S_flow_mpa = 1.1 * smys_mpa
+    # ── 3  flow stress (take the minimum of the three forms) ──
+    s1 = 1.1 * smys_mpa
+    s2 = smys_mpa + 68.95
+    s3 = (smys_mpa + (smts_mpa or smys_mpa)) / 2
+    S_flow = min(s1, s2, s3)
     if smts_mpa is not None:
-        S_flow_mpa = min(S_flow_mpa, 0.9 * smts_mpa)
+        S_flow = min(S_flow, 0.9 * smts_mpa)
 
-    # 7. Intact pipe hoop burst (Barlow at flow stress)
-    P_o_mpa = (2.0 * S_flow_mpa * wall_thickness_mm) / pipe_diameter_mm
-
-    # 8. Area ratio: A/A0 (choose parabolic or rectangular)
-    if area_shape.lower() == "rectangular":
-        A_A0_ratio = d_t
-        area_shape_used = "rectangular"
-    elif area_shape.lower() == "parabolic":
-        A_A0_ratio = (2.0 / 3.0) * d_t
-        area_shape_used = "parabolic"
+    # ── 4  corroded‑area ratio (B31G parabolic) ───────────────
+    if area_shape.lower() != "parabolic":
+        area_shape_used = "rectangular (non‑standard)"
+        A_ratio = d_over_t                      # allow for studies
     else:
-        return {
-            "method": "B31G Original Level-1",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": 0.0,
-            "folias_factor_M": None,
-            "flaw_type_applied": "N/A",
-            "note": f"Invalid area_shape: {area_shape!r} (must be 'parabolic' or 'rectangular')."
-        }
+        area_shape_used = "parabolic"
+        A_ratio = (2.0 / 3.0) * d_over_t       # B31G default
 
-    # 9. Folias factor (applies for all flaws z <= 50)
-    M_calculated = math.sqrt(1.0 + 0.8 * z)
+    # ── 5  failure stress & pressure ───────────────────────────
+    denom = 1.0 - (A_ratio / M)
+    if denom <= 0.0:
+        return dict(method=method, safe=False,
+                    note="Denominator ≤ 0 – check inputs")
 
-    if M_calculated <= 0.001:
-        return {
-            "method": "B31G Original Level-1",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": (1.0 - d_t) * 100.0,
-            "folias_factor_M": M_calculated,
-            "flaw_type_applied": "N/A",
-            "note": f"Calculation error: Folias factor too small (M={M_calculated:.6f})"
-        }
+    Sf = S_flow * (1.0 - A_ratio) / denom
+    Pf = 2.0 * Sf * wall_thickness_mm / pipe_diameter_mm
+    P_safe = Pf / safety_factor
+    RSF_pct = 100.0 * (Sf / S_flow)
 
-    # 10. Failure pressure using full B31G equation
-    denominator = 1.0 - (A_A0_ratio / M_calculated)
-    if denominator <= 0:
-        return {
-            "method": "B31G Original Level-1",
-            "safe": False,
-            "failure_pressure_mpa": 0.0,
-            "safe_pressure_mpa": 0.0,
-            "remaining_strength_pct": (1.0 - d_t) * 100.0,
-            "folias_factor_M": M_calculated,
-            "flaw_type_applied": f"B31G Area shape: {area_shape_used}",
-            "note": f"Calculation error: denominator (1 - (A/A0)/M) is not positive. A/A0={A_A0_ratio:.3f}, M={M_calculated:.3f}"
-        }
-
-    failure_pressure_mpa = P_o_mpa * ((1.0 - A_A0_ratio) / denominator)
-
-    # 11. Safety factor applied to get allowable pressure
-    safe_pressure_mpa = failure_pressure_mpa / safety_factor
-
-    # 12. Remaining ligament percentage
-    remaining_strength_pct = (1.0 - d_t) * 100.0
-
-    # 13. Return all details as before
-    return {
-        "method": "B31G Original Level-1",
-        "safe": safe_pressure_mpa >= maop_mpa,
-        "failure_pressure_mpa": failure_pressure_mpa,
-        "safe_pressure_mpa": safe_pressure_mpa,
-        "remaining_strength_pct": remaining_strength_pct,
-        "folias_factor_M": M_calculated,
-        "flaw_type_applied": f"B31G Area shape: {area_shape_used}",
-        "safety_factor_used": safety_factor,
-        "note": f"Calculation with area_shape={area_shape_used}, z={z:.2f}, d/t={d_t:.3f}. S_flow={S_flow_mpa:.2f} MPa. Safety Factor: {safety_factor}"
-    }
+    # ── 6  results ─────────────────────────────────────────────
+    return dict(
+        method=method,
+        safe=P_safe >= maop_mpa,
+        failure_pressure_mpa=Pf,
+        safe_pressure_mpa=P_safe,
+        remaining_strength_pct=RSF_pct,
+        folias_factor_M=M,
+        z_parameter=z,
+        depth_over_thickness=d_over_t,
+        safety_factor_used=safety_factor,
+        note=(f"area={area_shape_used}, z={z:.2f}, d/t={d_over_t:.3f}, "
+              f"S_flow={S_flow:.2f} MPa, M={M:.3f}")
+    )
 
 
 def calculate_modified_b31g(
@@ -178,94 +109,55 @@ def calculate_modified_b31g(
     maop_mpa: float,
     smys_mpa: float,
     safety_factor: float = 1.39,
-    smts_mpa: float | None = None,       # optional – allows 0.9 SMTS cap
+    smts_mpa: float | None = None,  # optional – cap S_flow at 0.9 SMTS
 ):
     """
-    Calculate remaining strength and failure pressure using the Modified B31G
-    Level-1 method (often referred to as the 0.85dL method).
-
-    Parameters:
-    - defect_depth_pct: Defect depth (%). Must be an absolute value.
-    - defect_length_mm: Longitudinal extent of corrosion (L) in millimeters.
-    - pipe_diameter_mm: Outside diameter of pipe (D) in millimeters.
-    - wall_thickness_mm: Nominal wall thickness (t) in millimeters.
-    - maop_moa: Maximum allowed operating pressure
-    - smys_mpa: Specified Minimum Yield Strength (SMYS) in MPa.
-    - safety_factor: Safety factor to apply (default: 1.39 for gas pipelines)
-
-    Returns:
-    - dict containing:
-        • method (str): "Modified B31G (0.85dL)"
-        • safe (bool): False if invalid input or outside applicability, True otherwise.
-        • failure_pressure_mpa (float): Predicted burst pressure in MPa (0 if invalid).
-        • safe_pressure_mpa (float): failure_pressure_mpa / safety_factor (0 if invalid).
-        • remaining_strength_factor_pct (float): RSF = (Sf / S_flow) * 100 (0 if invalid).
-        • folias_factor_M (float): Folias factor M (None if invalid).
-        • z_parameter (float): Dimensionless length parameter z (None if invalid).
-        • d_over_t_ratio (float): d/t ratio (None if invalid).
-        • note (str): Explanation if invalid or other relevant info.
+    ASME Modified B31G (0.85 dL) — Level‑1 corrosion assessment.
+    Implements z‑limit (≤50), d/t‑limit (≤0.80), and 0.85 dL area rule.
     """
-    import math
 
+    import math
     method = "Modified B31G (0.85 dL)"
 
-    # 1 ─ depth ratio
-    d_t = (defect_depth_pct / 100.0)
-    if d_t > 0.80:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    folias_factor_M=None, z_parameter=None,
-                    d_over_t_ratio=d_t, safety_factor_used=safety_factor,
-                    note=f"d/t = {d_t:.3f} > 0.80 – outside Level‑1 scope")
+    # 1 ─ basic depth & geometry checks
+    if defect_depth_pct <= 0.0:
+        return dict(method=method, safe=False,
+                    note="Defect depth must be positive")
+    d_over_t = defect_depth_pct / 100.0
+    if d_over_t > 0.80:
+        return dict(method=method, safe=False,
+                    note=f"d/t = {d_over_t:.3f} > 0.80 — outside Level‑1 scope")
 
-    # 2 ─ dimensionless length
     if pipe_diameter_mm <= 0 or wall_thickness_mm <= 0:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    folias_factor_M=None, z_parameter=None,
-                    d_over_t_ratio=d_t, safety_factor_used=safety_factor,
+        return dict(method=method, safe=False,
                     note="Diameter and wall thickness must be positive")
+
+    # 2 ─ dimensionless length & Folias factor
     z = (defect_length_mm ** 2) / (pipe_diameter_mm * wall_thickness_mm)
-    if z > 50.0:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    folias_factor_M=None, z_parameter=z,
-                    d_over_t_ratio=d_t, safety_factor_used=safety_factor,
-                    note=f"z = {z:.2f} > 50 – outside Level‑1 scope")
+    if z > 50:
+        return dict(method=method, safe=False,
+                    note=f"z = {z:.2f} > 50 — use Level‑2")
 
-    # 3 ─ Folias factor
-    m_term = 1.0 + 0.6275 * z - 0.003375 * (z ** 2)
-    if m_term <= 0.0:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    folias_factor_M=None, z_parameter=z,
-                    d_over_t_ratio=d_t, safety_factor_used=safety_factor,
-                    note=f"Invalid M term ({m_term:.3f})")
-    M = math.sqrt(m_term)
+    M = math.sqrt(1.0 + 0.6275 * z - 0.003375 * z ** 2)
 
-    # 4 ─ flow stress (cap at 0.9 SMTS)
-    S_flow = smys_mpa + 68.95
+    # 3 ─ flow stress
+    S_flow = smys_mpa + 68.95            # +10 ksi
     if smts_mpa is not None:
         S_flow = min(S_flow, 0.9 * smts_mpa)
 
-    # 5 ─ area ratio
-    A_A0 = 0.85 * d_t
-
-    denom = 1.0 - (A_A0 / M)
+    # 4 ─ area ratio (0.85 dL rectangle)
+    A_ratio = 0.85 * d_over_t
+    denom = 1.0 - (A_ratio / M)
     if denom <= 0.0:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    folias_factor_M=M, z_parameter=z,
-                    d_over_t_ratio=d_t, safety_factor_used=safety_factor,
-                    note="Denominator (1‑A/A0 / M) ≤ 0 – non‑physical")
+        return dict(method=method, safe=False,
+                    note="Denominator ≤ 0 — check inputs (deep, long defect)")
 
-    # 6 ─ failure stress & pressure
-    Sf = S_flow * ((1.0 - A_A0) / denom)
-    Pf = (2.0 * Sf * wall_thickness_mm) / pipe_diameter_mm
-
-    # 7 ─ outputs
+    # 5 ─ stresses & pressures
+    Sf = S_flow * (1.0 - A_ratio) / denom
+    Pf = 2.0 * Sf * wall_thickness_mm / pipe_diameter_mm
     P_safe = Pf / safety_factor
-    RSF_pct = (Sf / S_flow) * 100.0
+    RSF_pct = 100.0 * Sf / S_flow
+
     return dict(
         method=method,
         safe=P_safe >= maop_mpa,
@@ -274,85 +166,105 @@ def calculate_modified_b31g(
         remaining_strength_pct=RSF_pct,
         folias_factor_M=M,
         z_parameter=z,
-        d_over_t_ratio=d_t,
+        depth_over_thickness=d_over_t,
         safety_factor_used=safety_factor,
-        note=f"calc OK – z={z:.2f}, d/t={d_t:.3f}, M={M:.3f}"
+        note=f"OK — z={z:.2f}, d/t={d_over_t:.3f}, M={M:.3f}"
     )
 
 
-def calculate_rstreng_effective_area(
+def calculate_rstreng_effective_area_single(
     defect_depth_pct: float,
     defect_length_mm: float,
-    defect_width_mm: float,
+    defect_width_mm: Optional[float],      
     pipe_diameter_mm: float,
     wall_thickness_mm: float,
     maop_mpa: float,
     smys_mpa: float,
     safety_factor: float = 1.39,
-    smts_mpa: float | None = None,          # optional – cap flow stress
-):
+    smts_mpa: Optional[float] = None,      
+) -> dict:
+    """
+    RSTRENG Level-1 (single defect, parabolic profile) — True implementation.
+
+    Parameters:
+        defect_depth_pct : float
+            Maximum depth of defect as percent (%) of wall thickness (e.g. 40 for 40%)
+        defect_length_mm : float
+            Axial length of defect (mm)
+        defect_width_mm  : float or None
+            Unused in Level-1 RSTRENG for single defect, included for compatibility
+        pipe_diameter_mm : float
+            Outside diameter of pipe (mm)
+        wall_thickness_mm: float
+            Nominal wall thickness (mm)
+        maop_mpa         : float
+            Maximum allowable operating pressure (MPa)
+        smys_mpa         : float
+            Specified minimum yield strength (MPa)
+        safety_factor    : float
+            Safety factor (default 1.39)
+        smts_mpa         : float or None
+            Specified minimum tensile strength (MPa, optional for flow stress cap)
+
+    Returns:
+        dict: {
+            'method': str,
+            'safe': bool,
+            'failure_pressure_mpa': float,
+            'safe_pressure_mpa': float,
+            'remaining_strength_pct': float,
+            'folias_factor_Mt': float,
+            'flow_stress_mpa': float,
+            'psi_parameter': float,
+            'note': str
+        }
     """
 
-    TRUE RSTRENG Implementation per Kiefner & Vieth (PRCI Catalog No. L51794)
-    
-    Key Differences from Modified B31G:
-    1. Uses effective area methodology (A_eff = 2/3 × L × W × d/t)
-    2. Flow stress = SMYS + 68.95 MPa (exactly, not 69)
-    3. Parabolic defect profile assumption
-    4. Different failure stress calculation approach
-    
-    Reference: "PC Program for Evaluating the Remaining Strength of Corroded Pipe"
-    """
+    method = "RSTRENG Level-1 (single defect, parabolic profile)"
 
-    import math
-    method = "RSTRENG (Effective‑Area, parabolic)"
-
-    # ── 1 basic checks ───────────────────────────────────────────
-    d_t = defect_depth_pct / 100.0
-    if not (0.0 < d_t <= 0.80):
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    note=f"d/t = {d_t:.3f} outside 0–0.80 range")
-
+    # 1. Check input validity
     if pipe_diameter_mm <= 0 or wall_thickness_mm <= 0:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    note="Diameter and wall thickness must be positive")
+        return dict(method=method, safe=False, note="Diameter and wall thickness must be positive.")
 
-    # ── 2 geometry & Folias factor ───────────────────────────────
-    R_mm = pipe_diameter_mm / 2.0
-    psi = defect_length_mm / math.sqrt(R_mm * wall_thickness_mm)
+    d = defect_depth_pct / 100.0
+    if not (0.0 < d < 1.0):
+        return dict(method=method, safe=False, note="Defect depth % (d/t) must be between 0 and 100.")
 
-    if psi <= 4.0:
-        Mt = math.sqrt(1.0 + 0.6275 * psi**2 - 0.003375 * psi**4)
+    if defect_length_mm <= 0:
+        return dict(method=method, safe=False, note="Defect length must be positive.")
+
+    if d >= 1.0:
+        return dict(method=method, safe=False, failure_pressure_mpa=0.0, note="Through-wall defect.")
+
+    # 2. Geometry & Folias factor
+    D = pipe_diameter_mm
+    t = wall_thickness_mm
+    L = defect_length_mm
+
+    L2DT = (L ** 2) / (D * t)
+    if L2DT <= 50.0:
+        M = math.sqrt(1.0 + 0.6275 * L2DT - 0.003375 * (L2DT ** 2))
     else:
-        Mt = 0.032 * psi + 3.3
+        M = 0.032 * L2DT + 3.3
+    psi = L / math.sqrt((D / 2.0) * t)
 
-    if Mt <= 0.0:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    note=f"Non‑physical Folias factor Mt = {Mt:.3f}")
-
-    # ── 3 flow stress ────────────────────────────────────────────
-    S_flow = smys_mpa + 68.95          # 10 ksi = 68.95 MPa
+    # 3. Flow stress (capped if SMTS provided)
+    S_flow = smys_mpa + 68.95
     if smts_mpa is not None:
         S_flow = min(S_flow, 0.9 * smts_mpa)
 
-    # ── 4 effective‑area ratio (parabolic simplification) ───────
-    A_eff = (2.0 / 3.0) * defect_length_mm * defect_width_mm * d_t
-    A_tot = defect_length_mm * defect_width_mm
-    A_ratio = A_eff / A_tot            # → 2/3 d/t
+    # 4. RSTRENG shape factor for single defect
+    alpha = 0.85
 
-    denom = 1.0 - (A_ratio / Mt)
+    numer = 1.0 - (alpha * d)
+    denom = 1.0 - (alpha * d / M)
     if denom <= 0.0:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
-                    safe_pressure_mpa=0.0, remaining_strength_pct=0.0,
-                    note="Denominator ≤ 0 – check inputs")
+        return dict(method=method, safe=False, note="Denominator ≤ 0 — unphysical geometry/combination.")
 
-    # ── 5 failure stress & pressure ──────────────────────────────
-    Sf = S_flow * ((1.0 - A_ratio) / denom)
-    Pf = 2.0 * Sf * wall_thickness_mm / pipe_diameter_mm
-    P_safe = Pf / safety_factor
+    Sf = S_flow * (numer / denom)   # Failure stress (MPa)
+
+    Pf = 2.0 * Sf * t / D           # Failure pressure (MPa)
+    P_safe = Pf / safety_factor     # Allowable/safe pressure (MPa)
     RSF_pct = (Sf / S_flow) * 100.0
 
     return dict(
@@ -361,11 +273,10 @@ def calculate_rstreng_effective_area(
         failure_pressure_mpa=Pf,
         safe_pressure_mpa=P_safe,
         remaining_strength_pct=RSF_pct,
-        effective_area_ratio=A_ratio,
-        folias_factor_Mt=Mt,
+        folias_factor_Mt=M,
         flow_stress_mpa=S_flow,
         psi_parameter=psi,
-        note=f"ψ={psi:.2f}, Mt={Mt:.3f}, A_eff/A_tot={A_ratio:.3f}"
+        note=f"L2/DT={L2DT:.2f}, psi={psi:.2f}, Mt={M:.3f}, α={alpha}, d/t={d:.4f}"
     )
 
 
@@ -563,7 +474,6 @@ def create_pressure_based_summary_stats(enhanced_df, analysis_pressure_mpa, max_
             'defects_erf_less_equal_1': erf_less_than_1,
             'pct_erf_requires_action': pct_erf_greater_than_1
         }
-    
     return summary
 
 
@@ -741,7 +651,7 @@ def compute_corrosion_metrics_for_dataframe(defects_df, joints_df, pipe_diameter
         
         # Calculate Effective Area (Simplified RSTRENG)
         try:
-            effective_area_result = calculate_rstreng_effective_area(
+            effective_area_result = calculate_rstreng_effective_area_single(
                 depth_pct, length_mm, width_mm, pipe_diameter_mm, 
                 wall_thickness_mm, maop_mpa, smys_mpa, safety_factor
             )

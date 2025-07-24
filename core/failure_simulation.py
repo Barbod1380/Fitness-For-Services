@@ -2,9 +2,8 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
-from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area
+from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area_single
 from core.standards_compliant_clustering import create_standards_compliant_clusterer
-from core.enhanced_ffs_clustering import EnhancedFFSClusterer
 
 """
 Time-forward failure prediction simulation engine.
@@ -697,7 +696,7 @@ class FailurePredictionSimulator:
                 )
             
             elif self.params.assessment_method == 'rstreng':
-                result = calculate_rstreng_effective_area(
+                result = calculate_rstreng_effective_area_single(
                     defect_depth_pct=defect.current_depth_pct,
                     defect_length_mm=defect.current_length_mm,
                     defect_width_mm=defect.current_width_mm,
@@ -729,7 +728,7 @@ class FailurePredictionSimulator:
                     final_erf = base_erf
                 
                 # MINIMAL FIX: Ensure we always return a valid float
-                return min(max(float(final_erf), 0.0), 0.99)
+                return min(max(float(final_erf), 0.0), 1.5)
             else:
                 return 50.0  # Default when calculation fails
                 

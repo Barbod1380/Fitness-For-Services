@@ -647,7 +647,7 @@ def render_failure_prediction_section(datasets, comparison_results):
             if use_dynamic_clustering:
                 clustering_standard = st.selectbox(
                     "Clustering Standard",
-                    options=["RSTRENG", "BS7910", "API579", "DNV"],
+                    options=["BS7910", "API579", "DNV"],
                     index=0
                 )
             else:
