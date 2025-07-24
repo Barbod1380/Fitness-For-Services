@@ -45,8 +45,9 @@ class DefectState:
     wall_thickness_mm: float
     stress_concentration_factor: float
     is_clustered: bool
+    clock_float: float 
     cluster_id: Optional[int] = None
-    erf_rst_ea: Optional[float] = None  
+    erf_rst_ea: Optional[float] = None 
 
 
 @dataclass
@@ -311,7 +312,7 @@ class FailurePredictionSimulator:
         # STEP 7: Initialize defect states with validated data
         print("🏗️ Initializing defect states with validated mappings...")
         self.defect_states = []
-        
+
         for sim_id, (_, defect) in enumerate(valid_defects.iterrows()):
             try:
                 # Get growth data with fallback
@@ -347,6 +348,7 @@ class FailurePredictionSimulator:
                     wall_thickness_mm=float(wall_thickness),
                     stress_concentration_factor=float(cluster_info['stress_factor']),
                     is_clustered=bool(cluster_info['is_clustered']),
+                    clock_float = defect['clock_float'],
                     cluster_id=cluster_info['cluster_id'],
                     erf_rst_ea = defect['ERF RST EA']
                 )
@@ -590,7 +592,8 @@ class FailurePredictionSimulator:
             'depth [%]': [d.current_depth_pct for d in active_defects],
             'length [mm]': [d.current_length_mm for d in active_defects],
             'width [mm]': [d.current_width_mm for d in active_defects],
-            'defect_id': [d.defect_id for d in active_defects]
+            'defect_id': [d.defect_id for d in active_defects],
+            'clock_float': [d.clock_float for d in active_defects],
         })
         
         # Find new clusters with current dimensions
@@ -631,9 +634,9 @@ class FailurePredictionSimulator:
                     profile_data = self._generate_river_bottom_profile(cluster_defects, cluster_idx)
                     if profile_data is not None:
                         clusters_with_profiles += 1
-                        print(f"  Generated profile for cluster {cluster_idx}: "
-                            f"{len(cluster_defects)} defects, "
-                            f"{profile_data['cluster_length_mm']:.1f}mm span")
+                        # print(f"  Generated profile for cluster {cluster_idx}: "
+                        #     f"{len(cluster_defects)} defects, "
+                        #     f"{profile_data['cluster_length_mm']:.1f}mm span")
         
                 except Exception as e:
                     print(f"  WARNING: Failed to generate profile for cluster {cluster_idx}: {e}")
