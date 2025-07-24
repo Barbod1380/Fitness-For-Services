@@ -11,13 +11,10 @@ from .data_pipeline import (
     REQUIRED_COLUMNS
 )
 
-from .ffs_defect_interaction import *
-
 from .standards_compliant_clustering import (
     StandardsCompliantClusterer,
     create_standards_compliant_clusterer
 )
 from .enhanced_ffs_clustering import (
     EnhancedFFSClusterer,
-    enhance_existing_assessment
 )

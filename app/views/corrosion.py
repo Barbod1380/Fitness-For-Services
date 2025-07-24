@@ -9,7 +9,6 @@ import math
 import base64
 from app.ui_components import create_metrics_row
 from app.services.state_manager import get_state
-from core.ffs_defect_interaction import *
 from visualization.defect_assessment_viz import create_defect_assessment_scatter_plot, create_defect_assessment_summary_table, create_rstreng_envelope_plot
 from visualization.pressure_assessment_viz import create_pressure_assessment_visualization
 from typing import Optional, Sequence

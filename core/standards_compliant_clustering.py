@@ -158,8 +158,7 @@ class StandardsCompliantClusterer:
             applicability_notes=self.applicability_notes
         )
     
-    def calculate_interaction_distance(self, standard: str, wall_thickness_mm: float, 
-                                 pipe_diameter_mm: float, defect_length_mm: float = None) -> Dict:
+    def calculate_interaction_distance(self, standard: str, wall_thickness_mm: float, pipe_diameter_mm: float, defect_length_mm: float = None) -> Dict:
         """
         Calculate interaction distances based on industry standards and pipe-specific parameters.
         
@@ -366,13 +365,13 @@ class StandardsCompliantClusterer:
         if missing_defect_cols or missing_joint_cols:
             raise ValueError(f"Missing required columns: {missing_defect_cols + missing_joint_cols}")
         
-        # OPTIMIZATION: Pre-compute wall thickness lookup once
+        # Pre-compute wall thickness lookup once
         wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
         
-        # OPTIMIZATION: Pre-sort defects by location for spatial indexing
+        # Pre-sort defects by location for spatial indexing
         defects_sorted = defects_df.sort_values('log dist. [m]').reset_index()
         original_indices = defects_sorted['index'].tolist()  # Keep track of original indices
-        
+
         n_defects = len(defects_sorted)
         clusters = []
         processed_indices = set()
