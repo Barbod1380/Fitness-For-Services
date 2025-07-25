@@ -1119,7 +1119,7 @@ def _render_data_export_section():
                 key="results_tab_matched_defects_download"  # UNIQUE KEY
             )
         
-        # Export new defects - FIXED: Added unique key
+        # Export new defects - Added unique key
         if not comparison_results['new_defects'].empty:
             new_defects_csv = comparison_results['new_defects'].to_csv(index=False)
             st.download_button(
@@ -1133,7 +1133,7 @@ def _render_data_export_section():
     with col2:
         st.markdown("#### Documentation")
         
-        # Generate correction report - FIXED: Added unique key
+        # Generate correction report - Added unique key
         if correction_results:
             report_content = _generate_correction_report(correction_results, comparison_results)
             st.download_button(
@@ -1144,7 +1144,7 @@ def _render_data_export_section():
                 key="results_tab_correction_report_download"  # UNIQUE KEY
             )
         
-        # Export methodology documentation - FIXED: Added unique key
+        # Export methodology documentation - Added unique key
         methodology_doc = _generate_methodology_documentation()
         st.download_button(
             label="📖 Download Methodology Documentation",

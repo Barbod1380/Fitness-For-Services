@@ -100,7 +100,7 @@ def create_column_mapping_form(df, year, suggested_mapping):
                 # Mapping selection
                 default_index = all_columns.index(suggested) if suggested in all_columns else 0
                 selected = st.selectbox(
-                    "",
+                    f"Select column for {std_col}",  # <-- this label is hidden
                     options=all_columns,
                     index=default_index,
                     key=f"map_{year}_{std_col}",

@@ -100,7 +100,7 @@ class FailurePredictionSimulator:
     
     def initialize_simulation(self, defects_df, joints_df, growth_rates_df, clusters, pipe_diameter, smys, safety_factor, use_clustering=True):
         """
-        FIXED: Proper initialization with robust index mapping and validation.
+        Proper initialization with robust index mapping and validation.
         
         Critical fixes:
         1. Validates index alignment between defects and growth rates
@@ -156,7 +156,7 @@ class FailurePredictionSimulator:
             print("❌ No valid defects found!")
             return False
         
-        # STEP 2: FIXED - Create robust index mapping with validation
+        # STEP 2: Create robust index mapping with validation
         print("🔧 Creating robust index mapping...")
         
         # Reset index for valid defects to create clean sequential IDs
@@ -185,21 +185,21 @@ class FailurePredictionSimulator:
             print(f"🔧 Wall thickness lookup: {len(wt_lookup)} joints")
         except Exception as e:
             print(f"❌ Error creating wall thickness lookup: {e}")
-            return False
-        
-        # STEP 5: CRITICAL FIX - Create growth rate lookup with proper ID resolution
+            return False        
+
+        # STEP 5: Safe growth rate mapping using explicit defect IDs
         growth_lookup = {}
         if not growth_rates_df.empty:
-            print("📈 Processing growth rates with robust ID matching...")
+            print("📈 Processing growth rates with explicit ID matching...")
             
-            # Method 1: Try to match using explicit ID columns if available
-            id_columns_to_try = ['new_defect_id', 'defect_id', 'old_defect_id']
+            # Method 1: Use explicit defect ID columns (SAFE)
+            id_columns_to_try = ['new_defect_id', 'old_defect_id', 'defect_id']
             
             # Check if growth_rates_df has explicit defect ID columns
             available_id_cols = [col for col in id_columns_to_try if col in growth_rates_df.columns]
             
             if available_id_cols:
-                print(f"📋 Using explicit ID columns: {available_id_cols}")
+                print(f"✅ Using explicit ID columns: {available_id_cols}")
                 
                 for idx, row in growth_rates_df.iterrows():
                     # Try to get defect ID from explicit columns
@@ -219,26 +219,26 @@ class FailurePredictionSimulator:
                                 'original_defect_id': defect_id,
                                 'growth_source': f'matched_via_{id_col}'
                             }
+                            print(f"  ✅ Growth rate {row.get('growth_rate_pct_per_year', 0.5)} → defect {defect_id}")
                         else:
-                            print(f"⚠️ Growth rate for defect ID {defect_id} - defect not in valid set")
+                            print(f"  ⚠️ Growth rate for defect ID {defect_id} - defect not in valid set")
             
             else:
-                print("📋 No explicit ID columns found, using index-based matching")
+                # ❌ REFUSE dangerous index-based matching
+                print("❌ CRITICAL: No explicit defect ID columns found in growth_rates_df")
+                print("❌ Available columns:", list(growth_rates_df.columns))
+                print("❌ Expected columns: 'new_defect_id', 'old_defect_id', or 'defect_id'")
+                print("❌ REFUSING unsafe index-based matching")
+                print("💡 Using conservative default growth rates for safety")
                 
-                # Method 2: Index-based matching with validation
-                # Assume growth_rates_df index corresponds to original defects_df index
-                for growth_idx, row in growth_rates_df.iterrows():
-                    # Check if this growth index corresponds to a valid defect
-                    if growth_idx in original_to_simulation:
-                        sim_id = original_to_simulation[growth_idx]
-                        growth_lookup[sim_id] = {
-                            'depth_growth_pct': row.get('growth_rate_pct_per_year', 0.5),
-                            'length_growth_mm': row.get('length_growth_rate_mm_per_year', 0.1),
-                            'original_defect_id': growth_idx,
-                            'growth_source': 'index_based'
-                        }
-                    else:
-                        print(f"⚠️ Growth rate at index {growth_idx} - no corresponding valid defect")
+                # Use safe defaults for all defects rather than wrong data
+                for sim_id in range(len(valid_defects)):
+                    growth_lookup[sim_id] = {
+                        'depth_growth_pct': 0.5,  # Conservative default
+                        'length_growth_mm': 0.1,   # Conservative default
+                        'original_defect_id': None,
+                        'growth_source': 'safe_default_no_explicit_ids'
+                    }
             
             print(f"📈 Growth rates mapped: {len(growth_lookup)} defects")
             
@@ -391,6 +391,8 @@ class FailurePredictionSimulator:
             'growth_mapping_count': len(growth_lookup),
             'cluster_mapping_count': len([v for v in cluster_lookup.values() if v['is_clustered']])
         }
+
+        self._validate_growth_rate_assignments()
         return True
     
 
@@ -657,20 +659,39 @@ class FailurePredictionSimulator:
 
 
     def _calculate_cluster_stress_factor(self, cluster_defects: pd.DataFrame) -> float:
-        """Industry-realistic stress concentration factors"""
+        """
+            Based on published finite element studies
+            https://www.sciencedirect.com/topics/engineering/stress-concentration-factor
+        """
+        
         n_defects = len(cluster_defects)
         
-        # Much more conservative factors based on industry practice
-        if n_defects == 2:
-            return 1.15 
-        elif n_defects <= 5:
-            return 1.25  
+        # Use existing DataFrame columns
+        avg_depth_ratio = cluster_defects['depth [%]'].mean() / 100.0
+        
+        # Calculate characteristic spacing (simple approach)
+        if n_defects > 1:
+            locations = cluster_defects['log dist. [m]'].sort_values()
+            char_spacing_mm = (locations.max() - locations.min()) * 1000 / (n_defects - 1)
+            avg_length_mm = cluster_defects['length [mm]'].mean()
+            spacing_ratio = char_spacing_mm / avg_length_mm
         else:
-            return 1.35
+            spacing_ratio = float('inf')  # No interaction for single defects
+        
+        # Research-based factors
+        if spacing_ratio < 2.0:
+            # Close interaction - significant effect  
+            return 1.3 + 0.1 * avg_depth_ratio  # 1.3-1.4 range
+        elif spacing_ratio < 5.0:
+            # Moderate interaction
+            return 1.1 + 0.05 * avg_depth_ratio  # 1.1-1.15 range
+        else:
+            # No interaction
+            return 1.0
 
 
     def calculate_stress_accelerated_growth(self, base_growth_rate, stress_concentration_factor, growth_type):
-        """Calculate stress-accelerated growth - FIXED to return total growth, not multiplier."""
+        """Calculate stress-accelerated growth - return total growth, not multiplier."""
         if stress_concentration_factor <= 1.0:
             return base_growth_rate  # Return the rate itself, not 1.0
         
@@ -983,3 +1004,34 @@ class FailurePredictionSimulator:
             'failure_rate': (failed_physical_defects / total_physical_defects * 100) if total_physical_defects > 0 else 0,
             'simulation_used_combined_defects': any(getattr(d, 'is_combined', False) for d in self.defect_states)
         }
+    
+    def _validate_growth_rate_assignments(self):
+        """
+        Validate that growth rate assignments are reasonable.
+        Call this after initialize_simulation() to catch problems.
+        """
+        print("\n🔍 Validating growth rate assignments...")
+        
+        assignment_sources = {}
+        for defect in self.defect_states:
+            source = getattr(defect, 'growth_source', 'unknown')
+            assignment_sources[source] = assignment_sources.get(source, 0) + 1
+        
+        print("Growth rate assignment summary:")
+        for source, count in assignment_sources.items():
+            print(f"  {source}: {count} defects")
+            
+            if source == 'safe_default_no_explicit_ids':
+                print(f"    ⚠️ WARNING: {count} defects using default rates due to missing IDs")
+                print(f"    💡 Check that compare_defects() includes explicit defect ID columns")
+        
+        # Check for unrealistic growth rates
+        suspicious_rates = [
+            d for d in self.defect_states 
+            if d.growth_rate_pct_per_year > 10.0 or d.growth_rate_pct_per_year < -5.0
+        ]
+        
+        if suspicious_rates:
+            print(f"⚠️ Found {len(suspicious_rates)} defects with suspicious growth rates:")
+            for defect in suspicious_rates[:5]:  # Show first 5
+                print(f"    Defect {defect.defect_id}: {defect.growth_rate_pct_per_year}%/year")

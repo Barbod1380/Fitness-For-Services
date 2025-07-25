@@ -306,8 +306,8 @@ def _build_match_record(
     """
 
     match_data = {
-        "new_defect_id": new_defect["defect_id"],
-        "old_defect_id": old_defect["defect_id"],
+        "new_defect_id": new_defect["defect_id"],      
+        "old_defect_id": old_defect["defect_id"],     
         "distance_diff": distance_diff,
         "log_dist": new_defect["log dist. [m]"],
         "old_log_dist": old_defect["log dist. [m]"],
