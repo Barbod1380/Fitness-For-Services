@@ -1,112 +1,135 @@
 """
-Form components for the Pipeline Analysis application.
+Improved form components for the Pipeline Analysis application.
+Enhanced column mapping with better UX while maintaining lightweight design.
 """
+
 import streamlit as st
 from app.ui_components.ui_elements import info_box
 from core.data_pipeline import get_missing_required_columns, STANDARD_COLUMNS, REQUIRED_COLUMNS
 
 def create_column_mapping_form(df, year, suggested_mapping):
     """
-    Create a form for mapping columns from the uploaded file to standard column names.
-    
-    Parameters:
-    - df: DataFrame with the uploaded data
-    - year: Year for the data
-    - suggested_mapping: Dict with suggested column mappings
-    
-    Returns:
-    - Dict with the confirmed column mappings
+    Professionally styled Streamlit form for column mapping.
     """
-    st.info("""
-        **Column Mapping Instructions:**
-        Match your file's columns to standard column names. Required fields are marked with *.
-        This mapping ensures consistent analysis across different data formats.
-    """)
-    
-    # Create UI for mapping confirmation
-    st.write("Confirm the mapping between your file's columns and standard columns:")
-    
-    confirmed_mapping = {}
-    all_columns = [None] + df.columns.tolist()
-    
-    # Create three columns for the mapping UI to save space
-    col1, col2, col3 = st.columns(3)
-    
-    # Split the standard columns into three groups
-    third = len(STANDARD_COLUMNS) // 3
-    remaining = len(STANDARD_COLUMNS) % 3
-    
-    # Calculate split points for columns
-    if remaining == 1:
-        # First column gets one extra
-        split1 = third + 1
-        split2 = split1 + third
-    elif remaining == 2:
-        # First and second columns get one extra each
-        split1 = third + 1
-        split2 = split1 + third + 1
+    st.markdown("""
+        <style>
+        .mapping-card {
+            background-color: #FFFFFF;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            padding: 15px 10px 15px 10px;
+            margin-bottom: 15px;
+            transition: box-shadow 0.3s ease;
+        }
+        .mapping-card:hover {
+            box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+        }
+        .mapping-header {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #111827;
+        }
+        .required-label {
+            color: #DC2626;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        .optional-label {
+            color: #6B7280;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        .preview-text {
+            color: #047857;
+            font-size: 13px;
+            font-style: italic;
+        }
+        .suggestion-text {
+            color: #4B5563;
+            font-size: 12px;
+            font-style: italic;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### Column Mapping")
+    required_mapped = sum(1 for col in REQUIRED_COLUMNS if suggested_mapping.get(col))
+    required_total = len(REQUIRED_COLUMNS)
+    can_proceed = required_mapped == required_total
+
+    if can_proceed:
+        st.markdown(f"<div style='color:#059669;font-weight:600;'>All required columns mapped ({required_mapped}/{required_total})</div>", unsafe_allow_html=True)
     else:
-        # Even distribution
-        split1 = third
-        split2 = split1 + third
-    
-    # First column of mappings
-    with col1:
-        for std_col in STANDARD_COLUMNS[:split1]:
-            suggested = suggested_mapping.get(std_col)
-            index = 0 if suggested is None else all_columns.index(suggested)
-            
-            is_required = std_col in REQUIRED_COLUMNS
-            label = f"{std_col}" + (" *" if is_required else "")
-            
-            selected = st.selectbox(
-                label,
-                options=all_columns,
-                index=index,
-                key=f"map_{year}_{std_col}"
-            )
-            confirmed_mapping[std_col] = selected
-    
-    # Second column of mappings
-    with col2:
-        for std_col in STANDARD_COLUMNS[split1:split2]:
-            suggested = suggested_mapping.get(std_col)
-            index = 0 if suggested is None else all_columns.index(suggested)
-            
-            is_required = std_col in REQUIRED_COLUMNS
-            label = f"{std_col}" + (" *" if is_required else "")
-            
-            selected = st.selectbox(
-                label,
-                options=all_columns,
-                index=index,
-                key=f"map_{year}_{std_col}_col2"
-            )
-            confirmed_mapping[std_col] = selected
-    
-    # Third column of mappings
-    with col3:
-        for std_col in STANDARD_COLUMNS[split2:]:
-            suggested = suggested_mapping.get(std_col)
-            index = 0 if suggested is None else all_columns.index(suggested)
-            
-            is_required = std_col in REQUIRED_COLUMNS
-            label = f"{std_col}" + (" *" if is_required else "")
-            
-            selected = st.selectbox(
-                label,
-                options=all_columns,
-                index=index,
-                key=f"map_{year}_{std_col}_col3"
-            )
-            confirmed_mapping[std_col] = selected
-    
-    # Add note about required fields
-    st.markdown('<div style="margin-top:10px;font-size:0.8em;">* Required fields</div>', unsafe_allow_html=True)
-    
-    # Check for missing required columns
+        progress = required_mapped / required_total
+        st.progress(progress)
+        st.markdown(f"<div style='color:#DC2626;font-weight:600;'>{required_total - required_mapped} required columns left</div>", unsafe_allow_html=True)
+
+    with st.expander("Instructions", expanded=False):
+        st.markdown("""
+        - <span style='color:#DC2626;'>Required fields</span> must be mapped to proceed.
+        - <span style='color:#6B7280;'>Optional fields</span> enhance analysis but aren't mandatory.
+        - Suggestions may guide accurate mappings.
+        """, unsafe_allow_html=True)
+
+    all_columns = [None] + df.columns.tolist()
+    display_columns = REQUIRED_COLUMNS + [c for c in STANDARD_COLUMNS if c not in REQUIRED_COLUMNS]
+    confirmed_mapping = {}
+
+    MAPPINGS_PER_ROW = 3
+    rows = [display_columns[i:i + MAPPINGS_PER_ROW] for i in range(0, len(display_columns), MAPPINGS_PER_ROW)]
+
+    for row_cols in rows:
+        cols = st.columns(len(row_cols))
+        for idx, std_col in enumerate(row_cols):
+            with cols[idx]:
+                is_required = std_col in REQUIRED_COLUMNS
+                suggested = suggested_mapping.get(std_col)
+
+                # Card container
+                st.markdown(f"<div class='mapping-card'>", unsafe_allow_html=True)
+
+                # Header and required/optional label
+                label = "Required" if is_required else "Optional"
+                label_class = "required-label" if is_required else "optional-label"
+                st.markdown(f"""
+                    <div class='mapping-header'>{std_col}</div>
+                    <div class='{label_class}'>{label}</div>
+                """, unsafe_allow_html=True)
+
+                # Mapping selection
+                default_index = all_columns.index(suggested) if suggested in all_columns else 0
+                selected = st.selectbox(
+                    "",
+                    options=all_columns,
+                    index=default_index,
+                    key=f"map_{year}_{std_col}",
+                    label_visibility="collapsed",
+                    help=f"Map '{std_col}' to a column from your file"
+                )
+                confirmed_mapping[std_col] = selected
+
+                # Preview selected column value
+                if selected and selected in df.columns:
+                    preview_val = df[selected].iloc[0]
+                    st.markdown(f"<div class='preview-text'>Preview: {preview_val}</div>", unsafe_allow_html=True)
+
+                # Suggestion notice
+                if suggested and selected != suggested and suggested in all_columns:
+                    st.markdown(f"<div class='suggestion-text'>Suggestion: {suggested}</div>", unsafe_allow_html=True)
+                elif selected == suggested and selected:
+                    st.markdown(f"<div class='suggestion-text'>Using suggestion</div>", unsafe_allow_html=True)
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+    # Final validation messages
     missing_cols = get_missing_required_columns(confirmed_mapping)
+    mapped_files = [v for v in confirmed_mapping.values() if v]
+    duplicates = set([x for x in mapped_files if mapped_files.count(x) > 1])
+
     if missing_cols:
-        info_box(f"Missing required columns: {', '.join(missing_cols)}. You may proceed, but functionality may be limited.", "warning")
-    
+        info_box(f"Missing required columns: {', '.join(missing_cols)}", "warning")
+    if duplicates:
+        info_box(f"Duplicate mappings detected: {', '.join(duplicates)}", "warning")
+
     return confirmed_mapping

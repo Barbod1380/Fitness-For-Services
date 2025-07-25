@@ -443,6 +443,7 @@ class StandardsCompliantClusterer:
 
 
     def _defects_interact_vectorized(self, defect1: pd.Series, defect2: pd.Series, criteria: InteractionCriteria) -> bool:
+
         if defect1['joint number'] != defect2['joint number']:
             return False
 
@@ -461,7 +462,13 @@ class StandardsCompliantClusterer:
                 
                 if arc_length_mm > criteria.circumferential_distance_mm:
                     return False
+                
+        depth_diff = abs(defect1['depth [%]'] - defect2['depth [%]'])
+        if depth_diff > criteria.depth_interaction_factor * 100:  # e.g., 20% WT
+            return False
+        
         return True  
+
 
     def get_standard_info(self) -> Dict:
         """
