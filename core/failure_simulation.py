@@ -636,15 +636,14 @@ class FailurePredictionSimulator:
                     profile_data = self._generate_river_bottom_profile(cluster_defects, cluster_idx)
                     if profile_data is not None:
                         clusters_with_profiles += 1
-                        # print(f"  Generated profile for cluster {cluster_idx}: "
-                        #     f"{len(cluster_defects)} defects, "
-                        #     f"{profile_data['cluster_length_mm']:.1f}mm span")
         
                 except Exception as e:
                     print(f"  WARNING: Failed to generate profile for cluster {cluster_idx}: {e}")
                     # Continue without profile - will fall back to single-defect method
                 
                 # Apply clustering info to defects
+                print("HERE______________")
+                print(len(cluster_defects))
                 for defect in cluster_defects:
                     defect.is_clustered = True
                     defect.cluster_id = cluster_idx
@@ -708,6 +707,33 @@ class FailurePredictionSimulator:
         
         # Return the accelerated growth rate, not just the multiplier
         return base_growth_rate * min(acceleration_factor, max_acceleration)
+    
+
+    def _apply_depth_dependent_growth(self, defect, base_growth_rate):
+        """
+        Apply depth-dependent growth reduction based on diffusion limitations.
+        References: 
+        - ASM Handbook Vol 13A: Localized Corrosion Kinetics
+        - Melchers (2003): Long-term marine corrosion behavior
+        """
+        
+        # Transition depth where diffusion control begins (literature: 40-60% WT)
+        transition_depth = 50.0  # % of wall thickness
+        
+        if defect.current_depth_pct <= transition_depth:
+            # Linear kinetics region - no reduction
+            return base_growth_rate
+        else:
+            # Diffusion-limited region - apply reduction
+            excess_depth = defect.current_depth_pct - transition_depth
+            
+            # Conservative reduction factor based on Melchers' work
+            # Maximum 50% reduction at 90% depth (conservative vs literature)
+            max_reduction = 0.5
+            reduction_factor = 1.0 - (max_reduction * excess_depth / 40.0)  # 40% = 90%-50%
+            reduction_factor = max(reduction_factor, 0.1)  # Minimum 10% of original rate
+            
+            return base_growth_rate * reduction_factor
         
 
     def _grow_defects(self, year: int, failed_defects: set):
@@ -735,7 +761,8 @@ class FailurePredictionSimulator:
                 length_acceleration = defect.length_growth_rate_mm_per_year
             
             # Apply growth (not double multiplication)
-            defect.current_depth_pct += depth_acceleration
+            adjusted_growth = self._apply_depth_dependent_growth(defect, depth_acceleration)
+            defect.current_depth_pct += adjusted_growth
             defect.current_depth_pct = min(defect.current_depth_pct, 95.0)
             
             defect.current_length_mm += length_acceleration
