@@ -48,6 +48,7 @@ class DefectState:
     clock_float: float 
     cluster_id: Optional[int] = None
     erf_rst_ea: Optional[float] = None 
+    defect_type: str = 'Unknown'  
 
 
 @dataclass
@@ -350,7 +351,8 @@ class FailurePredictionSimulator:
                     is_clustered=bool(cluster_info['is_clustered']),
                     clock_float = defect['clock_float'],
                     cluster_id=cluster_info['cluster_id'],
-                    erf_rst_ea = defect['ERF RST EA']
+                    erf_rst_ea = defect['ERF RST EA'],
+                    defect_type = defect.get('component / anomaly identification', 'Unknown')
                 )
                 
                 self.defect_states.append(defect_state)
@@ -577,10 +579,6 @@ class FailurePredictionSimulator:
         # Store current year for profile metadata
         self.current_simulation_year = year
         
-        # OPTIMIZATION: Only cluster every 2 years for performance
-        if year % 2 != 0 and year > 1:
-            return
-        
         # Get only active (non-failed) defects
         active_defects = [defect for defect in self.defect_states if defect.defect_id not in failed_defects]
 
@@ -642,8 +640,6 @@ class FailurePredictionSimulator:
                     # Continue without profile - will fall back to single-defect method
                 
                 # Apply clustering info to defects
-                print("HERE______________")
-                print(len(cluster_defects))
                 for defect in cluster_defects:
                     defect.is_clustered = True
                     defect.cluster_id = cluster_idx
@@ -883,19 +879,38 @@ class FailurePredictionSimulator:
                     smys_mpa=self.smys,
                     safety_factor=self.safety_factor
                 )
-            
+
             elif self.params.assessment_method == 'rstreng':
-                result = calculate_rstreng_effective_area_single(
-                    defect_depth_pct=defect.current_depth_pct,
-                    defect_length_mm=defect.current_length_mm,
-                    defect_width_mm=defect.current_width_mm,
-                    pipe_diameter_mm=self.pipe_diameter * 1000,
-                    wall_thickness_mm=defect.wall_thickness_mm,
-                    maop_mpa=self.params.max_operating_pressure,
-                    smys_mpa=self.smys,
-                    safety_factor=self.safety_factor
-                )
-            
+                # Check if this is a pre-identified corrosion cluster
+                if (hasattr(defect, 'defect_type') and 
+                    defect.defect_type.lower() == 'corrosion cluster'):
+
+                    alpha = 0.425                    
+
+                    result = calculate_rstreng_effective_area_single(
+                        defect_depth_pct=defect.current_depth_pct,
+                        defect_length_mm=defect.current_length_mm,
+                        defect_width_mm=defect.current_width_mm,
+                        pipe_diameter_mm=self.pipe_diameter * 1000,
+                        wall_thickness_mm=defect.wall_thickness_mm,
+                        maop_mpa=self.params.max_operating_pressure,
+                        smys_mpa=self.smys,
+                        safety_factor=self.safety_factor,
+                        alpha = alpha
+                    )
+                else:
+                    # Standard single defect RSTRENG calculation
+                    result = calculate_rstreng_effective_area_single(
+                        defect_depth_pct=defect.current_depth_pct,
+                        defect_length_mm=defect.current_length_mm,
+                        defect_width_mm=defect.current_width_mm,
+                        pipe_diameter_mm=self.pipe_diameter * 1000,
+                        wall_thickness_mm=defect.wall_thickness_mm,
+                        maop_mpa=self.params.max_operating_pressure,
+                        smys_mpa=self.smys,
+                        safety_factor=self.safety_factor
+                    )
+
             safe_pressure = result.get('safe_pressure_mpa', 0)
             if safe_pressure > 0:
                 return min(max(float(self.params.max_operating_pressure / safe_pressure), 0.0), 1.5)

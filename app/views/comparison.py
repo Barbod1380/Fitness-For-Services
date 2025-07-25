@@ -692,8 +692,6 @@ def render_failure_prediction_section(datasets, comparison_results):
                 'standard': clustering_standard,
                 'pipe_diameter_mm': later_data['pipe_diameter'] * 1000
             } if use_dynamic_clustering else None
-            
-            print("START SIM")
 
             # Run integrated simulation
             results = run_integrated_simulation(
@@ -704,7 +702,6 @@ def render_failure_prediction_section(datasets, comparison_results):
                 smys,
                 safety_factor
             )
-            print("END SIM")
             
     display_prediction_results_simple()
 

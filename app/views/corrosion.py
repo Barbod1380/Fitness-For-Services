@@ -176,6 +176,7 @@ def calculate_rstreng_effective_area_single(
     wall_thickness_mm: float,
     maop_mpa: float,
     smys_mpa: float,
+    alpha: float = 0.85,
     safety_factor: float = 1.39,
     smts_mpa: Optional[float] = None,      
 ) -> dict:
@@ -250,8 +251,6 @@ def calculate_rstreng_effective_area_single(
         S_flow = min(S_flow, 0.9 * smts_mpa)
 
     # 4. RSTRENG shape factor for single defect
-    alpha = 0.85
-
     numer = 1.0 - (alpha * d)
     denom = 1.0 - (alpha * d / M)
     if denom <= 0.0:
