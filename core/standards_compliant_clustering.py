@@ -305,46 +305,6 @@ class StandardsCompliantClusterer:
             applicability_notes=self.applicability_notes
         )
     
-    def _calculate_conservative_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
-        """Calculate conservative multi-standard criteria"""
-        
-        # Calculate criteria from all standards
-        bs7910_criteria = self._calculate_bs7910_criteria(wall_thickness_mm)
-        api579_criteria = self._calculate_api579_criteria(wall_thickness_mm)
-        dnv_criteria = self._calculate_dnv_criteria(wall_thickness_mm)
-        
-        # Use maximum (most conservative) distances
-        max_axial = max(
-            bs7910_criteria.axial_distance_mm,
-            api579_criteria.axial_distance_mm,
-            dnv_criteria.axial_distance_mm
-        )
-        
-        max_circumferential = max(
-            bs7910_criteria.circumferential_distance_mm,
-            api579_criteria.circumferential_distance_mm,
-            dnv_criteria.circumferential_distance_mm
-        )
-        
-        # Use minimum (most sensitive) depth factor
-        min_depth_factor = min(
-            bs7910_criteria.depth_interaction_factor,
-            api579_criteria.depth_interaction_factor,
-            dnv_criteria.depth_interaction_factor
-        )
-        
-        # Apply additional conservative multiplier
-        max_axial *= self.conservative_factor
-        max_circumferential *= self.conservative_factor
-        
-        return InteractionCriteria(
-            axial_distance_mm=max_axial,
-            circumferential_distance_mm=max_circumferential,
-            depth_interaction_factor=min_depth_factor,
-            standard_name=self.standard_name,
-            applicability_notes=self.applicability_notes
-        )
-    
 
     def find_interacting_defects(self, 
                                 defects_df: pd.DataFrame, 
