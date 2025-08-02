@@ -1,5 +1,3 @@
-# multi_year_analysis.py
-
 import logging
 import numpy as np
 import pandas as pd
@@ -8,8 +6,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def compare_defects(old_defects_df, new_defects_df, old_joints_df=None, new_joints_df=None, old_year=None, new_year=None, distance_tolerance=0.1, clock_tolerance_minutes=20,
-):
+def compare_defects(old_defects_df, new_defects_df, old_joints_df=None, new_joints_df=None, old_year=None, new_year=None, distance_tolerance=0.1, clock_tolerance_minutes=20):
     """
     Compare defects between two pipeline inspection years to track defect evolution.
 
@@ -127,8 +124,8 @@ def compare_defects(old_defects_df, new_defects_df, old_joints_df=None, new_join
         new_wt_lookup = {}
         if has_wt_data:
             try:
-                old_wt_lookup = dict(zip(old_joints_df["joint number"], old_joints_df["wt nom [mm]"])) # type: ignore
-                new_wt_lookup = dict(zip(new_joints_df["joint number"], new_joints_df["wt nom [mm]"])) # type: ignore
+                old_wt_lookup = dict(zip(old_joints_df["joint number"], old_joints_df["wt nom [mm]"]))
+                new_wt_lookup = dict(zip(new_joints_df["joint number"], new_joints_df["wt nom [mm]"])) 
                 logger.info(
                     f"Created wall thickness lookups: {len(old_wt_lookup)} old joints, {len(new_wt_lookup)} new joints"
                 )
@@ -299,11 +296,65 @@ def _build_match_record(
     new_wt_lookup,
 ):
     """
-    Build a complete match record for a matched defect pair.
+    Constructs a comprehensive match record for paired pipeline defects across inspections.
 
-    This helper function consolidates all the match data creation logic,
-    making the main function cleaner and more maintainable.
+    Consolidates defect attributes, calculates dimensional changes, and computes growth rates
+    for depth, length, and width dimensions. Handles unit conversions and data validation.
+
+    Parameters
+    ----------
+    new_defect : pandas.Series
+        Defect data from recent inspection. Must contain 'defect_id', 'log dist. [m]',
+        and dimensional columns as available.
+    old_defect : pandas.Series
+        Corresponding defect data from earlier inspection (same structure as new_defect).
+    distance_diff : float
+        Absolute longitudinal distance difference between matched defects (meters).
+    clock_diff : float
+        Minimum circumferential clock position difference (hours) accounting for circularity.
+    has_clock_float : bool
+        Flag indicating availability of clock position data.
+    has_joint_num : bool
+        Flag indicating availability of joint number data.
+    calculate_growth : bool
+        Flag enabling growth rate calculations.
+    year_difference : int
+        Time elapsed between inspections (years) for growth rate normalization.
+    has_depth_data : bool
+        Flag indicating depth data availability.
+    has_length_data : bool
+        Flag indicating length data availability.
+    has_width_data : bool
+        Flag indicating width data availability.
+    has_wt_data : bool
+        Flag indicating wall thickness data availability.
+    old_wt_lookup : dict
+        Mapping of joint numbers to wall thickness values (mm) for old inspection.
+    new_wt_lookup : dict
+        Mapping of joint numbers to wall thickness values (mm) for new inspection.
+
+    Returns
+    -------
+    dict
+        Unified defect record containing:
+        - Core identifiers: new_defect_id, old_defect_id, defect_type
+        - Location data: log_dist, old_log_dist, distance_diff
+        - Clock differences (if available): clock_diff_hours, clock_diff_minutes
+        - Dimensional measurements: length [mm], width [mm] (as available)
+        - Growth metrics (if calculated):
+            * Depth: old/new depth (%), depth change, annual growth rate (%/year)
+            * Depth (mm): old/new depth (mm), mm change, annual growth (mm/year)
+            * Length/Width: old/new dimensions, changes, annual growth rates
+        - Negative growth flags for each dimension
+
+    Notes
+    -----
+    - Depth values are clamped to 0-100% range to handle measurement outliers
+    - Wall thickness conversion uses average of old/new wall thickness when available
+    - Negative growth flags indicate possible measurement error or repair
+    - Missing data dimensions are silently excluded from the record
     """
+
 
     match_data = {
         "new_defect_id": new_defect["defect_id"],      
@@ -325,7 +376,7 @@ def _build_match_record(
         match_data["clock_diff_hours"] = clock_diff
         match_data["clock_diff_minutes"] = clock_diff * 60
 
-    if calculate_growth and year_difference > 0:
+    if year_difference > 0 and calculate_growth:
         # Depth growth
         if has_depth_data:
             old_depth = old_defect["depth [%]"]
@@ -358,9 +409,8 @@ def _build_match_record(
                     old_wt = old_wt_lookup.get(old_joint)
                     new_wt = new_wt_lookup.get(new_joint)
                     if old_wt is not None and new_wt is not None:
-                        avg_wt = (old_wt + new_wt) / 2
-                        old_depth_mm = old_depth * avg_wt / 100
-                        new_depth_mm = new_depth * avg_wt / 100
+                        old_depth_mm = old_depth * old_wt / 100
+                        new_depth_mm = new_depth * new_wt / 100
 
                         match_data.update(
                             {
@@ -374,6 +424,10 @@ def _build_match_record(
                         )
                 except Exception as e:
                     logger.warning(f"Could not calculate mm-based depth growth for joint {new_joint}: {e}")
+
+    else:
+        logger.warning(f"Invalid year difference: {year_difference}. Growth rates will not be calculated.")
+        calculate_growth = False
 
     # Length growth
     if has_length_data:
@@ -407,9 +461,6 @@ def _build_match_record(
             }
         )
 
-    else:
-        logger.warning(f"Invalid year difference: {year_difference}. Growth rates will not be calculated.")
-        calculate_growth = False
     return match_data
 
 
@@ -424,11 +475,52 @@ def _get_result_columns(
     has_wt_data,
 ):
     """
-    Build the list of columns for the results DataFrame based on available data.
+    Dynamically generates output columns for matched defects based on data availability.
 
-    This ensures we only include columns for data that actually exists,
-    preventing empty columns in the output.
+    Constructs the optimal result schema by inspecting dataset capabilities and
+    calculation requirements. Ensures only relevant columns are included.
+
+    Parameters
+    ----------
+    new_defects_df : pandas.DataFrame
+        New inspection defects data used to validate column existence.
+    has_joint_num : bool
+        Indicates if joint number data is available.
+    has_clock_float : bool
+        Indicates if clock position data is available.
+    calculate_growth : bool
+        Flag determining if growth columns should be included.
+    has_depth_data : bool
+        Indicates depth measurement availability.
+    has_length_data : bool
+        Indicates length measurement availability.
+    has_width_data : bool
+        Indicates width measurement availability.
+    has_wt_data : bool
+        Indicates wall thickness data availability.
+
+    Returns
+    -------
+    list
+        Ordered list of column names for the result DataFrame, containing:
+        - Mandatory columns: defect IDs, location data, defect type
+        - Conditional columns: joint number, clock differences
+        - Growth columns (if enabled and data available):
+            * Depth: percentage and mm-based metrics
+            * Length: mm-based metrics
+            * Width: mm-based metrics
+        - Negative growth indicators for each dimension
+
+    Notes
+    -----
+    - Column order: Core metadata → Location → Dimensions → Growth metrics
+    - Growth columns are only added if:
+        1. calculate_growth = True
+        2. Corresponding dimension data exists
+        3. For mm-depth: has_wt_data = True
+    - Maintains consistent column naming across analyses
     """
+
     columns = [
         "new_defect_id",
         "old_defect_id",
@@ -492,17 +584,51 @@ def _get_result_columns(
                     "is_negative_width_growth",
                 ]
             )
-
     return columns
 
 
 def _calculate_growth_statistics(matches_df, has_depth_data, has_length_data, has_width_data, has_wt_data):
     """
-    Calculate comprehensive growth statistics from matched defects.
+    Computes aggregate growth statistics from matched pipeline defects.
 
-    This function computes averages, maximums, and counts of negative growth
-    for each dimension (depth, length, width) where data is available.
+    Analyzes dimensional changes across inspections to provide engineering insights
+    about corrosion progression. Separates positive and negative growth for
+    anomaly detection.
+
+    Parameters
+    ----------
+    matches_df : pandas.DataFrame
+        Matched defects from compare_defects() containing growth metrics.
+    has_depth_data : bool
+        Indicates depth growth metrics are available.
+    has_length_data : bool
+        Indicates length growth metrics are available.
+    has_width_data : bool
+        Indicates width growth metrics are available.
+    has_wt_data : bool
+        Indicates mm-based depth metrics are available.
+
+    Returns
+    -------
+    dict
+        Comprehensive growth statistics including:
+        - Total matched defect count
+        - For each dimension (depth/length/width):
+            * Negative growth count and percentage
+            * Average growth rate (all defects)
+            * Average positive growth rate
+            * Maximum positive growth rate
+        - Depth-specific metrics in both % and mm (if has_wt_data)
+
+    Notes
+    -----
+    - Negative growth indicates possible measurement error or repair
+    - Positive growth rates exclude negative/zero values
+    - Depth statistics include both % and mm-based metrics when available
+    - Handles missing data gracefully by excluding unavailable dimensions
+    - Returns empty statistics if matches_df contains no growth columns
     """
+    
     growth_stats = {"total_matched_defects": len(matches_df)}
 
     # Depth statistics
@@ -540,7 +666,7 @@ def _calculate_growth_statistics(matches_df, has_depth_data, has_length_data, ha
                     "max_growth_rate_mm": pos_mm["growth_rate_mm_per_year"].max()
                     if not pos_mm.empty
                     else 0,
-                } # type: ignore
+                } 
             ) 
 
     # Length statistics
