@@ -220,7 +220,7 @@ class FailurePredictionSimulator:
                                 'original_defect_id': defect_id,
                                 'growth_source': f'matched_via_{id_col}'
                             }
-                            print(f"  ✅ Growth rate {row.get('growth_rate_pct_per_year', 0.5)} → defect {defect_id}")
+                            #print(f"  ✅ Growth rate {row.get('growth_rate_pct_per_year', 0.5)} → defect {defect_id}")
                         else:
                             print(f"  ⚠️ Growth rate for defect ID {defect_id} - defect not in valid set")
             
@@ -684,27 +684,6 @@ class FailurePredictionSimulator:
             # No interaction
             return 1.0
 
-
-    def calculate_stress_accelerated_growth(self, base_growth_rate, stress_concentration_factor, growth_type):
-        """Calculate stress-accelerated growth - return total growth, not multiplier."""
-        if stress_concentration_factor <= 1.0:
-            return base_growth_rate  # Return the rate itself, not 1.0
-        
-        if growth_type == 'depth':
-            acceleration_factor = 1.0 + 0.2 * (stress_concentration_factor - 1.0) ** 0.5
-            max_acceleration = 1.8
-        elif growth_type == 'length':
-            stress_intensity_ratio = stress_concentration_factor ** 0.5
-            acceleration_factor = 1.0 + 0.15 * (stress_intensity_ratio - 1.0) ** 2.0
-            max_acceleration = 2.0
-        else:  # width
-            acceleration_factor = 1.0 + 0.1 * (stress_concentration_factor - 1.0)
-            max_acceleration = 1.5
-        
-        # Return the accelerated growth rate, not just the multiplier
-        return base_growth_rate * min(acceleration_factor, max_acceleration)
-    
-
     def _apply_depth_dependent_growth(self, defect, base_growth_rate):
         """
         Apply depth-dependent growth reduction based on diffusion limitations.
@@ -739,22 +718,9 @@ class FailurePredictionSimulator:
             # CRITICAL FIX: Skip failed defects
             if defect.defect_id in failed_defects:
                 continue
-                
-            if defect.is_clustered:
-                # Fix the acceleration calculation
-                depth_acceleration = self.calculate_stress_accelerated_growth(
-                    base_growth_rate=defect.growth_rate_pct_per_year,  # Use actual rate
-                    stress_concentration_factor=defect.stress_concentration_factor,
-                    growth_type='depth'
-                )
-                length_acceleration = self.calculate_stress_accelerated_growth(
-                    base_growth_rate=defect.length_growth_rate_mm_per_year,  # Use actual rate
-                    stress_concentration_factor=defect.stress_concentration_factor,
-                    growth_type='length'
-                )
-            else:
-                depth_acceleration = defect.growth_rate_pct_per_year
-                length_acceleration = defect.length_growth_rate_mm_per_year
+            
+            depth_acceleration = defect.growth_rate_pct_per_year
+            length_acceleration = defect.length_growth_rate_mm_per_year
             
             # Apply growth (not double multiplication)
             adjusted_growth = self._apply_depth_dependent_growth(defect, depth_acceleration)
