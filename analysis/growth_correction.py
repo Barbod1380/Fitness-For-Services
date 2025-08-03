@@ -57,10 +57,10 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
     corrections = {}
 
     try:
-        # NEW: Process each negative growth defect individually with nearby joint search
+        # Process each negative growth defect individually with nearby joint search
         for neg_idx, neg_defect in negative_growth.iterrows():
             target_joint = neg_defect['joint number']
-            
+
             # Define joint search range
             joint_min = target_joint - joint_tolerance
             joint_max = target_joint + joint_tolerance
@@ -79,7 +79,7 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
             # Features for KNN: dimensions plus old depth
             features = available_dimension_cols + ['old_depth_pct']
 
-            # Prepare feature data - FIX: Handle Series correctly
+            # Prepare feature data
             scaler = StandardScaler()
 
             # Ensure we have DataFrame with proper column names for fitting
@@ -98,12 +98,12 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
             knn = NearestNeighbors(n_neighbors=k_value)
             knn.fit(X_positive)
 
-            distances, indices = knn.kneighbors(X_negative)
+            _, indices = knn.kneighbors(X_negative)
             
             # Get the actual indices of similar defects
             similar_defect_indices = nearby_positive.index[indices[0]]
             
-            # ENHANCEMENT: Weight by joint distance (closer joints get higher weight)
+            # Weight by joint distance (closer joints get higher weight)
             weights = []
             for i, similar_idx in enumerate(similar_defect_indices):
                 similar_defect = nearby_positive.loc[similar_idx]
@@ -213,13 +213,13 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
 
 def calculate_engineering_weights(target_defect, similar_defect, joint_distance):
     """
-    Calculate similarity weights based on pipeline integrity engineering principles.
-    
+    Calculate similarity weights based on pipeline integrity engineering principles.    
+
     References:
-    - NACE SP0169-2013: Local corrosion environment correlation
-    - API 579-1 Part 4: Proximity effects in pipeline defects  
-    - NACE MR0175: Environment-dependent corrosion mechanisms
-    - ASME B31.8S: ILI measurement uncertainty principles
+    - API 579-1 Part 4: Defect proximity and interaction methodology 
+    - NACE MR0175: Environment-dependent corrosion mechanisms 
+    - Pipeline integrity engineering principles (remove incorrect NACE SP0169 reference)
+    - General measurement uncertainty principles (remove specific ASME B31.8S reference)
     
     Parameters:
     - target_defect: Dict with defect properties needing correction
@@ -230,21 +230,27 @@ def calculate_engineering_weights(target_defect, similar_defect, joint_distance)
     - Dict with individual and combined weights
     """
     
-    # 1. JOINT PROXIMITY WEIGHT (Exponential decay per NACE SP0169)
-    # Characteristic correlation length: 2 joints for pipeline environments
+
+    # 1. JOINT PROXIMITY WEIGHT
+    # Characteristic correlation length, 2 joints for pipeline environments.
+    # Defects in nearby pipe joints share similar corrosion environments
     characteristic_joints = 2.0
     joint_weight = math.exp(-abs(joint_distance) / characteristic_joints)
     
+
     # 2. DEPTH SIMILARITY WEIGHT (Most critical per NACE MR0175)
     # Depth difference indicates different corrosion mechanisms
+    # Defects in nearby pipe joints share similar corrosion environments
     depth_diff = abs(similar_defect['old_depth_pct'] - target_defect['old_depth_pct'])
     characteristic_depth_diff = 8.0  # 8% depth difference as characteristic
     depth_weight = math.exp(-depth_diff / characteristic_depth_diff)
     
-    # 3. SIZE SIMILARITY WEIGHT (Measurement confidence per ASME B31.8S)
+
+    # 3. SIZE SIMILARITY WEIGHT (Measurement confidence per ASME B31.8S) 
     # Ratio approach - similar sizes have similar measurement uncertainty
-    length_target = target_defect.get('length [mm]', 50.0)
-    length_similar = similar_defect.get('length [mm]', 50.0)
+    # Similar-sized defects have similar measurement confidence
+    length_target = target_defect.get('length [mm]')
+    length_similar = similar_defect.get('length [mm]')
     
     # Avoid division by zero
     if length_target > 0 and length_similar > 0:
@@ -253,10 +259,12 @@ def calculate_engineering_weights(target_defect, similar_defect, joint_distance)
     else:
         size_weight = 0.1  # Low weight for invalid sizes
     
-    # 4. ENVIRONMENTAL SIMILARITY (Wall thickness indicates vintage/environment)
+
+    # 4. ENVIRONMENTAL SIMILARITY (Wall thickness indicates vintage/environment) 
     # Similar wall thickness suggests similar installation vintage and environment
-    wt_target = target_defect.get('wall_thickness_mm', 10.0)
-    wt_similar = similar_defect.get('wall_thickness_mm', 10.0)
+    # Similar wall thickness suggests similar vintage/installation conditions
+    wt_target = target_defect.get('new_wt_mm', target_defect.get('old_wt_mm'))
+    wt_similar = similar_defect.get('new_wt_mm', similar_defect.get('old_wt_mm'))
     
     if wt_target > 0 and wt_similar > 0:
         wt_ratio = min(wt_target, wt_similar) / max(wt_target, wt_similar)
@@ -264,6 +272,7 @@ def calculate_engineering_weights(target_defect, similar_defect, joint_distance)
     else:
         environment_weight = 1.0
     
+
     # COMBINED WEIGHT - Engineering-based priorities:
     # Depth similarity is most critical (40%) - indicates corrosion mechanism
     # Joint proximity is very important (30%) - shared environment  

@@ -7,7 +7,7 @@ import streamlit as st
 from visualization.comparison_viz import *
 from app.services.state_manager import *
 from core.matching_defects import compare_defects
-from analysis.growth_analysis import correct_negative_growth_rates
+from analysis.growth_correction import correct_negative_growth_rates
 from visualization.prediction_viz import create_failure_timeline_histogram
 from core.failure_simulation import FailurePredictionSimulator, SimulationParams
 from datetime import datetime
