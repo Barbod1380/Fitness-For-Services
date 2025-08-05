@@ -112,7 +112,7 @@ class FailurePredictionSimulator:
         if use_clustering and clusters and self.clustering_config and self.clustering_config.get('enabled'):        
             # Use clustering if requested (existing logic)
             if hasattr(self, 'clusterer') and self.clusterer is not None:
-                from core.enhanced_ffs_clustering import EnhancedFFSClusterer
+                from core.ffs_cluster_processing import EnhancedFFSClusterer
                 
                 enhanced_clusterer = EnhancedFFSClusterer(
                     standard=self.clustering_config['standard'],  

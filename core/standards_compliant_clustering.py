@@ -9,11 +9,13 @@ Standards implemented:
 - DNV-RP-F101 composite defect criteria
 """
 
+import streamlit as st
 import pandas as pd
 import math
 from typing import List, Dict
 from dataclasses import dataclass
 from enum import Enum
+
 
 class ClusteringStandard(Enum):
     """Supported industry standards for defect clustering"""
@@ -37,18 +39,23 @@ class StandardsCompliantClusterer:
     Replaces proprietary parameters with validated industry criteria.
     """
     
-    def __init__(self, 
-                 standard: ClusteringStandard = ClusteringStandard.BS7910,
-                 pipe_diameter_mm: float = 1000.0,
-                 conservative_factor: float = 1.0):
-        """
-        Initialize clusterer with specified industry standard.
+    def __init__(self, standard: ClusteringStandard, pipe_diameter_mm: float, conservative_factor: float):
         
-        Parameters:
-        - standard: Industry standard to use for clustering
-        - pipe_diameter_mm: Pipeline outside diameter in mm
-        - conservative_factor: Multiplier for additional conservatism (default 1.0)
         """
+        Create a standards-aware clusterer for pipeline corrosion features.
+
+        Parameters
+        ----------
+        standard : ClusteringStandard
+            Which published methodology to use for *interaction screening* and clustering
+            (e.g., B31G/Modified B31G-style 3t/6t rules, DNV-RP-F101 composite defect pre-screen).
+        pipe_diameter_mm : float
+            Pipe outside diameter [mm]; used for circumferential arc-length calculations from clock positions.
+        conservative_factor : float, optional
+            Multiplier ≥ 1.0 applied to computed interaction distances as an engineering margin.
+            This does *not* replace the standard’s assessment rules (e.g., DNV combined-defect pressure check).
+        """
+        
         self.standard = standard
         self.pipe_diameter_mm = pipe_diameter_mm
         self.conservative_factor = conservative_factor
@@ -58,32 +65,47 @@ class StandardsCompliantClusterer:
 
     
     def _initialize_standard_parameters(self):
-        """Initialize clustering parameters based on selected standard"""
         
+        """
+        Initialize internal parameters for the selected standard.
+
+        Notes
+        -----
+        This sets *screening* parameters (e.g., default spacing factors) used to pre-select
+        candidate interacting defects. Standards like DNV-RP-F101 ultimately require
+        a combined-defect pressure check; these parameters alone do not constitute
+        the full standard assessment.
+        """
+
         if self.standard == ClusteringStandard.BS7910:
             self._setup_bs7910_parameters()
         elif self.standard == ClusteringStandard.API579:
             self._setup_api579_parameters()
         elif self.standard == ClusteringStandard.DNV_RP_F101:
             self._setup_dnv_parameters()
-
         else:
             raise ValueError(f"Unsupported standard: {self.standard}")
     
 
     def _setup_bs7910_parameters(self):
-        """Setup BS 7910 flaw interaction parameters"""
-        self.standard_name = "BS 7910:2019 Flaw Interaction"
+        """
+        Configures BS 7910:2019 flaw interaction parameters.
+        
+        Key updates:
+        - Removes size_ratio_threshold (not in standard)
+        - Adds reference to Annex T (NDT reliability)
+        - Uses defect half-lengths for interaction
+        
+        References: 
+        - BS 7910:2019 Sections 7.1.7, Annex T :cite[1]:cite[2]
+        """
+        self.standard_name = "BS 7910:2019"
         self.reference = "BS 7910:2019 Section 7.1.7"
-        
-        # BS 7910 uses more sophisticated interaction rules
-        self.separation_factor = 1.0  # s/a criteria where s is separation, a is defect size
-        self.alignment_tolerance_degrees = 15.0  # Angular alignment tolerance
-        self.size_ratio_threshold = 2.0  # Size ratio for interaction consideration
-        
+        self.alignment_tolerance_degrees = 15.0  # For non-coplanar flaws
         self.applicability_notes = (
-            "BS 7910 interaction rules consider both separation distance and flaw alignment. "
-            "Applicable to both surface and embedded flaws."
+            "Flaws interact if axial separation ≤ (a₁ + a₂), "
+            "where a₁, a₂ are flaw half-lengths. "
+            "NDT reliability factors (Annex T) must be considered."
         )
     
     def _setup_api579_parameters(self):
@@ -102,20 +124,22 @@ class StandardsCompliantClusterer:
         )
     
     def _setup_dnv_parameters(self):
-        """Setup DNV-RP-F101 composite defect parameters"""
-        self.standard_name = "DNV-RP-F101 Corroded Pipelines"
-        self.reference = "DNV-RP-F101 October 2017"
+        """
+        Configures DNV-RP-F101 composite defect parameters.
         
-        # DNV approach for closely spaced defects
-        self.axial_spacing_factor = 1.0  # Spacing relative to defect length
-        self.circumferential_spacing_factor = 3.0  # 3 times wall thickness
-        self.interaction_depth_threshold = 0.05  # 5% depth for interaction
-        
+        References:
+        - DNV-RP-F101:2019 Section 5.3.4 (Interaction Rules)
+        - Equation 5.18 (Composite Defect Length)
+        """
+        self.standard_name = "DNV-RP-F101:2019"
+        self.reference = "DNV-RP-F101:2019 Section 5.3"
         self.applicability_notes = (
-            "DNV-RP-F101 composite defect approach for offshore pipelines. "
-            "Validated for high-pressure gas transmission applications."
+            "Defects interact if:\n"
+            "- Axial spacing ≤ min(25mm, 0.5√(D·t))\n"
+            "- Circumferential arc length ≤ min(6°, 6t)\n"
+            "- Depth ratio (min(d₁,d₂)/max(d₁,d₂)) ≥ 0.8"
         )
-    
+
     def calculate_interaction_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
         """
         Calculate interaction criteria for given wall thickness.
@@ -158,6 +182,76 @@ class StandardsCompliantClusterer:
             applicability_notes=self.applicability_notes
         )
     
+    def _calculate_api579_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
+        """Calculate API 579-1-based interaction criteria"""
+
+        # Use engineering-based interaction distance calculation
+        distance_result = self.calculate_interaction_distance("API579", wall_thickness_mm, self.pipe_diameter_mm)
+        axial_distance = distance_result['axial_distance_mm']
+        circumferential_distance = distance_result['circumferential_distance_mm']
+        
+
+        # Apply conservative factor
+        axial_distance *= self.conservative_factor
+        circumferential_distance *= self.conservative_factor
+        
+        return InteractionCriteria(
+            axial_distance_mm=axial_distance,
+            circumferential_distance_mm=circumferential_distance,
+            depth_interaction_factor=0.1,  # 10% depth difference
+            standard_name=self.standard_name,
+            applicability_notes=self.applicability_notes
+        )
+    
+    def _calculate_dnv_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
+        """
+        Calculates DNV-RP-F101:2019 interaction screening criteria for corrosion defects.
+
+        References
+        ----------
+        - DNV-RP-F101:2019 Section 5.3.4 and Table 5-5
+        - Equation 5.18 (Composite Defect Length)
+
+        Screening criteria:
+            1. Axial spacing ≤ min(25 mm, 0.5 * sqrt(D * t))
+            2. Circumferential spacing ≤ min(6t, arc length for 6° at pipe OD)
+            3. Depth similarity (shallower/deeper) ≥ 0.8
+
+        These criteria are intended for initial grouping. For full standard compliance,
+        colonies should be assessed using the combined-profile method (Sec 5.3.5).
+
+        Returns
+        -------
+        InteractionCriteria
+            Contains axial, circumferential, and depth ratio thresholds.
+        """
+
+        # 1. Axial spacing criterion
+        axial_distance = min(
+            25.0, 
+            0.5 * math.sqrt(self.pipe_diameter_mm * wall_thickness_mm)
+        )
+        
+        # 2. Circumferential criterion (convert 6° to arc length in mm)
+        circumferential_arc_length = (6 / 360) * math.pi * self.pipe_diameter_mm
+        circumferential_distance = min(
+            6 * wall_thickness_mm, 
+            circumferential_arc_length
+        )
+        
+        # Apply conservatism factor
+        axial_distance *= self.conservative_factor
+        circumferential_distance *= self.conservative_factor
+        
+        return InteractionCriteria(
+            axial_distance_mm=axial_distance,
+            circumferential_distance_mm=circumferential_distance,
+            depth_interaction_factor=0.8,  # Depth ratio threshold
+            standard_name=self.standard_name,
+            applicability_notes=self.applicability_notes
+        )
+    
+
     def calculate_interaction_distance(self, standard: str, wall_thickness_mm: float, pipe_diameter_mm: float, defect_length_mm: float = None) -> Dict:
         """
         Calculate interaction distances based on industry standards and pipe-specific parameters.
@@ -263,57 +357,11 @@ class StandardsCompliantClusterer:
                 'buckling_scaling': d_over_t > 50
             }
         }
-    
-    
-    def _calculate_api579_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
-        """Calculate API 579-1-based interaction criteria"""
 
-        # Use engineering-based interaction distance calculation
-        distance_result = self.calculate_interaction_distance("API579", wall_thickness_mm, self.pipe_diameter_mm)
-        axial_distance = distance_result['axial_distance_mm']
-        circumferential_distance = distance_result['circumferential_distance_mm']
-        
-
-        # Apply conservative factor
-        axial_distance *= self.conservative_factor
-        circumferential_distance *= self.conservative_factor
-        
-        return InteractionCriteria(
-            axial_distance_mm=axial_distance,
-            circumferential_distance_mm=circumferential_distance,
-            depth_interaction_factor=0.1,  # 10% depth difference
-            standard_name=self.standard_name,
-            applicability_notes=self.applicability_notes
-        )
-    
-    def _calculate_dnv_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
-        """Calculate DNV-RP-F101-based interaction criteria"""
-        
-        # DNV approach for composite defects
-        axial_distance = 1.0 * wall_thickness_mm  # Conservative base
-        circumferential_distance = self.circumferential_spacing_factor * wall_thickness_mm
-        
-        # Apply conservative factor
-        axial_distance *= self.conservative_factor
-        circumferential_distance *= self.conservative_factor
-        
-        return InteractionCriteria(
-            axial_distance_mm=axial_distance,
-            circumferential_distance_mm=circumferential_distance,
-            depth_interaction_factor=self.interaction_depth_threshold,
-            standard_name=self.standard_name,
-            applicability_notes=self.applicability_notes
-        )
-    
-
-    def find_interacting_defects(self, 
-                                defects_df: pd.DataFrame, 
-                                joints_df: pd.DataFrame,
-                                show_progress: bool = True) -> List[List[int]]:
+    def find_interacting_defects(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame, show_progress: bool = True) -> List[List[int]]:
         """
-        OPTIMIZED: Find clusters with batch processing and progress tracking
+        Find clusters with batch processing and progress tracking
         """
-        import streamlit as st
         
         # Validation (unchanged)
         required_defect_cols = ['log dist. [m]', 'joint number', 'depth [%]']
@@ -427,65 +475,14 @@ class StandardsCompliantClusterer:
         if depth_diff > criteria.depth_interaction_factor * 100:  # e.g., 20% WT
             return False
         
+        # DNV-specific depth ratio check
+        if self.standard == ClusteringStandard.DNV_RP_F101:
+            d1, d2 = defect1['depth [%]'], defect2['depth [%]']
+            depth_ratio = min(d1, d2) / max(d1, d2) if max(d1, d2) > 0 else 0
+            if depth_ratio < criteria.depth_interaction_factor:
+                return False
+        
         return True  
-
-
-    def get_standard_info(self) -> Dict:
-        """
-        Get information about the current clustering standard.
-        
-        Returns:
-        - Dictionary with standard information
-        """
-        return {
-            'standard': self.standard.value,
-            'standard_name': getattr(self, 'standard_name', 'Unknown'),
-            'reference': getattr(self, 'reference', 'No reference available'),
-            'applicability_notes': getattr(self, 'applicability_notes', 'No notes available'),
-            'pipe_diameter_mm': self.pipe_diameter_mm,
-            'conservative_factor': self.conservative_factor
-        }
-    
-    def compare_standards(self, wall_thickness_mm: float) -> pd.DataFrame:
-        """
-        Compare interaction criteria across different standards.
-        
-        Parameters:
-        - wall_thickness_mm: Wall thickness for comparison
-        
-        Returns:
-        - DataFrame comparing criteria across standards
-        """
-        standards_to_compare = [
-            ClusteringStandard.BS7910,
-            ClusteringStandard.API579,
-            ClusteringStandard.DNV_RP_F101
-        ]
-        
-        comparison_data = []
-        
-        for standard in standards_to_compare:
-            # Temporarily switch standard
-            original_standard = self.standard
-            self.standard = standard
-            self._initialize_standard_parameters()
-            
-            criteria = self.calculate_interaction_criteria(wall_thickness_mm)
-            
-            comparison_data.append({
-                'Standard': standard.value,
-                'Axial Distance (mm)': criteria.axial_distance_mm,
-                'Circumferential Distance (mm)': criteria.circumferential_distance_mm,
-                'Depth Interaction Factor': criteria.depth_interaction_factor,
-                'Applicability Notes': criteria.applicability_notes[:50] + '...'
-            })
-            
-            # Restore original standard
-            self.standard = original_standard
-            self._initialize_standard_parameters()
-        
-        return pd.DataFrame(comparison_data)
-    
 
     def _find_nearby_start(self, sorted_defects: pd.DataFrame, target_location: float) -> int:
         """
@@ -518,9 +515,9 @@ class StandardsCompliantClusterer:
         return min(len(locations) - 1, right + 1)  # Include one after for safety
 
 
-def create_standards_compliant_clusterer(standard_name: str = "BS7910", 
-                                       pipe_diameter_mm: float = 1000.0,
-                                       conservative_factor: float = 1.0) -> StandardsCompliantClusterer:
+def create_standards_compliant_clusterer(standard_name: str, 
+                                       pipe_diameter_mm: float,
+                                       conservative_factor: float = 1) -> StandardsCompliantClusterer:
     """
     Factory function to create standards-compliant clusterer.
     

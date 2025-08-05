@@ -15,6 +15,6 @@ from .standards_compliant_clustering import (
     StandardsCompliantClusterer,
     create_standards_compliant_clusterer
 )
-from .enhanced_ffs_clustering import (
+from .ffs_cluster_processing import (
     EnhancedFFSClusterer,
 )

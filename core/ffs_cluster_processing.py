@@ -1,4 +1,4 @@
-# core/enhanced_ffs_clustering.py
+# core/ffs_cluster_processing.py
 """
 Enhanced FFS clustering with stress concentration factors and standards compliance.
 Integrates with existing corrosion assessment and failure prediction systems.
@@ -30,11 +30,18 @@ class EnhancedFFSClusterer:
     """
     Enhanced FFS clusterer with stress concentration factors.
     Integrates standards-compliant clustering with failure prediction.
+        
+    Example
+    -------
+    clusterer = EnhancedFFSClusterer(standard="DNV", pipe_diameter_mm=762)
+    clusters = clusterer.clusterer.find_interacting_defects(defects_df, joints_df)
+    cluster_properties = compute_cluster_properties(defects_df, clusters)
+    combined_df = clusterer.create_combined_defects_dataframe(defects_df, cluster_properties)
     """
     
     def __init__(self, 
-                 standard: str = "BS7910",
-                 pipe_diameter_mm: float = 1000.0,
+                 standard: str,
+                 pipe_diameter_mm: float,
                  conservative_factor: float = 1.0,
                  include_stress_concentration: bool = True):
         """
