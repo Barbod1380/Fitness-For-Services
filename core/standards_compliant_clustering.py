@@ -1,26 +1,14 @@
 # core/standards_compliant_clustering.py
-"""
-Industry-standards compliant defect clustering for pipeline FFS applications.
-Replaces proprietary clustering parameters with validated industry standards.
-
-Standards implemented:
-- BS 7910 flaw interaction methodology  
-- API 579-1 proximity guidelines
-- DNV-RP-F101 composite defect criteria
-"""
 
 import streamlit as st
 import pandas as pd
 import math
-from typing import List, Dict
 from dataclasses import dataclass
 from enum import Enum
 
 
 class ClusteringStandard(Enum):
     """Supported industry standards for defect clustering"""
-    BS7910 = "BS 7910 Flaw Interaction"
-    API579 = "API 579-1 Proximity Rules"
     DNV_RP_F101 = "DNV-RP-F101 Composite Defects"
 
 
@@ -32,6 +20,7 @@ class InteractionCriteria:
     depth_interaction_factor: float
     standard_name: str
     applicability_notes: str
+
 
 class StandardsCompliantClusterer:
     """
@@ -128,7 +117,7 @@ class StandardsCompliantClusterer:
 
         items = []  # row-level cache for projection
         for idx, row in defects_df.iterrows():
-            start_mm = float(row.get("location_m", 0.0)) * 1000.0   # you confirmed 'location_m' is defect START
+            start_mm = float(row.get("log dist. [m]", 0.0)) * 1000.0   # defect START in meters → mm
             length_mm = row.get("current_length_mm", row.get("length [mm]", 0.0)) or 0.0
             end_mm = start_mm + float(length_mm)
 
@@ -165,8 +154,8 @@ class StandardsCompliantClusterer:
             ra, rb = find(a), find(b)
             if ra != rb:
                 parent[rb] = ra
-
-        step = max(1, int(self.projection_step_deg))
+        min_width_deg = min((2*it['halfw_deg'] for it in items), default=float(self.projection_step_deg))
+        step = max(1, int(min(self.projection_step_deg, max(1.0, 0.5*min_width_deg))))
         for theta_g in range(0, 360, step):
             # Defects whose circumferential span covers this generator
             cand = [it for it in items if self._angle_dist_deg(it["theta_deg"], theta_g) <= it["halfw_deg"]]
@@ -181,17 +170,18 @@ class StandardsCompliantClusterer:
                 if prev["t_mm"] is not None and it["t_mm"] is not None:
                     t_local = min(prev["t_mm"], it["t_mm"])
                 else:
-                    # fall back to a nominal if not merged in; you can tighten this later
-                    t_local = defects_df.get("t_mm", pd.Series([None])).median() or 0.0
-
-                s_th = 2.0 * math.sqrt(self.pipe_diameter_mm * max(t_local, 0.0)) * self.conservative_factor
+                    # fall back to dataset median thickness if available; otherwise use 10 mm nominal
+                    t_series = defects_df['t_mm'] if 't_mm' in defects_df.columns else None
+                    t_med = float(pd.Series(t_series).median(skipna=True)) if t_series is not None else float('nan')
+                    t_local = t_med if (t_med == t_med) else 10.0
 
                 same_joint_ok = (
-                    self.standard == ClusteringStandard.DNV_RP_F101
-                    or self.allow_across_girth_welds
-                    or (prev["joint"] is None or it["joint"] is None)
-                    or (prev["joint"] == it["joint"])
+                    self.allow_across_girth_welds
+                    or (prev['joint'] is None or it['joint'] is None)
+                    or (prev['joint'] == it['joint'])
                 )
+                
+                s_th = 2.0 * math.sqrt(self.pipe_diameter_mm * max(t_local, 0.0)) * self.conservative_factor
 
                 if same_joint_ok and (it["start_mm"] - prev["end_mm"] <= s_th):
                     union(prev["row_idx"], it["row_idx"])
@@ -209,12 +199,10 @@ class StandardsCompliantClusterer:
         for members in groups.values():
             if len(members) >= 2:
                 clusters.append(sorted(pos_of[m] for m in members))
-
         return clusters
 
 
     def _initialize_standard_parameters(self):
-        
         """
         Initialize internal parameters for the selected standard.
 
@@ -226,51 +214,11 @@ class StandardsCompliantClusterer:
         the full standard assessment.
         """
 
-        if self.standard == ClusteringStandard.BS7910:
-            self._setup_bs7910_parameters()
-        elif self.standard == ClusteringStandard.API579:
-            self._setup_api579_parameters()
-        elif self.standard == ClusteringStandard.DNV_RP_F101:
+        if self.standard == ClusteringStandard.DNV_RP_F101:
             self._setup_dnv_parameters()
         else:
             raise ValueError(f"Unsupported standard: {self.standard}")
-    
 
-    def _setup_bs7910_parameters(self):
-        """
-        Configures BS 7910:2019 flaw interaction parameters.
-        
-        Key updates:
-        - Removes size_ratio_threshold (not in standard)
-        - Adds reference to Annex T (NDT reliability)
-        - Uses defect half-lengths for interaction
-        
-        References: 
-        - BS 7910:2019 Sections 7.1.7, Annex T :cite[1]:cite[2]
-        """
-        self.standard_name = "BS 7910:2019"
-        self.reference = "BS 7910:2019 Section 7.1.7"
-        self.alignment_tolerance_degrees = 15.0  # For non-coplanar flaws
-        self.applicability_notes = (
-            "Flaws interact if axial separation ≤ (a₁ + a₂), "
-            "where a₁, a₂ are flaw half-lengths. "
-            "NDT reliability factors (Annex T) must be considered."
-        )
-    
-    def _setup_api579_parameters(self):
-        """Setup API 579-1 proximity-based parameters"""
-        self.standard_name = "API 579-1/ASME FFS-1"
-        self.reference = "API 579-1/ASME FFS-1 2021 Edition"
-        
-        # API 579-1 proximity categories
-        self.major_structural_proximity_mm = 25.4  # 1 inch - this is where your 25.4mm comes from!
-        self.weld_proximity_mm = 50.8  # 2 inches from weld
-        self.defect_proximity_multiplier = 2.0  # 2 times larger defect dimension
-        
-        self.applicability_notes = (
-            "API 579-1 proximity rules for structural discontinuities and welds. "
-            "The 25.4mm distance applies specifically to major structural discontinuities."
-        )
     
     def _setup_dnv_parameters(self):
         """
@@ -298,60 +246,8 @@ class StandardsCompliantClusterer:
         Returns:
         - InteractionCriteria object with calculated distances
         """
-        
-        if self.standard == ClusteringStandard.BS7910:
-            return self._calculate_bs7910_criteria(wall_thickness_mm)
-        elif self.standard == ClusteringStandard.API579:
-            return self._calculate_api579_criteria(wall_thickness_mm)
-        elif self.standard == ClusteringStandard.DNV_RP_F101:
+        if self.standard == ClusteringStandard.DNV_RP_F101:
             return self._calculate_dnv_criteria(wall_thickness_mm)
-    
-
-    def _calculate_bs7910_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
-        """Calculate BS 7910-based interaction criteria"""
-        
-        # BS 7910 uses defect-size relative criteria
-        # For surface flaws: interaction when s < (a1 + a2)
-        # Conservative approximation: use wall thickness as characteristic dimension
-        
-        base_distance = 2.0 * wall_thickness_mm  # Conservative base
-        
-        axial_distance = base_distance * 2.0  # Longer interaction in axial direction
-        circumferential_distance = base_distance
-        
-        # Apply conservative factor
-        axial_distance *= self.conservative_factor
-        circumferential_distance *= self.conservative_factor
-        
-        return InteractionCriteria(
-            axial_distance_mm = axial_distance,
-            circumferential_distance_mm = circumferential_distance,
-            depth_interaction_factor = 0.05,  # 5% depth difference
-            standard_name = self.standard_name,
-            applicability_notes = self.applicability_notes
-        )
-    
-
-    def _calculate_api579_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
-        """Calculate API 579-1-based interaction criteria"""
-
-        # Use engineering-based interaction distance calculation
-        distance_result = self.calculate_interaction_distance("API579", wall_thickness_mm, self.pipe_diameter_mm)
-        axial_distance = distance_result['axial_distance_mm']
-        circumferential_distance = distance_result['circumferential_distance_mm']
-
-        # Apply conservative factor
-        axial_distance *= self.conservative_factor
-        circumferential_distance *= self.conservative_factor
-        
-        return InteractionCriteria(
-            axial_distance_mm = axial_distance,
-            circumferential_distance_mm = circumferential_distance,
-            depth_interaction_factor = 0.1,  # 10% depth difference
-            standard_name = self.standard_name,
-            applicability_notes = self.applicability_notes
-        )
-    
 
     def _calculate_dnv_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
         """
@@ -385,111 +281,6 @@ class StandardsCompliantClusterer:
             standard_name = self.standard_name,
             applicability_notes = self.applicability_notes
         )
-
-    
-    def calculate_interaction_distance(self, standard: str, wall_thickness_mm: float, pipe_diameter_mm: float, defect_length_mm: float = None) -> Dict:
-        """
-        Calculate interaction distances based on industry standards and pipe-specific parameters.
-        
-        References:
-        - API 579-1/ASME FFS-1 Section 4.3.3: Proximity rules
-        - ASME B31G Modified: √(D×t) plastic zone criterion  
-        - BS 7910:2019 Section 7.1.7: Flaw interaction methodology
-        - DNV-RP-F101 October 2017: Composite defect criteria
-        
-        Parameters:
-        - standard: Industry standard name
-        - wall_thickness_mm: Nominal wall thickness
-        - pipe_diameter_mm: Outside diameter
-        - defect_length_mm: Defect length for size-based criteria (optional)
-        
-        Returns:
-        - Dict with axial and circumferential interaction distances
-        """
-        
-        # Input validation
-        if wall_thickness_mm <= 0 or pipe_diameter_mm <= 0:
-            raise ValueError("Wall thickness and diameter must be positive")
-        
-        radius_mm = pipe_diameter_mm / 2.0
-        
-        if standard.upper() == "API579":
-            # API 579-1 Section 4.3.3: Proximity rules
-            # Base structural discontinuity distance
-            base_structural = 25.4  # 1 inch for major discontinuities
-            
-            # For defect-to-defect: consider pipe geometry
-            # Minimum of structural distance or geometry-based
-            geometry_based = max(2.0 * wall_thickness_mm, 
-                            0.1 * math.sqrt(pipe_diameter_mm * wall_thickness_mm))
-            
-            axial_distance = max(base_structural, geometry_based)
-            
-            # Circumferential: Based on pipe curvature effects
-            circumferential_distance = min(base_structural, 
-                                        math.pi * pipe_diameter_mm / 12)  # 30° arc length
-            
-            reference = "API 579-1/ASME FFS-1 Section 4.3.3"
-            
-        elif standard.upper() == "BS7910":
-            # BS 7910:2019 Section 7.1.7 - Size-based interaction
-            if defect_length_mm and defect_length_mm > 0:
-                # Interaction when s < (a₁ + a₂), assume similar defects: s < 2a
-                axial_distance = 2.0 * defect_length_mm
-            else:
-                # Conservative default: 4×wall thickness
-                axial_distance = 4.0 * wall_thickness_mm
-            
-            # Circumferential: Smaller influence in BS 7910
-            circumferential_distance = 2.0 * wall_thickness_mm
-            reference = "BS 7910:2019 Section 7.1.7"
-            
-
-        elif standard.upper() == "DNV":
-            axial_distance = 2.0 * math.sqrt(pipe_diameter_mm * wall_thickness_mm)
-            circumferential_distance = math.pi * wall_thickness_mm
-            reference = "DNV-RP-F101 isolation screens (axial 2√(D·t), circumferential π·t)"
-
-            
-        else:
-            # Conservative multi-standard approach
-            # Use maximum of all methods for safety
-            rstreng_axial = math.sqrt(pipe_diameter_mm * wall_thickness_mm)
-            api_axial = max(25.4, 2.0 * wall_thickness_mm)
-            bs_axial = 4.0 * wall_thickness_mm
-            dnv_axial = 1.5 * wall_thickness_mm
-            
-            axial_distance = max(rstreng_axial, api_axial, bs_axial, dnv_axial)
-            circumferential_distance = max(25.4, 6.0 * wall_thickness_mm)
-            
-            reference = "Conservative multi-standard maximum"
-        
-        # Apply pipe-specific scaling factors
-        # For very thick pipes (t > 20mm), increase distances
-        if wall_thickness_mm > 20.0:
-            thickness_factor = min(wall_thickness_mm / 10.0, 2.0)  # Cap at 2x
-            axial_distance *= thickness_factor
-            circumferential_distance *= thickness_factor
-        
-        # For high D/t ratios (>50), consider buckling interactions
-        d_over_t = pipe_diameter_mm / wall_thickness_mm
-        if d_over_t > 50:
-            buckling_factor = min(1.0 + (d_over_t - 50) / 100, 1.5)  # Up to 1.5x
-            axial_distance *= buckling_factor
-        
-        return {
-            'axial_distance_mm': axial_distance,
-            'circumferential_distance_mm': circumferential_distance,
-            'standard_used': standard,
-            'reference': reference,
-            'wall_thickness_mm': wall_thickness_mm,
-            'pipe_diameter_mm': pipe_diameter_mm,
-            'd_over_t_ratio': d_over_t,
-            'scaling_applied': {
-                'thickness_scaling': wall_thickness_mm > 20.0,
-                'buckling_scaling': d_over_t > 50
-            }
-        }
     
 
     def _pairwise_interacting_clusters(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame, show_progress: bool = True) -> list[list[int]]:
@@ -547,7 +338,7 @@ class StandardsCompliantClusterer:
                 # Binary search for nearby defects (much faster than checking all)
                 start_idx = self._find_nearby_start(defects_sorted, location_i - max_distance_m)
                 end_idx = self._find_nearby_end(defects_sorted, location_i + max_distance_m)
-                
+
                 # Only check defects within spatial range
                 for j in range(start_idx, end_idx + 1):
                     original_j = original_indices[j]
@@ -559,8 +350,8 @@ class StandardsCompliantClusterer:
                     
                     # Use optimized interaction check
                     if self._defects_interact_vectorized(defect_i, defect_j, criteria):
-                        cluster.append(original_j)
-                
+                        cluster.append(original_j)                
+
                 # If cluster has more than one defect, it's meaningful
                 if len(cluster) > 1:
                     clusters.append(cluster)
@@ -572,6 +363,7 @@ class StandardsCompliantClusterer:
         if show_progress:
             progress_bar.progress(1.0)
             status_text.text(f"✅ Clustering complete: {len(clusters)} clusters found")
+
         return clusters
 
 
@@ -593,6 +385,37 @@ class StandardsCompliantClusterer:
         t_map = joints_df[['joint number', 'wt nom [mm]']].rename(columns={'wt nom [mm]': 't_mm'})
         df = df.merge(t_map, on='joint number', how='left')
 
+
+        print(f"[DNV] D={self.pipe_diameter_mm} mm | projection_step={self.projection_step_deg} | across_welds={self.allow_across_girth_welds} | cons_factor={self.conservative_factor}")
+        df = defects_df.copy()
+        t_map = joints_df[['joint number', 'wt nom [mm]']].rename(columns={'wt nom [mm]': 't_mm'})
+        df = df.merge(t_map, on='joint number', how='left')
+        print("[DNV] defects:", len(df))
+        print("[DNV] log dist [m] min/max:", float(df['log dist. [m]'].min()), float(df['log dist. [m]'].max()))
+        print("[DNV] length [mm] min/median/max:", float(df['length [mm]'].min()), float(df['length [mm]'].median()), float(df['length [mm]'].max()))
+        print("[DNV] width [mm]  min/median/max:", float(df['width [mm]'].min()), float(df['width [mm]'].median()), float(df['width [mm]'].max()))
+        print("[DNV] t_mm  min/median/max:", float(df['t_mm'].min()), float(df['t_mm'].median()), float(df['t_mm'].max()))
+
+
+        if self.standard == ClusteringStandard.DNV_RP_F101 and self.use_projection_sweep:
+            widths_deg = 180.0 * df['width [mm]'] / (math.pi * self.pipe_diameter_mm)
+            min_width_deg = float(widths_deg.min())
+            eff_step = int(min(self.projection_step_deg, max(1.0, 0.5*min_width_deg)))
+            print(f"[DNV] effective projection step = {eff_step}° (min width deg={min_width_deg:.2f}°)")
+
+        # 2) Nearest-neighbor axial gap vs threshold (fast proxy)
+        import numpy as np
+        gaps = []
+        for _, grp in df.groupby('joint number'):
+            z = (grp['log dist. [m]']*1000).sort_values().values
+            if len(z) > 1:
+                gaps.extend(np.diff(z))
+        gaps = np.array(gaps)
+        s_ax_th = 2.0 * math.sqrt(self.pipe_diameter_mm * float(df['t_mm'].median()))
+        print(f"[DNV] axial gaps: median={np.median(gaps):.1f} mm, 25%={np.percentile(gaps,25):.1f} mm, pct<=s_ax_th ({s_ax_th:.1f} mm) = {(gaps<=s_ax_th).mean()*100:.1f}%")
+
+
+
         all_groups: list[list[int]] = []
 
         # --- DNV projection sweep (optional, only for DNV) ---
@@ -603,44 +426,65 @@ class StandardsCompliantClusterer:
 
         # --- Existing pairwise/vectorized logic ---
         pair_groups = self._pairwise_interacting_clusters(df, joints_df, show_progress=show_progress)
+        # Convert original index clusters to positional indices
+        pos_of = {idx: pos for pos, idx in enumerate(df.index)}
+        pair_groups = [[pos_of[o] for o in group if o in pos_of] for group in pair_groups]
         if pair_groups:
             all_groups.extend(pair_groups)
 
+        print(f"[DNV] groups: projection={len(proj_groups or [])}, pairwise={len(pair_groups or [])}")
+
+
         # --- Union overlapping groups and return ---
-        return self._merge_overlapping_groups(all_groups)
+        final_groups = self._merge_overlapping_groups(all_groups)
+        print(f"[DNV] final clusters={len(final_groups)}")
+        return final_groups
+        #return self._merge_overlapping_groups(all_groups)
 
 
     def _defects_interact_vectorized(self, defect1: pd.Series, defect2: pd.Series, criteria: InteractionCriteria) -> bool:
 
-        if defect1['joint number'] != defect2['joint number']:
+        # Respect across-girth-weld setting
+        if (not self.allow_across_girth_welds) and (defect1['joint number'] != defect2['joint number']):
             return False
 
-        # Fast axial separation check
-        axial_separation_mm = abs(defect1['log dist. [m]'] - defect2['log dist. [m]']) * 1000
-        if axial_separation_mm > criteria.axial_distance_mm:
+        # Pair-local thickness for thresholds
+        t1 = defect1.get('t_mm')
+        t2 = defect2.get('t_mm')
+        if (pd.isna(t1) and pd.isna(t2)):
+            return False  # cannot evaluate without thickness
+        t_pair = min([t for t in [t1, t2] if not pd.isna(t)])
+
+        # Axial ligament (edge-to-edge)
+        z1 = float(defect1['log dist. [m]']) * 1000.0
+        L1 = float(defect1.get('length [mm]', defect1.get('current_length_mm', 0.0)))
+        z2 = float(defect2['log dist. [m]']) * 1000.0
+        L2 = float(defect2.get('length [mm]', defect2.get('current_length_mm', 0.0)))
+        start1, end1 = z1, z1 + L1
+        start2, end2 = z2, z2 + L2
+        s_axial = max(0.0, max(start2 - end1, start1 - end2))
+        s_axial_th = 2.0 * math.sqrt(self.pipe_diameter_mm * t_pair) * self.conservative_factor
+        if s_axial > s_axial_th:
             return False
-        
-        # Check circumferential ONLY if clock data is available
-        if 'clock_float' in defect1.index and 'clock_float' in defect2.index:
-            clock1, clock2 = defect1['clock_float'], defect2['clock_float']
-            
-            if pd.notna(clock1) and pd.notna(clock2):
-                clock_diff = min(abs(clock1 - clock2), 12 - abs(clock1 - clock2))
-                arc_length_mm = (clock_diff / 12.0) * math.pi * self.pipe_diameter_mm
-                
-                if arc_length_mm > criteria.circumferential_distance_mm:
-                    return False
-                
-        if self.standard != ClusteringStandard.DNV_RP_F101:
-            depth_diff = abs(defect1['depth [%]'] - defect2['depth [%]'])
-            if depth_diff > criteria.depth_interaction_factor * 100:  # e.g., 20% WT
+
+        # Circumferential ligament (edge-to-edge), only if clock & width available
+        w1 = defect1.get('width [mm]', defect1.get('current_width_mm', None))
+        w2 = defect2.get('width [mm]', defect2.get('current_width_mm', None))
+        c1 = defect1.get('clock_float', None)
+        c2 = defect2.get('clock_float', None)
+        if (w1 is not None and w2 is not None and pd.notna(c1) and pd.notna(c2)):
+            clock_diff = min(abs(c1 - c2), 12 - abs(c1 - c2))
+            center_arc = (clock_diff / 12.0) * math.pi * self.pipe_diameter_mm
+            s_circ = max(0.0, center_arc - 0.5*(float(w1) + float(w2)))
+            s_circ_th = math.pi * t_pair * self.conservative_factor
+            if s_circ > s_circ_th:
                 return False
+
         return True  
-    
 
     def _find_nearby_start(self, sorted_defects: pd.DataFrame, target_location: float) -> int:
         """
-        OPTIMIZATION: Binary search for spatial indexing - 10x faster than linear search
+        Binary search for spatial indexing - 10x faster than linear search
         """
         locations = sorted_defects['log dist. [m]'].values
         left, right = 0, len(locations) - 1
@@ -651,7 +495,6 @@ class StandardsCompliantClusterer:
                 left = mid + 1
             else:
                 right = mid
-        
         return max(0, left - 1)  # Include one before for safety
 
 
@@ -666,18 +509,15 @@ class StandardsCompliantClusterer:
                 left = mid
             else:
                 right = mid - 1
-        
         return min(len(locations) - 1, right + 1)  # Include one after for safety
 
 
-def create_standards_compliant_clusterer(standard_name: str, 
-                                       pipe_diameter_mm: float,
-                                       conservative_factor: float = 1) -> StandardsCompliantClusterer:
+def create_standards_compliant_clusterer(standard_name: str, pipe_diameter_mm: float, conservative_factor: float = 1.2) -> StandardsCompliantClusterer:
     """
     Factory function to create standards-compliant clusterer.
     
     Parameters:
-    - standard_name: Name of standard ("BS7910", "API579", "DNV")
+    - standard_name: Name of standard ("DNV")
     - pipe_diameter_mm: Pipeline diameter in mm
     - conservative_factor: Additional conservatism factor
     
@@ -686,9 +526,9 @@ def create_standards_compliant_clusterer(standard_name: str,
     """
     
     standard_mapping = {
-        "BS7910": ClusteringStandard.BS7910,
-        "API579": ClusteringStandard.API579,
         "DNV": ClusteringStandard.DNV_RP_F101,
+        "DNV-RP-F101": ClusteringStandard.DNV_RP_F101,
+        "DNV-RP-F101 Composite Defects": ClusteringStandard.DNV_RP_F101,
     }
     
     if standard_name not in standard_mapping:

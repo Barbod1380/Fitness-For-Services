@@ -25,7 +25,7 @@ class SimulationParams:
         method_mapping = {
             'B31G': 'b31g',
             'Modified_B31G': 'modified_b31g',
-            'RSTRENG': 'simplified_eff_area'
+            'RSTRENG': 'rstreng'
         }
         
         if self.assessment_method in method_mapping:
@@ -52,7 +52,6 @@ class DefectState:
     defect_type: str = 'Unknown'  
 
 
-@dataclass
 @dataclass
 class DefectFailure:
     """Record of an individual defect failure - CHANGED FROM JOINT TO DEFECT"""
@@ -805,22 +804,8 @@ class FailurePredictionSimulator:
                     result = self._calculate_cluster_erf(defect, cluster_profile)
                     
                     # Apply stress concentration (existing logic)
-                    if defect.stress_concentration_factor > 1.0:
-                        base_erf = result
-                        
-                        if base_erf < 0.5:
-                            stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.1
-                        elif base_erf < 0.7:
-                            stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.3
-                        elif base_erf < 0.9:
-                            stress_effect = 1.0 + (defect.stress_concentration_factor - 1.0) * 0.5
-                        else:
-                            stress_effect = defect.stress_concentration_factor
-                        
-                        final_erf = base_erf * stress_effect
-                    else:
-                        final_erf = result
-                    
+                    final_erf = result
+
                     return min(max(float(final_erf), 0.0), 1.5)
             
             # Fall back to single-defect calculation (existing code)

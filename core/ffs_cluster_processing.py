@@ -42,13 +42,13 @@ class EnhancedFFSClusterer:
     def __init__(self, 
                  standard: str,
                  pipe_diameter_mm: float,
-                 conservative_factor: float = 1.0,
+                 conservative_factor: float = 1.2,
                  include_stress_concentration: bool = True):
         """
         Initialize enhanced FFS clusterer.
         
         Parameters:
-        - standard: Industry standard for clustering ("BS7910", "API579", "DNV")
+        - standard: Industry standard for clustering ("DNV")
         - pipe_diameter_mm: Pipeline outside diameter in mm
         - conservative_factor: Additional conservatism factor
         - include_stress_concentration: Whether to apply stress concentration factors
