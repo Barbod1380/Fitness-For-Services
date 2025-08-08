@@ -1,5 +1,5 @@
 # core/standards_compliant_clustering.py
-
+import numpy as np
 import streamlit as st
 import pandas as pd
 import math
@@ -10,6 +10,7 @@ from enum import Enum
 class ClusteringStandard(Enum):
     """Supported industry standards for defect clustering"""
     DNV_RP_F101 = "DNV-RP-F101 Composite Defects"
+    ROSEN_15 = "ROSEN#15"
 
 
 @dataclass
@@ -48,14 +49,14 @@ class StandardsCompliantClusterer:
         self.standard = standard
         self.pipe_diameter_mm = pipe_diameter_mm
         self.conservative_factor = conservative_factor
-        
-        self.use_projection_sweep = use_projection_sweep
+                
+        # Projection sweep applies to DNV only; ROSEN uses pairwise only
+        self.use_projection_sweep = (self.standard == ClusteringStandard.DNV_RP_F101)
         self.projection_step_deg = int(projection_step_deg)
         self.allow_across_girth_welds = bool(allow_across_girth_welds)
         
         # Initialize standard-specific parameters
         self._initialize_standard_parameters()
-
 
     def _clock_to_deg(self, clock_float) -> float | None:
         """Convert 'clock' (0..12) to degrees (0..360)."""
@@ -216,9 +217,10 @@ class StandardsCompliantClusterer:
 
         if self.standard == ClusteringStandard.DNV_RP_F101:
             self._setup_dnv_parameters()
+        elif self.standard == ClusteringStandard.ROSEN_15:
+            self._setup_rosen15_parameters()
         else:
             raise ValueError(f"Unsupported standard: {self.standard}")
-
     
     def _setup_dnv_parameters(self):
         """
@@ -236,6 +238,33 @@ class StandardsCompliantClusterer:
             "- Circumferential spacing φ > 360·t/D  (arc length = π·t)"
         )
 
+    def _setup_rosen15_parameters(self):
+        """
+        Set defaults for ROSEN #15 clustering (pairwise-only).
+        Thresholds are pair-dependent:
+            Axial: IL = min(6 t, (L1 + L2)/2)
+            Circ.: IW = min(6 t, (W1 + W2)/2)
+        All distances in mm.
+        """
+        # Pairwise only; disable projection sweep
+        self.use_projection_sweep = False
+
+        # Optional behavior flags (keep consistent with DNV defaults unless you decide otherwise)
+        # If you want to *require* clock+width for circ check, flip to True.
+        self.require_clock_for_circ = False
+
+        # Across-girth-weld behavior stays whatever the instance was constructed with
+        # (your factory/UI decides this).
+        # self.allow_across_girth_welds = self.allow_across_girth_welds
+
+        # Notes for debugging/UX
+        self.standard_name = "ROSEN#15"
+        self.applicability_notes = (
+            "ROSEN #15 screening: axial IL = min(6 t, (L1+L2)/2), "
+            "circum IW = min(6 t, (W1+W2)/2). Pair-dependent thresholds."
+        )
+
+
     def calculate_interaction_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
         """
         Calculate interaction criteria for given wall thickness.
@@ -248,6 +277,15 @@ class StandardsCompliantClusterer:
         """
         if self.standard == ClusteringStandard.DNV_RP_F101:
             return self._calculate_dnv_criteria(wall_thickness_mm)
+        
+        if self.standard == ClusteringStandard.ROSEN_15:
+            return InteractionCriteria(
+                axial_distance_mm=None,
+                circumferential_distance_mm=None,
+                depth_interaction_factor=None,
+                standard_name=self.standard_name,
+                applicability_notes=self.applicability_notes
+            )
 
     def _calculate_dnv_criteria(self, wall_thickness_mm: float) -> InteractionCriteria:
         """
@@ -333,7 +371,14 @@ class StandardsCompliantClusterer:
                 # Spatial indexing - only check nearby defects
                 cluster = [original_i]
                 location_i = defect_i['log dist. [m]']
-                max_distance_m = criteria.axial_distance_mm / 1000.0  # Convert to meters
+                
+                if self.standard == ClusteringStandard.DNV_RP_F101:
+                    max_distance_m = criteria.axial_distance_mm / 1000.0  # fixed DNV screen
+                elif self.standard == ClusteringStandard.ROSEN_15:
+                    # Upper bound for Rosen axial threshold:
+                    # IL = min(6*t, (L1+L2)/2) <= 6*t  → use a single global window of 6*max(t)
+                    t_max_mm = float(defects_df['t_mm'].max())
+                    max_distance_m = (6.0 * t_max_mm) / 1000.0
                 
                 # Binary search for nearby defects (much faster than checking all)
                 start_idx = self._find_nearby_start(defects_sorted, location_i - max_distance_m)
@@ -363,99 +408,83 @@ class StandardsCompliantClusterer:
         if show_progress:
             progress_bar.progress(1.0)
             status_text.text(f"✅ Clustering complete: {len(clusters)} clusters found")
-
         return clusters
 
 
     def find_interacting_defects(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame, show_progress: bool = True) -> list[list[int]]:
         """
-        Orchestrate DNV projection sweep + existing pairwise logic.
+        Orchestrate DNV projection sweep (DNV only) + pairwise logic (DNV/ROSEN).
         Returns clusters as lists of positional indices into defects_df.
         """
-        # --- Existing validation (keep yours) ---
-        required_defect_cols = ['log dist. [m]', 'joint number', 'depth [%]']
+
+        # --- Required columns vary by standard ---
+        base_required = ['log dist. [m]', 'joint number', 'depth [%]']
+        if self.standard == ClusteringStandard.DNV_RP_F101:
+            required_defect_cols = base_required + ['length [mm]', 'width [mm]']   # DNV uses both in sweep & circ check
+        elif self.standard == ClusteringStandard.ROSEN_15:
+            # Rosen IL/IW depend on lengths/widths for each PAIR
+            required_defect_cols = base_required + ['length [mm]', 'width [mm]']
+        else:
+            required_defect_cols = base_required
+
         required_joint_cols = ['joint number', 'wt nom [mm]']
         missing_defect_cols = [c for c in required_defect_cols if c not in defects_df.columns]
         missing_joint_cols = [c for c in required_joint_cols if c not in joints_df.columns]
         if missing_defect_cols or missing_joint_cols:
             raise ValueError(f"Missing required columns: {missing_defect_cols + missing_joint_cols}")
 
-        # --- Make a working copy and merge nominal t per defect as 't_mm' ---
+        # --- Working copy + merge nominal thickness as 't_mm' (mm) ---
         df = defects_df.copy()
         t_map = joints_df[['joint number', 'wt nom [mm]']].rename(columns={'wt nom [mm]': 't_mm'})
         df = df.merge(t_map, on='joint number', how='left')
 
-
-        print(f"[DNV] D={self.pipe_diameter_mm} mm | projection_step={self.projection_step_deg} | across_welds={self.allow_across_girth_welds} | cons_factor={self.conservative_factor}")
-        df = defects_df.copy()
-        t_map = joints_df[['joint number', 'wt nom [mm]']].rename(columns={'wt nom [mm]': 't_mm'})
-        df = df.merge(t_map, on='joint number', how='left')
-        print("[DNV] defects:", len(df))
-        print("[DNV] log dist [m] min/max:", float(df['log dist. [m]'].min()), float(df['log dist. [m]'].max()))
-        print("[DNV] length [mm] min/median/max:", float(df['length [mm]'].min()), float(df['length [mm]'].median()), float(df['length [mm]'].max()))
-        print("[DNV] width [mm]  min/median/max:", float(df['width [mm]'].min()), float(df['width [mm]'].median()), float(df['width [mm]'].max()))
-        print("[DNV] t_mm  min/median/max:", float(df['t_mm'].min()), float(df['t_mm'].median()), float(df['t_mm'].max()))
-
-
-        if self.standard == ClusteringStandard.DNV_RP_F101 and self.use_projection_sweep:
-            widths_deg = 180.0 * df['width [mm]'] / (math.pi * self.pipe_diameter_mm)
-            min_width_deg = float(widths_deg.min())
-            eff_step = int(min(self.projection_step_deg, max(1.0, 0.5*min_width_deg)))
-            print(f"[DNV] effective projection step = {eff_step}° (min width deg={min_width_deg:.2f}°)")
-
-        # 2) Nearest-neighbor axial gap vs threshold (fast proxy)
-        import numpy as np
-        gaps = []
-        for _, grp in df.groupby('joint number'):
-            z = (grp['log dist. [m]']*1000).sort_values().values
-            if len(z) > 1:
-                gaps.extend(np.diff(z))
-        gaps = np.array(gaps)
-        s_ax_th = 2.0 * math.sqrt(self.pipe_diameter_mm * float(df['t_mm'].median()))
-        print(f"[DNV] axial gaps: median={np.median(gaps):.1f} mm, 25%={np.percentile(gaps,25):.1f} mm, pct<=s_ax_th ({s_ax_th:.1f} mm) = {(gaps<=s_ax_th).mean()*100:.1f}%")
-
-
+        # Sanity: diameter unit & thickness presence
+        if not (50.0 <= float(self.pipe_diameter_mm) <= 3500.0):
+            raise ValueError(f"pipe_diameter_mm looks wrong ({self.pipe_diameter_mm}). Expect mm.")
+        if df['t_mm'].isna().all() or (df['t_mm'] <= 0).all():
+            raise ValueError("All t_mm missing/<=0. Check joints_df['wt nom [mm]'] and units.")
 
         all_groups: list[list[int]] = []
 
-        # --- DNV projection sweep (optional, only for DNV) ---
+        # --- DNV-only helpers (effective sweep step; optional axial gap debug) ---
+        if self.standard == ClusteringStandard.DNV_RP_F101 and self.use_projection_sweep:
+            widths_deg = 180.0 * df['width [mm]'] / (math.pi * self.pipe_diameter_mm)
+            min_width_deg = float(widths_deg.min())
+            eff_step = int(min(self.projection_step_deg, max(1.0, 0.5 * min_width_deg)))
+
+        # --- DNV projection sweep (DNV only) ---
         if self.standard == ClusteringStandard.DNV_RP_F101 and self.use_projection_sweep:
             proj_groups = self._projection_sweep_clusters(df)
             if proj_groups:
                 all_groups.extend(proj_groups)
 
-        # --- Existing pairwise/vectorized logic ---
+        # --- Pairwise/vectorized logic (both standards) ---
         pair_groups = self._pairwise_interacting_clusters(df, joints_df, show_progress=show_progress)
-        # Convert original index clusters to positional indices
+
+        # Convert original index clusters to positional indices (simulator uses iloc)
         pos_of = {idx: pos for pos, idx in enumerate(df.index)}
         pair_groups = [[pos_of[o] for o in group if o in pos_of] for group in pair_groups]
         if pair_groups:
             all_groups.extend(pair_groups)
 
-        print(f"[DNV] groups: projection={len(proj_groups or [])}, pairwise={len(pair_groups or [])}")
-
-
         # --- Union overlapping groups and return ---
         final_groups = self._merge_overlapping_groups(all_groups)
-        print(f"[DNV] final clusters={len(final_groups)}")
         return final_groups
-        #return self._merge_overlapping_groups(all_groups)
 
 
     def _defects_interact_vectorized(self, defect1: pd.Series, defect2: pd.Series, criteria: InteractionCriteria) -> bool:
-
         # Respect across-girth-weld setting
         if (not self.allow_across_girth_welds) and (defect1['joint number'] != defect2['joint number']):
             return False
 
-        # Pair-local thickness for thresholds
+        # Pair-local thickness for thresholds (mm)
         t1 = defect1.get('t_mm')
         t2 = defect2.get('t_mm')
         if (pd.isna(t1) and pd.isna(t2)):
             return False  # cannot evaluate without thickness
         t_pair = min([t for t in [t1, t2] if not pd.isna(t)])
 
-        # Axial ligament (edge-to-edge)
+        # Axial ligament (edge-to-edge) in mm
         z1 = float(defect1['log dist. [m]']) * 1000.0
         L1 = float(defect1.get('length [mm]', defect1.get('current_length_mm', 0.0)))
         z2 = float(defect2['log dist. [m]']) * 1000.0
@@ -463,24 +492,42 @@ class StandardsCompliantClusterer:
         start1, end1 = z1, z1 + L1
         start2, end2 = z2, z2 + L2
         s_axial = max(0.0, max(start2 - end1, start1 - end2))
-        s_axial_th = 2.0 * math.sqrt(self.pipe_diameter_mm * t_pair) * self.conservative_factor
-        if s_axial > s_axial_th:
-            return False
 
-        # Circumferential ligament (edge-to-edge), only if clock & width available
+        # Circumferential ligament (edge-to-edge) in mm (if clock & width available)
         w1 = defect1.get('width [mm]', defect1.get('current_width_mm', None))
         w2 = defect2.get('width [mm]', defect2.get('current_width_mm', None))
         c1 = defect1.get('clock_float', None)
         c2 = defect2.get('clock_float', None)
+        s_circ = None
         if (w1 is not None and w2 is not None and pd.notna(c1) and pd.notna(c2)):
-            clock_diff = min(abs(c1 - c2), 12 - abs(c1 - c2))
-            center_arc = (clock_diff / 12.0) * math.pi * self.pipe_diameter_mm
+            clock_diff = min(abs(c1 - c2), 12 - abs(c1 - c2))  # in "hours"
+            center_arc = (clock_diff / 12.0) * math.pi * self.pipe_diameter_mm  # mm
             s_circ = max(0.0, center_arc - 0.5*(float(w1) + float(w2)))
-            s_circ_th = math.pi * t_pair * self.conservative_factor
-            if s_circ > s_circ_th:
-                return False
 
-        return True  
+        if self.standard == ClusteringStandard.DNV_RP_F101:
+            # DNV screens
+            s_axial_th = 2.0 * math.sqrt(self.pipe_diameter_mm * t_pair) * self.conservative_factor
+            if s_axial > s_axial_th:
+                return False
+            if s_circ is not None:
+                s_circ_th = math.pi * t_pair * self.conservative_factor
+                if s_circ > s_circ_th:
+                    return False
+            return True
+
+        if self.standard == ClusteringStandard.ROSEN_15:
+            # Rosen #15: IL = min(6t, (L1+L2)/2), IW = min(6t, (W1+W2)/2)
+            IL = min(6.0 * t_pair, 0.5 * (L1 + L2))
+            if s_axial >= IL:
+                return False
+            if s_circ is not None and (w1 is not None and w2 is not None):
+                IW = min(6.0 * t_pair, 0.5 * (float(w1) + float(w2)))
+                if s_circ >= IW:
+                    return False
+            return True
+
+        # Default: no interaction
+        return False
 
     def _find_nearby_start(self, sorted_defects: pd.DataFrame, target_location: float) -> int:
         """
@@ -529,6 +576,9 @@ def create_standards_compliant_clusterer(standard_name: str, pipe_diameter_mm: f
         "DNV": ClusteringStandard.DNV_RP_F101,
         "DNV-RP-F101": ClusteringStandard.DNV_RP_F101,
         "DNV-RP-F101 Composite Defects": ClusteringStandard.DNV_RP_F101,
+        "ROSEN#15": ClusteringStandard.ROSEN_15,  
+        "ROSEN15": ClusteringStandard.ROSEN_15,
+        "ROSEN": ClusteringStandard.ROSEN_15,
     }
     
     if standard_name not in standard_mapping:
