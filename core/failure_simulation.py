@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
 from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area_single, calculate_rstreng_effective_area_cluster
 from core.standards_compliant_clustering import create_standards_compliant_clusterer
+from core.ffs_cluster_processing import EnhancedFFSClusterer
 
 """
 Time-forward failure prediction simulation engine.
@@ -112,7 +113,6 @@ class FailurePredictionSimulator:
         if use_clustering and clusters and self.clustering_config and self.clustering_config.get('enabled'):        
             # Use clustering if requested (existing logic)
             if hasattr(self, 'clusterer') and self.clusterer is not None:
-                from core.ffs_cluster_processing import EnhancedFFSClusterer
                 
                 enhanced_clusterer = EnhancedFFSClusterer(
                     standard=self.clustering_config['standard'],  
