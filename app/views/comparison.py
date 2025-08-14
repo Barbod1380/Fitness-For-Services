@@ -95,10 +95,8 @@ def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, di
         except Exception as e:
             st.error(f"❌ Analysis failed: {str(e)}")
             st.info("💡 **Troubleshooting Tips:**\n- Ensure both datasets have required columns\n- Check that defects have valid location and depth data")
-            return
-        
+            return        
         st.rerun()
-
 
 
 def _apply_growth_correction(matches_df, joints_df, params):
@@ -702,7 +700,6 @@ def render_failure_prediction_section(datasets, comparison_results):
                 smys,
                 safety_factor
             )
-            
     display_prediction_results_simple()
 
 
