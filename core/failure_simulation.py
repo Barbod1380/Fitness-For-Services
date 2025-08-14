@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
-from app.views.corrosion import calculate_b31g, calculate_modified_b31g, calculate_rstreng_effective_area_single, calculate_rstreng_effective_area_cluster
+from analysis.ffs_calculations import calculate_b31g, calculate_modified_b31g, calculate_rstreng_level1, calculate_rstreng_effective_area_cluster
 from core.standards_compliant_clustering import create_standards_compliant_clusterer
 from core.ffs_cluster_processing import EnhancedFFSClusterer
 
@@ -838,7 +838,7 @@ class FailurePredictionSimulator:
 
                     alpha = 0.425                    
 
-                    result = calculate_rstreng_effective_area_single(
+                    result = calculate_rstreng_level1(
                         defect_depth_pct=defect.current_depth_pct,
                         defect_length_mm=defect.current_length_mm,
                         defect_width_mm=defect.current_width_mm,
@@ -851,7 +851,7 @@ class FailurePredictionSimulator:
                     )
                 else:
                     # Standard single defect RSTRENG calculation
-                    result = calculate_rstreng_effective_area_single(
+                    result = calculate_rstreng_level1(
                         defect_depth_pct=defect.current_depth_pct,
                         defect_length_mm=defect.current_length_mm,
                         defect_width_mm=defect.current_width_mm,

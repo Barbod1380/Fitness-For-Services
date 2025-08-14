@@ -580,6 +580,19 @@ def render_growth_analysis_tab(datasets, available_years):
     # Analysis Execution
     st.markdown("#### 🔍 Run Analysis")
     
+    with st.expander("ℹ️ About the Growth Analysis and Correction", expanded=False):
+        st.markdown("""
+        This analysis matches defects between the two inspection years and calculates their growth rates.
+
+        **Key Methodologies:**
+
+        - **Defect Matching:** Defects are matched based on their proximity (axial distance and clock position). You can adjust the tolerance for this matching.
+        - **Negative Growth Correction:** It is physically impossible for corrosion to reverse (i.e., "negative growth"). Such readings are typically due to measurement tolerances of the inspection tools. This application automatically corrects these anomalies:
+            - For minor negative growth, a sophisticated **K-Nearest Neighbors (KNN)** algorithm finds the 3 most similar defects within a ±5 joint radius.
+            - A **weighted average** of these neighbors' growth rates is used to impute a realistic growth rate. The weighting is based on engineering principles, prioritizing defects that are closer and more similar in depth and size.
+            - For significant negative growth (exceeding 15% of the pipe's wall thickness), the growth is conservatively set to zero and flagged for manual engineering review.
+        """)
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("🚀 Start Growth Rate Analysis", type="primary", use_container_width=True):
@@ -672,6 +685,19 @@ def render_failure_prediction_section(datasets, comparison_results):
                 min_value=200.0, max_value=800.0, value=415.0, step=5.0
             )
     
+    with st.expander("ℹ️ About the Failure Prediction Simulation", expanded=False):
+        st.markdown("""
+        This simulation predicts future defect failures based on the calculated growth rates.
+
+        **Key Methodologies & Assumptions:**
+
+        - **Growth Model:** The simulation assumes a **linear growth rate** (constant mm/year) for both defect depth and length. This is a standard industry practice for long-term prediction.
+        - **Depth-Dependent Kinetics:** To improve physical realism, the model incorporates a reduction in growth rate for very deep defects (>50% of wall thickness), simulating the diffusion-limited kinetics of mature corrosion pits.
+        - **Dynamic Clustering:** Unlike simpler models, this simulation re-evaluates which defects are interacting (clustering) at the beginning of *each simulated year*. This is critical because defects can grow into interaction zones over time.
+        - **Failure Criteria:** A defect is predicted to fail if its depth exceeds the specified threshold (e.g., 80%) OR if its Calculated Safe Pressure falls below the Maximum Operating Pressure (i.e., ERF > 1.0).
+        - **Assessment Method:** The failure pressure for clustered defects is calculated using the robust **RSTRENG Effective Area (Level-2)** method, which analyzes the full "river-bottom" profile of the combined defect.
+        """)
+
     # Run simulation
     if st.button("🚀 Run Failure Prediction", type="primary", use_container_width=True):
         with st.spinner("Running failure prediction with dynamic clustering..."):
