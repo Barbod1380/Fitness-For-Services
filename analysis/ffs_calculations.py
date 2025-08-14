@@ -318,9 +318,20 @@ def calculate_rstreng_effective_area_cluster(
         "j": None,
     }
 
-    # ---- Sliding-window search over all sub-lengths (i ... j-1)
-    for i in range(N):
-        # Optional micro-optimization: skip if remaining all-zero
+    # ---- Optimized Sliding-Window Search ----
+    # Identify candidate start points to avoid iterating from every single point.
+    # A candidate is a point where a defect region begins.
+    candidate_starts = [i for i in range(N) if depths[i] > 0 and (i == 0 or depths[i-1] == 0)]
+
+    # If no corrosion, the pipe is safe.
+    if not candidate_starts:
+        return dict(
+            method=method, safe=True, failure_pressure_mpa=float('inf'),
+            safe_pressure_mpa=float('inf'), remaining_strength_pct=100.0,
+            note="No corrosion detected in profile."
+        )
+
+    for i in candidate_starts:
         for j in range(i + 1, N + 1):
             Lw = (j - i) * dx
             if Lw <= 0.0:

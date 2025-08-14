@@ -5,6 +5,7 @@ import pandas as pd
 import math
 from dataclasses import dataclass
 from enum import Enum
+from scipy.spatial import KDTree
 
 
 class ClusteringStandard(Enum):
@@ -323,91 +324,90 @@ class StandardsCompliantClusterer:
 
     def _pairwise_interacting_clusters(self, defects_df: pd.DataFrame, joints_df: pd.DataFrame, show_progress: bool = True) -> list[list[int]]:
         """
-        Existing pairwise/vectorized method you already had, unchanged logic.
-        Must return clusters as lists of *row positions* in defects_df.
+        Optimized pairwise interaction check using SciPy's KDTree for efficient spatial queries.
+        Returns clusters as lists of *row positions* in defects_df.
         """
-                
-        # Pre-compute wall thickness lookup once
-        wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
-        
-        # Pre-sort defects by location for spatial indexing
-        defects_sorted = defects_df.sort_values('log dist. [m]').reset_index()
-        original_indices = defects_sorted['index'].tolist()  # Keep track of original indices
+        n_defects = len(defects_df)
+        if n_defects < 2:
+            return []
 
-        n_defects = len(defects_sorted)
-        clusters = []
-        processed_indices = set()
+        # --- 1. Prepare Data for Spatial Query ---
+        # Get wall thickness for every defect
+        wt_lookup = dict(zip(joints_df['joint number'], joints_df['wt nom [mm]']))
+        defects_df['t_mm'] = defects_df['joint number'].map(wt_lookup).fillna(10.0)
+
+        # Convert clock positions to circumferential distances in mm
+        circum_arc_m = (defects_df['clock_float'] / 12.0) * math.pi * (self.pipe_diameter_mm / 1000.0)
+
+        # Create a 2D array of coordinates (axial, circumferential) in METERS
+        coords = np.vstack([
+            defects_df['log dist. [m]'].values,
+            circum_arc_m.values
+        ]).T
+
+        # --- 2. Determine Maximum Search Radius ---
+        # Calculate the largest possible interaction distance to use as the query radius.
+        max_t = defects_df['t_mm'].max()
+        if self.standard == ClusteringStandard.DNV_RP_F101:
+            max_axial_dist_m = (2.0 * math.sqrt(self.pipe_diameter_mm * max_t) * self.conservative_factor) / 1000.0
+            max_circ_dist_m = (math.pi * max_t * self.conservative_factor) / 1000.0
+        elif self.standard == ClusteringStandard.ROSEN_15:
+            # Rosen axial is min(6t, (L1+L2)/2). Upper bound is 6*t.
+            max_axial_dist_m = (6.0 * max_t) / 1000.0
+            # Rosen circ is min(6t, (W1+W2)/2). Upper bound is 6*t.
+            max_circ_dist_m = (6.0 * max_t) / 1000.0
         
-        # Progress bar setup
+        # Use the largest of the two as a single search radius for the KD-Tree
+        search_radius_m = max(max_axial_dist_m, max_circ_dist_m)
+
+        # --- 3. Perform Spatial Query ---
         if show_progress:
-            progress_bar = st.progress(0)
             status_text = st.empty()
+            status_text.text(f"Building spatial index for {n_defects} defects...")
         
-        # Batch process defects in chunks to update progress
-        batch_size = max(1, n_defects // 20)  # 20 progress updates
+        kdtree = KDTree(coords)
         
-        for batch_start in range(0, n_defects, batch_size):
-            batch_end = min(batch_start + batch_size, n_defects)
+        if show_progress:
+            status_text.text(f"Querying for interacting defects within {search_radius_m:.2f}m radius...")
             
-            # Update progress
-            if show_progress:
-                progress = batch_end / n_defects
-                progress_bar.progress(progress)
-                status_text.text(f"Processing defects {batch_end}/{n_defects} ({progress*100:.1f}%)")
-            
-            # Process batch
-            for i in range(batch_start, batch_end):
-                original_i = original_indices[i]
-                
-                if original_i in processed_indices:
+        # Find all pairs of points within the search radius
+        candidate_pairs = kdtree.query_ball_tree(kdtree, r=search_radius_m, p=2.0) # p=2.0 for Euclidean distance
+
+        # --- 4. Refine Candidates and Build Clusters ---
+        if show_progress:
+            status_text.text("Refining candidate pairs with standard-specific rules...")
+
+        interacting_pairs = []
+
+        # The result of query_ball_tree is a list of lists.
+        # We iterate through it to get the pairs.
+        for i, neighbors in enumerate(candidate_pairs):
+            for j in neighbors:
+                # Avoid duplicates and self-pairs
+                if i >= j:
                     continue
                 
-                defect_i = defects_sorted.iloc[i]
+                defect_i = defects_df.iloc[i]
+                defect_j = defects_df.iloc[j]
                 
-                # Get wall thickness once per defect
-                wall_thickness = wt_lookup.get(defect_i['joint number'], 10.0)
-                criteria = self.calculate_interaction_criteria(wall_thickness)
+                # Get wall thickness for the pair
+                t_pair = min(defect_i['t_mm'], defect_j['t_mm'])
+                criteria = self.calculate_interaction_criteria(t_pair)
                 
-                # Spatial indexing - only check nearby defects
-                cluster = [original_i]
-                location_i = defect_i['log dist. [m]']
-                
-                if self.standard == ClusteringStandard.DNV_RP_F101:
-                    max_distance_m = criteria.axial_distance_mm / 1000.0  # fixed DNV screen
-                elif self.standard == ClusteringStandard.ROSEN_15:
-                    # Upper bound for Rosen axial threshold:
-                    # IL = min(6*t, (L1+L2)/2) <= 6*t  → use a single global window of 6*max(t)
-                    t_max_mm = float(defects_df['t_mm'].max())
-                    max_distance_m = (6.0 * t_max_mm) / 1000.0
-                
-                # Binary search for nearby defects (much faster than checking all)
-                start_idx = self._find_nearby_start(defects_sorted, location_i - max_distance_m)
-                end_idx = self._find_nearby_end(defects_sorted, location_i + max_distance_m)
+                if self._defects_interact_vectorized(defect_i, defect_j, criteria):
+                    # Use original DataFrame indices for stable clustering
+                    interacting_pairs.append([defects_df.index[i], defects_df.index[j]])
 
-                # Only check defects within spatial range
-                for j in range(start_idx, end_idx + 1):
-                    original_j = original_indices[j]
-                    
-                    if i == j or original_j in processed_indices:
-                        continue
-                    
-                    defect_j = defects_sorted.iloc[j]
-                    
-                    # Use optimized interaction check
-                    if self._defects_interact_vectorized(defect_i, defect_j, criteria):
-                        cluster.append(original_j)                
-
-                # If cluster has more than one defect, it's meaningful
-                if len(cluster) > 1:
-                    clusters.append(cluster)
-                    processed_indices.update(cluster)
-                else:
-                    processed_indices.add(original_i)
-        
-        # Cleanup progress display
         if show_progress:
-            progress_bar.progress(1.0)
+            status_text.text(f"Merging {len(interacting_pairs)} interacting pairs into final clusters...")
+
+        # Merge the interacting pairs into final clusters
+        # The _merge_overlapping_groups function expects lists of original indices
+        clusters = self._merge_overlapping_groups(interacting_pairs)
+
+        if show_progress:
             status_text.text(f"✅ Clustering complete: {len(clusters)} clusters found")
+
         return clusters
 
 
@@ -528,35 +528,6 @@ class StandardsCompliantClusterer:
 
         # Default: no interaction
         return False
-
-    def _find_nearby_start(self, sorted_defects: pd.DataFrame, target_location: float) -> int:
-        """
-        Binary search for spatial indexing - 10x faster than linear search
-        """
-        locations = sorted_defects['log dist. [m]'].values
-        left, right = 0, len(locations) - 1
-        
-        while left < right:
-            mid = (left + right) // 2
-            if locations[mid] < target_location:
-                left = mid + 1
-            else:
-                right = mid
-        return max(0, left - 1)  # Include one before for safety
-
-
-    def _find_nearby_end(self, sorted_defects: pd.DataFrame, target_location: float) -> int:
-        """Binary search for end of spatial range"""
-        locations = sorted_defects['log dist. [m]'].values
-        left, right = 0, len(locations) - 1
-        
-        while left < right:
-            mid = (left + right + 1) // 2
-            if locations[mid] <= target_location:
-                left = mid
-            else:
-                right = mid - 1
-        return min(len(locations) - 1, right + 1)  # Include one after for safety
 
 
 def create_standards_compliant_clusterer(standard_name: str, pipe_diameter_mm: float, conservative_factor: float = 1.2) -> StandardsCompliantClusterer:
