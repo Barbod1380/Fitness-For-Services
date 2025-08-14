@@ -79,57 +79,57 @@ def render_single_analysis_view():
     with tabs[0]:
         left_col, right_col = st.columns(2)
 
-    with left_col:
-        st.markdown(f"""
-        <div class="table-section">
-            <div class="table-header">
-                <h3 class="table-title">{selected_year} Joints</h3>
-                <div class="table-stats">{len(joints_df):,} records</div>
+        with left_col:
+            st.markdown(f"""
+            <div class="table-section">
+                <div class="table-header">
+                    <h3 class="table-title">{selected_year} Joints</h3>
+                    <div class="table-stats">{len(joints_df):,} records</div>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.dataframe(
-            joints_df.head(10), 
-            use_container_width=True,
-            height=320,
-            column_config={
-                "joint number": st.column_config.NumberColumn("Joint", format="%d"),
-                "log dist. [m]": st.column_config.NumberColumn("Distance (m)", format="%.2f"),
-                "wt nom [mm]": st.column_config.NumberColumn("Wall Thickness (mm)", format="%.1f"),
-                "joint length [m]": st.column_config.NumberColumn("Length (m)", format="%.2f")
-            }
-        )
-        st.markdown(create_data_download_links(joints_df, "joints", selected_year), unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+            
+            st.dataframe(
+                joints_df.head(10), 
+                use_container_width=True,
+                height=320,
+                column_config={
+                    "joint number": st.column_config.NumberColumn("Joint", format="%d"),
+                    "log dist. [m]": st.column_config.NumberColumn("Distance (m)", format="%.2f"),
+                    "wt nom [mm]": st.column_config.NumberColumn("Wall Thickness (mm)", format="%.1f"),
+                    "joint length [m]": st.column_config.NumberColumn("Length (m)", format="%.2f")
+                }
+            )
+            st.markdown(create_data_download_links(joints_df, "joints", selected_year), unsafe_allow_html=True)
 
-    with right_col:
-        st.markdown(f"""
-        <div class="table-section">
-            <div class="table-header">
-                <h3 class="table-title">{selected_year} Defects</h3>
-                <div class="table-stats">{len(defects_df):,} records</div>
+        with right_col:
+            st.markdown(f"""
+            <div class="table-section">
+                <div class="table-header">
+                    <h3 class="table-title">{selected_year} Defects</h3>
+                    <div class="table-stats">{len(defects_df):,} records</div>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.dataframe(
-            defects_df.head(10),
-            use_container_width=True, 
-            height=320,
-            column_config={
-                "depth [%]": st.column_config.ProgressColumn(
-                    "Depth (%)", 
-                    min_value=0, 
-                    max_value=100, 
-                    format="%.1f%%"
-                ),
-                "length [mm]": st.column_config.NumberColumn("Length (mm)", format="%.0f"),
-                "width [mm]": st.column_config.NumberColumn("Width (mm)", format="%.0f"),
-                "joint number": st.column_config.NumberColumn("Joint", format="%d"),
-                "log dist. [m]": st.column_config.NumberColumn("Distance (m)", format="%.2f")
-            }
-        )
-        st.markdown(create_data_download_links(defects_df, "defects", selected_year), unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+            
+            st.dataframe(
+                defects_df.head(10),
+                use_container_width=True, 
+                height=320,
+                column_config={
+                    "depth [%]": st.column_config.ProgressColumn(
+                        "Depth (%)", 
+                        min_value=0, 
+                        max_value=100, 
+                        format="%.1f%%"
+                    ),
+                    "length [mm]": st.column_config.NumberColumn("Length (mm)", format="%.0f"),
+                    "width [mm]": st.column_config.NumberColumn("Width (mm)", format="%.0f"),
+                    "joint number": st.column_config.NumberColumn("Joint", format="%d"),
+                    "log dist. [m]": st.column_config.NumberColumn("Distance (m)", format="%.2f")
+                }
+            )
+            st.markdown(create_data_download_links(defects_df, "defects", selected_year), unsafe_allow_html=True)
 
 
     # Tab 2: Defect Dimensions Analysis
@@ -413,7 +413,7 @@ def render_single_analysis_view():
                 color_col1, color_col2 = st.columns(2)
                 
                 with color_col1:
-                    # Y-axis selector - NEW ADDITION
+                    # Y-axis selector 
                     y_axis_options = {
                         "Clock Position": "Clock Position",
                         "Defect Depth (%)": "Depth [%]", 

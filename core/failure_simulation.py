@@ -628,7 +628,7 @@ class FailurePredictionSimulator:
                 cluster_defects_df = current_df.iloc[defect_indices]
                 stress_factor = self._calculate_cluster_stress_factor(cluster_defects_df)
                 
-                # NEW: Generate river-bottom profile for multi-defect cluster
+                # Generate river-bottom profile for multi-defect cluster
                 try:
                     profile_data = self._generate_river_bottom_profile(cluster_defects, cluster_idx)
                     if profile_data is not None:

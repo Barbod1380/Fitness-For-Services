@@ -47,9 +47,6 @@ def calculate_b31g(
 
     # ── 2  z‑parameter & Folias factor ─────────────────────────
     z = (defect_length_mm ** 2) / (pipe_diameter_mm * wall_thickness_mm)
-    if z > 50.0:
-        return dict(method=method, safe=False,
-                    note=f"z = {z:.2f} > 50 – Level‑1 table required")
 
     if z <= 20.0:
         M = math.sqrt(1.0 + 0.8 * z)             # B31G eqn 1‑2
@@ -57,10 +54,7 @@ def calculate_b31g(
         M = math.sqrt(1.6 + 0.16 * z)            # B31G eqn 1‑3
 
     # ── 3  flow stress (take the minimum of the three forms) ──
-    s1 = 1.1 * smys_mpa
-    s2 = smys_mpa + 68.95
-    s3 = (smys_mpa + (smts_mpa or smys_mpa)) / 2
-    S_flow = min(s1, s2, s3)
+    S_flow = 1.1 * smys_mpa
     if smts_mpa is not None:
         S_flow = min(S_flow, 0.9 * smts_mpa)
 
@@ -210,7 +204,7 @@ def calculate_rstreng_effective_area_single(
             'failure_pressure_mpa': float,
             'safe_pressure_mpa': float,
             'remaining_strength_pct': float,
-            'folias_factor_Mt': float,
+            'folias_factor_M': float,
             'flow_stress_mpa': float,
             'psi_parameter': float,
             'note': str
@@ -268,7 +262,7 @@ def calculate_rstreng_effective_area_single(
         failure_pressure_mpa=Pf,
         safe_pressure_mpa=P_safe,
         remaining_strength_pct=RSF_pct,
-        folias_factor_Mt=M,
+        folias_factor_M=M,
         flow_stress_mpa=S_flow,
         psi_parameter=psi,
         note=f"L2/DT={L2DT:.2f}, psi={psi:.2f}, Mt={M:.3f}, α={alpha}, d/t={d:.4f}"
@@ -285,6 +279,7 @@ def calculate_rstreng_effective_area_cluster(
     safety_factor: float = 1.39,
     smts_mpa: Optional[float] = None,
 ) -> dict:
+
     """
     RSTRENG (Effective Area) calculation for a corrosion cluster (using river-bottom profile).
 
@@ -301,62 +296,100 @@ def calculate_rstreng_effective_area_cluster(
     Returns:
         dict with calculation results and metadata.
     """
+
     method = "RSTRENG (Cluster, river-bottom profile)"
 
-    D = pipe_diameter_mm
-    t = wall_thickness_mm
-    L_total = len(depth_profile_mm) * axial_step_mm
+    # ---- Basic checks
+    D = float(pipe_diameter_mm)
+    t = float(wall_thickness_mm)
+    dx = float(axial_step_mm)
 
-    if D <= 0 or t <= 0 or L_total <= 0 or np.any(np.array(depth_profile_mm) < 0):
-        return dict(method=method, safe=False, note="Invalid geometry or negative depth.")
+    depths = np.asarray(depth_profile_mm, dtype=float)
+    N = int(len(depths))
+    if D <= 0 or t <= 0 or dx <= 0 or N == 0:
+        return dict(method=method, safe=False, note="Invalid geometry or sampling.")
 
-    # Metal loss area (sq mm)
-    area_lost = np.trapz(depth_profile_mm, dx=axial_step_mm)
+    if np.any(depths < 0):
+        return dict(method=method, safe=False, note="Negative depth in profile.")
 
-    # Reference area (sq mm)
-    area_ref = L_total * t
-
-    # Area ratio (RSF)
-    RSF = area_lost / area_ref
-
-    if RSF >= 1.0:
-        return dict(method=method, safe=False, failure_pressure_mpa=0.0, note="Full wall loss (RSF ≥ 1.0)")
-
-    # Folias factor (using total cluster length)
-    L2DT = (L_total ** 2) / (D * t)
-    if L2DT <= 50.0:
-        M = math.sqrt(1.0 + 0.6275 * L2DT - 0.003375 * (L2DT ** 2))
-    else:
-        M = 0.032 * L2DT + 3.3
-
-    # Flow stress (MPa)
+    # ---- Flow stress (RSTRENG / Mod-B31G convention: SMYS + 10 ksi, capped at 0.9*SMTS if provided)
     S_flow = smys_mpa + 68.95
     if smts_mpa is not None:
         S_flow = min(S_flow, 0.9 * smts_mpa)
 
-    numer = 1.0 - RSF
-    denom = 1.0 - (RSF / M)
-    if denom <= 0.0:
-        return dict(method=method, safe=False, note="Denominator ≤ 0 — unphysical cluster geometry.")
+    # ---- Prefix sums for O(1) area queries
+    # area(i:j) = dx * (prefix[j] - prefix[i]) , window length Lw = (j - i) * dx
+    prefix = np.concatenate(([0.0], np.cumsum(depths)))
 
-    Sf = S_flow * (numer / denom)
-    Pf = 2.0 * Sf * t / D           # Failure pressure (MPa)
-    P_safe = Pf / safety_factor     # Safe/allowable pressure (MPa)
-    RSF_pct = (Sf / S_flow) * 100.0
+    best = {
+        "P_safe": float("inf"),
+        "Pf": float("inf"),
+        "Sf": float("inf"),
+        "RSF": None,
+        "Mt": None,
+        "L2DT": None,
+        "i": None,
+        "j": None,
+    }
+
+    # ---- Sliding-window search over all sub-lengths (i ... j-1)
+    for i in range(N):
+        # Optional micro-optimization: skip if remaining all-zero
+        for j in range(i + 1, N + 1):
+            Lw = (j - i) * dx
+            if Lw <= 0.0:
+                continue
+
+            area_lost = dx * (prefix[j] - prefix[i])         # mm^2
+            area_ref = Lw * t                                 # mm^2
+            RSF = area_lost / area_ref if area_ref > 0.0 else 0.0
+            if RSF >= 1.0:
+                # Through-wall over this window => denominator would be <= 0
+                continue
+
+            # Folias bulging factor Mt for this sub-length (RSTRENG / Mod-B31G form)
+            z = (Lw * Lw) / (D * t)                           # L^2 / (D t)
+            if z <= 50.0:
+                Mt = math.sqrt(max(1.0 + 0.6275 * z - 0.003375 * z * z, 1.0))
+            else:
+                Mt = 0.032 * z + 3.3
+
+            numer = 1.0 - RSF
+            denom = 1.0 - (RSF / Mt)
+            if denom <= 0.0:
+                # Unphysical combo for this window; skip
+                continue
+
+            Sf = S_flow * (numer / denom)                     # MPa
+            Pf = 2.0 * Sf * t / D                             # MPa
+            P_safe = Pf / safety_factor                       # MPa
+
+            # Keep the governing (lowest safe pressure) window
+            if P_safe < best["P_safe"]:
+                best.update(dict(P_safe=P_safe, Pf=Pf, Sf=Sf, RSF=RSF, Mt=Mt, L2DT=z, i=i, j=j))
+
+    # ---- No valid window?
+    if not np.isfinite(best["P_safe"]):
+        return dict(method=method, safe=False, failure_pressure_mpa=0.0,
+                    note="No valid sub-length found (denominator <= 0 over all windows).")
+
+    # ---- Build result using governing window metrics
+    note = (f"Gov. window: i={best['i']}, j={best['j']}, "
+            f"L={((best['j'] - best['i']) * dx):.1f} mm, "
+            f"L2/DT={best['L2DT']:.2f}, Mt={best['Mt']:.3f}, RSF={best['RSF']:.4f}")
 
     return dict(
         method=method,
-        safe=P_safe >= maop_mpa,
-        failure_pressure_mpa=Pf,
-        safe_pressure_mpa=P_safe,
-        remaining_strength_pct=RSF_pct,
-        folias_factor_Mt=M,
+        safe=(best["P_safe"] >= maop_mpa),
+        failure_pressure_mpa=best["Pf"],
+        safe_pressure_mpa=best["P_safe"],
+        remaining_strength_pct=(best["Sf"] / S_flow) * 100.0,
+        folias_factor_Mt=best["Mt"],
         flow_stress_mpa=S_flow,
-        area_ratio_RSF=RSF,
-        L2DT=L2DT,
-        note=f"L2/DT={L2DT:.2f}, M={M:.3f}, RSF={RSF:.4f}, len={L_total:.2f}mm"
+        area_ratio_RSF=best["RSF"],
+        L2DT=best["L2DT"],
+        note=note
     )
-
 
 
 def compute_enhanced_corrosion_metrics(defects_df, joints_df, pipe_diameter_mm, smys_mpa, safety_factor, analysis_pressure_mpa, max_allowable_pressure_mpa):
@@ -1364,37 +1397,6 @@ def render_corrosion_assessment_view():
                 if(pressure_plot):
                     st.plotly_chart(pressure_plot, use_container_width=True, key=f"pressure_plot_{method}_{idx}")
 
-
-        st.markdown('</div>', unsafe_allow_html=True)  # Close pressure results container
-        
- 
-        # Enhanced Dataset Preview Section
-        st.markdown("<div class='section-header'>Enhanced Dataset Preview</div>", unsafe_allow_html=True)
-        st.markdown("The following shows the first 10 rows with the newly computed corrosion assessment, pressure analysis, and ERF columns:")
-
-        # Select key columns for display
-        display_cols = ['log dist. [m]', 'joint number', 'depth [%]', 'length [mm]', 'width [mm]', 'wall_thickness_used_mm']
-
-        # Add traditional assessment result columns
-        assessment_cols = [
-            'b31g_safe', 'b31g_failure_pressure_mpa', 'b31g_remaining_strength_pct',
-            'modified_b31g_safe', 'modified_b31g_failure_pressure_mpa', 'modified_b31g_remaining_strength_pct',
-            'simplified_eff_area_safe', 'simplified_eff_area_failure_pressure_mpa', 'simplified_eff_area_remaining_strength_pct'
-        ]
-
-        # Add pressure analysis columns
-        pressure_cols = [
-            'b31g_operational_status', 'b31g_max_safe_pressure_mpa',
-            'modified_b31g_operational_status', 'modified_b31g_max_safe_pressure_mpa',
-            'simplified_eff_area_operational_status', 'simplified_eff_area_max_safe_pressure_mpa'
-        ]
-
-        # NEW: Add ERF columns for each method
-        erf_cols = [
-            'b31g_erf',
-            'modified_b31g_erf',
-            'simplified_eff_area_erf'
-        ]
 
         # Add ERF interpretation guide
         st.markdown("#### 📊 ERF (Estimated Repair Factor) Interpretation")
