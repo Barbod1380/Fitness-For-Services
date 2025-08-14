@@ -395,7 +395,7 @@ def create_rstreng_envelope_plot(enhanced_df, pipe_diameter_mm, smys_mpa, safety
     """
     
     # Import the RSTRENG calculation function
-    from app.views.corrosion import calculate_rstreng_effective_area_single
+    from analysis.ffs_calculations import calculate_rstreng_level1
     
     # Filter defects with valid dimensions
     valid_defects = enhanced_df[
@@ -559,7 +559,7 @@ def find_max_allowable_depth_rstreng(length_mm, wall_thickness_mm, pipe_diameter
     Find maximum allowable depth for given defect length using RSTRENG method.
     Uses binary search to find the depth that gives ERF ≈ 1.0.
     """
-    from app.views.corrosion import calculate_rstreng_effective_area_single
+    from analysis.ffs_calculations import calculate_rstreng_level1
     
     # Binary search parameters
     min_depth = 0.1  # Start from 0.1%
@@ -574,7 +574,7 @@ def find_max_allowable_depth_rstreng(length_mm, wall_thickness_mm, pipe_diameter
         test_depth = (min_depth + max_depth) / 2.0
         
         try:
-            result = calculate_rstreng_effective_area_single(
+            result = calculate_rstreng_level1(
                 defect_depth_pct=test_depth,
                 defect_length_mm=length_mm,
                 defect_width_mm=typical_width_mm,
