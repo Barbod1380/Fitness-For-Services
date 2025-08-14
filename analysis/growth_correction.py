@@ -7,127 +7,95 @@ from sklearn.neighbors import NearestNeighbors
 
 def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
     """
-    Correct negative depth growth rates using K-Nearest Neighbors from similar defects 
-    in the same joint AND nearby joints (±2 joints).
-
-    Parameters:
-    - matches_df: DataFrame with matched defects from two inspections
-    - k: Number of neighbors to consider (default: 3)
-    - joint_tolerance: Number of joints before/after to include in search (default: 2)
-
-    Returns:
-    - Tuple of (corrected_df, correction_info) where correction_info contains statistics
+    Optimized correction of negative growth rates using a batched K-Nearest Neighbors approach.
+    This avoids refitting the KNN model for every single defect.
     """
-    
     df = matches_df.copy()
 
+    # --- 1. Initial Setup and Validation ---
     required_cols = ['joint number', 'old_depth_pct', 'new_depth_pct', 'is_negative_growth']
+    if not all(col in df.columns for col in required_cols):
+        missing = [col for col in required_cols if col not in df.columns]
+        return df, {"error": f"Missing required columns: {missing}", "success": False}
+
     dimension_cols = ['length [mm]', 'width [mm]']
-
-    # Check for required columns
-    for col in required_cols:
-        if col not in df.columns:
-            return df, {"error": f"Missing required column: {col}", "success": False}
-
     available_dimension_cols = [col for col in dimension_cols if col in df.columns]
     if not available_dimension_cols:
-        return df, {
-            "error": "Missing at least one dimension column (length [mm] or width [mm]) for features",
-            "success": False
-        }
+        return df, {"error": "Missing at least one dimension column for features", "success": False}
 
+    features = available_dimension_cols + ['old_depth_pct']
     has_mm_data = 'growth_rate_mm_per_year' in df.columns
 
-    # Separate negative and positive growth defects
     negative_growth = df[df['is_negative_growth']].copy()
     positive_growth = df[~df['is_negative_growth']].copy()
 
     if negative_growth.empty or positive_growth.empty:
-        return df, {
-            "error": "No negative or positive depth growth defects found",
-            "success": False
-        }
+        return df, {"error": "No negative or positive depth growth defects found", "success": False}
 
     df['is_corrected'] = False
-
-    total_negative = len(negative_growth)
-    corrected_count = 0
+    corrections = {}
     uncorrected_count = 0
     uncorrected_joints = set()
-    corrections = {}
 
-    try:
-        # Process each negative growth defect individually with nearby joint search
-        for neg_idx, neg_defect in negative_growth.iterrows():
-            target_joint = neg_defect['joint number']
+    # --- 2. Group Negative Defects by Joint Proximity ---
+    # This allows batching KNN for defects that share the same candidate pool.
+    # We group by a 'zone' defined by the joint tolerance.
+    zone_size = joint_tolerance * 2
+    negative_growth['zone'] = (negative_growth['joint number'] // zone_size)
 
-            # Define joint search range
-            joint_min = target_joint - joint_tolerance
-            joint_max = target_joint + joint_tolerance
+    for zone, group in negative_growth.groupby('zone'):
+        # --- 3. Define a single, larger candidate pool for the entire group ---
+        min_joint = group['joint number'].min() - joint_tolerance
+        max_joint = group['joint number'].max() + joint_tolerance
+
+        nearby_positive = positive_growth[
+            (positive_growth['joint number'] >= min_joint) &
+            (positive_growth['joint number'] <= max_joint)
+        ]
+
+        if len(nearby_positive) < k:
+            uncorrected_count += len(group)
+            uncorrected_joints.update(group['joint number'].unique())
+            continue
+
+        # --- 4. Fit KNN Model ONCE for the group ---
+        scaler = StandardScaler()
+        X_positive_scaled = scaler.fit_transform(nearby_positive[features])
+
+        k_value = min(k, len(nearby_positive))
+        knn = NearestNeighbors(n_neighbors=k_value)
+        knn.fit(X_positive_scaled)
+
+        # --- 5. Batch Query for all defects in the group ---
+        X_negative_scaled = scaler.transform(group[features])
+        all_distances, all_indices = knn.kneighbors(X_negative_scaled)
+
+        # --- 6. Process Results for each defect in the group ---
+        for i, (neg_idx, neg_defect) in enumerate(group.iterrows()):
+            neighbor_indices_in_nearby = all_indices[i]
+            similar_defect_indices = nearby_positive.index[neighbor_indices_in_nearby]
             
-            # Find positive growth defects in nearby joints
-            nearby_positive = positive_growth[
-                (positive_growth['joint number'] >= joint_min) & 
-                (positive_growth['joint number'] <= joint_max)
-            ]
-            
-            if len(nearby_positive) < k:
-                uncorrected_count += 1
-                uncorrected_joints.add(target_joint)
-                continue
-
-            # Features for KNN: dimensions plus old depth
-            features = available_dimension_cols + ['old_depth_pct']
-
-            # Prepare feature data
-            scaler = StandardScaler()
-
-            # Ensure we have DataFrame with proper column names for fitting
-            nearby_positive_features = nearby_positive[features].copy()
-
-            # Fit scaler with DataFrame (preserves feature names)
-            X_positive = scaler.fit_transform(nearby_positive_features)
-
-            neg_features_dict = {feature: neg_defect[feature] for feature in features}
-            neg_features_df = pd.DataFrame([neg_features_dict], columns=features)
-            X_negative = scaler.transform(neg_features_df)
-
-
-            # Find k nearest neighbors
-            k_value = min(k, len(nearby_positive))
-            knn = NearestNeighbors(n_neighbors=k_value)
-            knn.fit(X_positive)
-
-            _, indices = knn.kneighbors(X_negative)
-            
-            # Get the actual indices of similar defects
-            similar_defect_indices = nearby_positive.index[indices[0]]
-            
-            # Weight by joint distance (closer joints get higher weight)
+            # Calculate weights based on individual proximity
             weights = []
-            for i, similar_idx in enumerate(similar_defect_indices):
+            for similar_idx in similar_defect_indices:
                 similar_defect = nearby_positive.loc[similar_idx]
-                joint_distance = abs(similar_defect['joint number'] - target_joint)
-                
-                # Use engineering-based weight calculation
-                weight_result = calculate_engineering_weights(neg_defect, similar_defect, joint_distance)
+                joint_dist = abs(similar_defect['joint number'] - neg_defect['joint number'])
+                weight_result = calculate_engineering_weights(neg_defect, similar_defect, joint_dist)
                 weights.append(weight_result['combined_weight'])
             
-            # Normalize weights
             weights = np.array(weights)
-            if weights.sum() > 0:  # Avoid division by zero
-                weights = weights / weights.sum()
+            if weights.sum() > 0:
+                weights /= weights.sum()
             else:
-                weights = np.ones(len(weights)) / len(weights)  # Equal weights fallback
-            
+                weights = np.ones(len(weights)) / len(weights)
+
             # Calculate weighted average growth rate
-            growth_rates = nearby_positive.loc[similar_defect_indices, 'growth_rate_pct_per_year'].values
-            
-            avg_growth_pct = np.average(growth_rates, weights=weights)
+            growth_rates_pct = nearby_positive.loc[similar_defect_indices, 'growth_rate_pct_per_year'].values
+            avg_growth_pct = np.average(growth_rates_pct, weights=weights)
             
             year_diff = neg_defect['new_year'] - neg_defect['old_year']
 
-            # Store correction data 
+            # Store correction data
             corrections[neg_idx] = {
                 'growth_rate_pct_per_year': float(avg_growth_pct),
                 'depth_change_pct': float(avg_growth_pct * year_diff),
@@ -145,54 +113,32 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
                     'new_depth_mm': float(neg_defect['old_depth_mm'] + (avg_growth_mm * year_diff))
                 })
 
-            corrected_count += 1
-
-    except Exception as e:
-        return df, {
-            "error": f"Error during correction: {str(e)}",
-            "success": False
-        }
-
-    # Apply all computed corrections to the DataFrame
+    # --- 7. Apply Corrections and Finalize ---
     for idx, correction in corrections.items():
         for col, value in correction.items():
             df.loc[idx, col] = value
 
+    corrected_count = len(corrections)
+    total_negative = len(negative_growth)
+
     # Compute updated growth statistics if corrections were made
     updated_growth_stats = None
     if corrected_count > 0:
-        negative_growth_count = df['is_negative_growth'].sum()
-        pct_negative_growth = (
-            (negative_growth_count / len(df)) * 100 if len(df) > 0 else 0
-        )
-        positive_growth = df[~df['is_negative_growth']]
-
+        # Recalculate post-correction stats
+        final_positive_growth = df[~df['is_negative_growth']]
         updated_growth_stats = {
             'total_matched_defects': len(df),
-            'negative_growth_count': negative_growth_count,
-            'pct_negative_growth': pct_negative_growth,
+            'negative_growth_count': df['is_negative_growth'].sum(),
+            'pct_negative_growth': (df['is_negative_growth'].sum() / len(df) * 100) if len(df) > 0 else 0,
             'avg_growth_rate_pct': df['growth_rate_pct_per_year'].mean(),
-            'avg_positive_growth_rate_pct': (
-                positive_growth['growth_rate_pct_per_year'].mean()
-                if not positive_growth.empty else 0
-            ),
-            'max_growth_rate_pct': (
-                positive_growth['growth_rate_pct_per_year'].max()
-                if not positive_growth.empty else 0
-            )
+            'avg_positive_growth_rate_pct': final_positive_growth['growth_rate_pct_per_year'].mean(),
+            'max_growth_rate_pct': final_positive_growth['growth_rate_pct_per_year'].max(),
         }
-
         if has_mm_data:
             updated_growth_stats.update({
                 'avg_growth_rate_mm': df['growth_rate_mm_per_year'].mean(),
-                'avg_positive_growth_rate_mm': (
-                    positive_growth['growth_rate_mm_per_year'].mean()
-                    if not positive_growth.empty else 0
-                ),
-                'max_growth_rate_mm': (
-                    positive_growth['growth_rate_mm_per_year'].max()
-                    if not positive_growth.empty else 0
-                )
+                'avg_positive_growth_rate_mm': final_positive_growth['growth_rate_mm_per_year'].mean(),
+                'max_growth_rate_mm': final_positive_growth['growth_rate_mm_per_year'].max(),
             })
 
     correction_info = {
@@ -201,10 +147,9 @@ def correct_negative_growth_rates(matches_df, k=3, joint_tolerance=20):
         'uncorrected_count': uncorrected_count,
         'uncorrected_joints': list(uncorrected_joints),
         'joint_tolerance_used': joint_tolerance,
-        'success': corrected_count > 0
+        'success': corrected_count > 0,
     }
-
-    if updated_growth_stats is not None:
+    if updated_growth_stats:
         correction_info['updated_growth_stats'] = updated_growth_stats
 
     return df, correction_info
