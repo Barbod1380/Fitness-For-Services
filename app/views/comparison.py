@@ -15,87 +15,66 @@ from datetime import datetime
 
 def _perform_advanced_comparison_analysis(datasets, earlier_year, later_year, distance_tolerance, clock_tolerance):
     """
-    Perform comprehensive multi-year comparison analysis with automatic growth correction.
+    Performs a comprehensive multi-year comparison, including defect matching and growth rate correction.
     """
-    st.success(f"✅ Analysis initialized for {earlier_year} vs {later_year}")
-    
-    # Store user parameters in session state for future use
+    st.success(f"Analysis initialized for {earlier_year} vs. {later_year}.")
     analysis_params = {
         'distance_tolerance': distance_tolerance,
         'clock_tolerance': clock_tolerance,
         'analysis_timestamp': pd.Timestamp.now()
     }
-
     update_state('analysis_parameters', analysis_params)
-    
-    with st.spinner("🔄 Processing advanced multi-year comparison..."):
+
+    with st.spinner("Processing multi-year comparison..."):
         try:
-            # Step 1: Basic defect matching
-            progress_bar = st.progress(0)
-            st.write("Step 1/4: Matching defects between years...")
-            
-            earlier_data = datasets[earlier_year]
-            later_data = datasets[later_year]
+            progress_bar = st.progress(0, "Step 1/4: Matching defects...")
+            earlier_data, later_data = datasets[earlier_year], datasets[later_year]
             
             comparison_results = compare_defects(
                 earlier_data['defects_df'], later_data['defects_df'],
                 earlier_data['joints_df'], later_data['joints_df'],
                 earlier_year, later_year,
-                distance_tolerance,  # User input
-                clock_tolerance      # User input
+                distance_tolerance, clock_tolerance
             )
-            progress_bar.progress(25)
-            
-            # Step 2: Automatic Growth Correction
-            st.write("Step 2/4: Correcting unrealistic growth rates...")
+            progress_bar.progress(25, "Step 2/4: Correcting growth rates...")
+
             correction_results = None
-            
-            if (comparison_results.get('has_depth_data', False) and 
-                not comparison_results['matches_df'].empty and 
-                comparison_results.get('calculate_growth', False)):
-                
-                # Apply our correction methodology
+            if comparison_results.get('calculate_growth', False) and not comparison_results['matches_df'].empty:
                 corrected_df, correction_info = _apply_growth_correction(
                     comparison_results['matches_df'],
                     earlier_data['joints_df'],
-                    analysis_params  
+                    analysis_params
                 )
-
                 if correction_info.get('auto_corrected', 0) > 0:
-                    st.write(f"✅ Applied KNN corrections to {correction_info['auto_corrected']} defects")
+                    st.write(f"Applied KNN corrections to {correction_info['auto_corrected']} defects.")
                 else:
-                    st.write("ℹ️ No KNN corrections needed - all growth rates realistic")
+                    st.write("No KNN corrections were needed; all growth rates are realistic.")
                 
-                # Update comparison results with corrected data
-                comparison_results['matches_df'] = corrected_df
-                comparison_results['correction_info'] = correction_info
+                comparison_results.update({
+                    'matches_df': corrected_df,
+                    'correction_info': correction_info
+                })
                 correction_results = correction_info
-                
-            progress_bar.progress(50)
             
-            # Step 3: Advanced analysis (clustering, etc.)
-            st.write("Step 3/4: Advanced analysis...")
-            # Future: Add clustering analysis here
-            progress_bar.progress(75)
+            progress_bar.progress(50, "Step 3/4: Performing advanced analysis...")
+            # Placeholder for future clustering or other advanced analyses
             
-            # Step 4: Store results
-            st.write("Step 4/4: Finalizing results...")
+            progress_bar.progress(75, "Step 4/4: Finalizing results...")
             update_state('comparison_results', comparison_results, validate=False)
             update_state('correction_results', correction_results, validate=False)
             update_state('comparison_years', (earlier_year, later_year), validate=False)
             
-            progress_bar.progress(100)
+            progress_bar.progress(100, "Analysis complete.")
             
-            # Show correction summary
             if correction_results:
                 _display_correction_summary(correction_results)
             else:
-                st.success("✅ Analysis complete - no growth corrections needed")
+                st.success("Analysis completed successfully; no growth corrections were necessary.")
             
         except Exception as e:
-            st.error(f"❌ Analysis failed: {str(e)}")
-            st.info("💡 **Troubleshooting Tips:**\n- Ensure both datasets have required columns\n- Check that defects have valid location and depth data")
-            return        
+            st.error(f"Analysis failed: {e}")
+            st.info("Troubleshooting: Ensure both datasets have the required columns and valid defect data.")
+            return
         st.rerun()
 
 
@@ -180,113 +159,94 @@ def _apply_growth_correction(matches_df, joints_df, params):
 
 
 def _display_correction_summary(correction_info):
-    """Display automatic correction summary with quick stats."""
-    
-    st.markdown("---")
-    st.subheader("🔧 Growth Correction Summary")
-    
-    # Summary metrics in columns
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric(
-            "Total Defects", 
-            correction_info['total_defects']
-        )
-    
-    with col2:
-        st.metric(
-            "🔴 Flagged for Review", 
+    """
+    Displays a summary of the growth correction analysis, including metrics and data quality assessment.
+    """
+    with st.container(border=True):
+        st.subheader("Growth Correction Summary")
+
+        # Display key metrics in columns
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Defects", correction_info['total_defects'])
+        col2.metric(
+            "Flagged for Review",
             correction_info['flagged_for_review'],
-            help="Defects exceeding 15% wall thickness measurement uncertainty"
+            help="Defects with growth changes exceeding 15% of wall thickness."
         )
-    
-    with col3:
-        st.metric(
-            "🟡 Auto-Corrected", 
+        col3.metric(
+            "Auto-Corrected",
             correction_info['auto_corrected'],
-            help="Negative growth rates corrected using nearby similar defects"
+            help="Defects with negative growth rates corrected via KNN."
         )
-    
-    with col4:
-        st.metric(
-            "🟢 Valid Growth", 
+        col4.metric(
+            "Valid Growth",
             correction_info['valid_growth'],
-            help="Defects with realistic positive growth rates"
+            help="Defects with realistic, positive growth rates."
         )
-    
-    # Correction quality indicator
-    total_corrections = correction_info['flagged_for_review'] + correction_info['auto_corrected']
-    if total_corrections > 0:
-        correction_rate = (total_corrections / correction_info['total_defects']) * 100
-        
-        if correction_rate <= 10:
-            st.success(f"✅ **Good data quality**: {correction_rate:.1f}% of defects required correction")
-        elif correction_rate <= 25:
-            st.warning(f"⚠️ **Moderate data quality**: {correction_rate:.1f}% of defects required correction")
+
+        # Assess and display data quality
+        total_corrections = correction_info['flagged_for_review'] + correction_info['auto_corrected']
+        if total_corrections > 0:
+            correction_percentage = (total_corrections / correction_info['total_defects']) * 100
+            if correction_percentage <= 10:
+                st.success(f"Good Data Quality: {correction_percentage:.1f}% of defects required correction.")
+            elif correction_percentage <= 25:
+                st.warning(f"Moderate Data Quality: {correction_percentage:.1f}% of defects required correction.")
+            else:
+                st.error(f"Poor Data Quality: {correction_percentage:.1f}% of defects required correction. A data review is recommended.")
         else:
-            st.error(f"❌ **Poor data quality**: {correction_rate:.1f}% of defects required correction - consider data review")
-    else:
-        st.success("✅ **Excellent data quality**: No corrections needed!")
+            st.success("Excellent Data Quality: No growth corrections were needed.")
 
 
 
 def display_data_preview_and_results(earlier_data, later_data):
-    """Display comprehensive analysis results with correction review."""
-    
-    # Show correction summary first (if corrections were made)
+    """
+    Displays a comprehensive view of the analysis results, including overviews, growth analysis, and correction reviews.
+    """
     correction_results = get_state('correction_results')
     if correction_results:
         _display_correction_summary(correction_results)
+
+    st.subheader("Analysis Results")
     
-    st.markdown("---")
-    st.subheader("📈 Analysis Results")
-    
-    # Create tabs for different analysis views
+    # Organize results into clear, navigable tabs
     tabs = st.tabs([
-        "📊 Overview", 
-        "📈 Growth Analysis",
-        "🔧 Correction Review", 
-        "📋 Data Export"
+        "Overview",
+        "Growth Analysis",
+        "Correction Review",
+        "Data Export"
     ])
     
     with tabs[0]:
-        # Existing overview charts
+        # Overview charts
         col1, col2 = st.columns(2)
-        
         with col1:
-            donut_chart = create_defect_status_donut(earlier_data, later_data)
-            st.plotly_chart(donut_chart, use_container_width=True)
-        
+            st.plotly_chart(create_defect_status_donut(earlier_data, later_data), use_container_width=True)
         with col2:
-            bar_chart = create_new_defects_by_type_bar(later_data)
-            st.plotly_chart(bar_chart, use_container_width=True)
+            st.plotly_chart(create_new_defects_by_type_bar(later_data), use_container_width=True)
     
     with tabs[1]:
-        # Growth analysis visualizations (existing function)
         _render_growth_analysis_visualizations()
     
     with tabs[2]:
-        # New correction review section
         _render_correction_review_section()
     
     with tabs[3]:
-        # Data export capabilities
         _render_data_export_section()
 
 
 def _render_growth_analysis_visualizations():
-    """Render comprehensive growth analysis visualizations."""
+    """
+    Renders a set of visualizations for growth analysis, including histograms and scatter plots.
+    """
     comparison_results = get_state('comparison_results')
-    
     if not comparison_results or comparison_results['matches_df'].empty:
-        st.warning("No comparison results available for visualization.")
+        st.warning("No growth analysis results available to visualize.")
         return
+
+    st.subheader("Growth Rate Analysis")
     
-    st.markdown("---")
-    st.subheader("📈 Growth Rate Analysis")
-    
-    # Growth dimension selector
+    # Selector for choosing the growth dimension to analyze
     col1, col2 = st.columns([2, 1])
     
     with col1:
@@ -420,46 +380,31 @@ def _render_growth_statistics_table(comparison_results, dimension):
 
 def render_comparison_view():
     """
-    UPDATED: Main function to render the multi-year comparison view with tabbed interface.
+    Main function to render the multi-year comparison view.
     """
-    st.title("🔄 Multi-Year Comparison")
+    st.title("Multi-Year Comparison")
     st.markdown("**Compare defect growth patterns between inspection years**")
-    
-    # Check if we have enough datasets
+
     datasets = get_state('datasets', {})
     available_years = sorted(datasets.keys())
-    
+
     if len(available_years) < 2:
-        st.error("**⚠️ Insufficient Data for Multi-Year Analysis**")
-        
-        with st.container():
+        st.error("Insufficient Data for Multi-Year Analysis")
+        with st.container(border=True):
             st.info(f"""
-            📋 **Requirements Check:**
-            - **Current datasets:** {len(available_years)}
-            - **Required:** 2 or more
-            - **Status:** {'✅ Ready' if len(available_years) >= 2 else '❌ Need more data'}
-            
-            **Next Steps:**
-            1. Upload additional inspection data from different years
-            2. Ensure data contains matching defects with location information
-            3. Return to this page to start the comparison
+            **Requirements:**
+            - **Uploaded Datasets:** {len(available_years)}
+            - **Needed for Comparison:** 2 or more
             """)
-        
-        if available_years:
-            st.markdown("**📅 Currently loaded years:**")
-            cols = st.columns(min(len(available_years), 4))
-            for i, year in enumerate(available_years):
-                with cols[i % 4]:
-                    defect_count = len(datasets[year]['defects_df'])
-                    st.metric(f"Year {year}", f"{defect_count} defects")
+            st.warning("Please upload at least two datasets from different years to proceed.")
         return
 
-    # NEW: Create main tabs for different analysis types
+    # Main navigation tabs
     main_tabs = st.tabs([
-        "📈 Growth Analysis", 
-        "🔮 Failure Prediction",  # Renamed and simplified
-        "📊 Results & Visualization", 
-        "📥 Export Data"
+        "Growth Analysis",
+        "Failure Prediction",
+        "Results & Visualization",
+        "Export Data"
     ])
     
     with main_tabs[0]:
@@ -481,227 +426,127 @@ def render_comparison_view():
 
 def render_growth_analysis_tab(datasets, available_years):
     """
-    Render the growth analysis tab - FOCUSED ONLY ON GROWTH ANALYSIS
+    Renders the Growth Analysis tab, including year selection, parameters, and execution.
     """
+    st.header("Growth Analysis Setup")
+    st.markdown("Configure and run the defect growth analysis between two inspection years.")
 
-    # Year Selection Section
-    with st.container():
-        st.markdown("#### 📅 Year Selection")
-        
+    # Section for selecting years
+    with st.container(border=True):
+        st.subheader("Year Selection")
         col1, col2, col3 = st.columns([2, 2, 1])
-        
         with col1:
             earlier_year = st.selectbox(
-                "**Baseline Year** (Earlier)",
+                "Baseline Year (Earlier)",
                 options=available_years[:-1],
                 key="earlier_year_select",
-                help="Select the baseline inspection year for comparison"
+                help="The starting year for the growth comparison."
             )
-        
         with col2:
-            later_years = [year for year in available_years if year > earlier_year]
+            later_years = [y for y in available_years if y > earlier_year]
             if not later_years:
-                st.error("No later years available")
+                st.error("No subsequent years available for comparison.")
                 return
-                
             later_year = st.selectbox(
-                "**Comparison Year** (Later)", 
+                "Comparison Year (Later)",
                 options=later_years,
                 key="later_year_select",
-                help="Select the year to compare against baseline"
+                help="The year to compare against the baseline."
             )
-        
         with col3:
-            year_gap = later_year - earlier_year
-            st.metric("Time Gap", f"{year_gap} years")
-    
-    # Dataset Overview Section
-    with st.container():
-        st.markdown("#### 📊 Dataset Overview")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown(f"**{earlier_year} Dataset (Baseline)**")
-            earlier_data = datasets[earlier_year]
-            earlier_defects = len(earlier_data['defects_df'])
-            earlier_joints = len(earlier_data['joints_df'])
-            
-            metrics_col1, metrics_col2 = st.columns(2)
-            with metrics_col1:
-                st.metric("Defects", earlier_defects)
-            with metrics_col2:
-                st.metric("Joints", earlier_joints)
-        
-        with col2:
-            st.markdown(f"**{later_year} Dataset (Comparison)**")
-            later_data = datasets[later_year]
-            later_defects = len(later_data['defects_df'])
-            later_joints = len(later_data['joints_df'])
-            
-            metrics_col1, metrics_col2 = st.columns(2)
-            with metrics_col1:
-                st.metric("Defects", later_defects, delta=later_defects - earlier_defects)
-            with metrics_col2:
-                st.metric("Joints", later_joints, delta=later_joints - earlier_joints)
-    
-    # Analysis Parameters Section
-    with st.container():
-        st.markdown("#### 🎯 Analysis Parameters")
-        
-        # Get previous parameters from session state or use defaults
+            st.metric("Time Gap", f"{later_year - earlier_year} years")
+
+    # Section for analysis parameters
+    with st.container(border=True):
+        st.subheader("Analysis Parameters")
         previous_params = get_state('analysis_parameters', {})
-        
         col1, col2 = st.columns(2)
-        
         with col1:
             distance_tolerance = st.number_input(
-                "**Distance Tolerance (meters)**",
-                min_value=0.001,
-                max_value=1.0,
+                "Distance Tolerance (m)",
+                min_value=0.001, max_value=1.0,
                 value=previous_params.get('distance_tolerance', 0.01),
-                step=0.001,
-                key="distance_tolerance_input",
-                help="Maximum distance difference to consider defects as the same location",
-                format="%.3f"
+                step=0.001, format="%.3f",
+                help="Maximum axial distance to match defects."
             )
-        
         with col2:
             clock_tolerance = st.number_input(
-                "**Clock Tolerance (minutes)**",
-                min_value=1,
-                max_value=120,
+                "Clock Tolerance (min)",
+                min_value=1, max_value=120,
                 value=previous_params.get('clock_tolerance', 20),
                 step=5,
-                key="clock_tolerance_input",
-                help="Maximum clock position difference to consider defects at same position"
+                help="Maximum clock position difference for matching."
             )
-    
-    # Analysis Execution
-    st.markdown("#### 🔍 Run Analysis")
-    
-    with st.expander("ℹ️ About the Growth Analysis and Correction", expanded=False):
+
+    # Expander for methodology details
+    with st.expander("About the Growth Analysis and Correction Methodology"):
         st.markdown("""
-        This analysis matches defects between the two inspection years and calculates their growth rates.
-
-        **Key Methodologies:**
-
-        - **Defect Matching:** Defects are matched based on their proximity (axial distance and clock position). You can adjust the tolerance for this matching.
-        - **Negative Growth Correction:** It is physically impossible for corrosion to reverse (i.e., "negative growth"). Such readings are typically due to measurement tolerances of the inspection tools. This application automatically corrects these anomalies:
-            - For minor negative growth, a sophisticated **K-Nearest Neighbors (KNN)** algorithm finds the 3 most similar defects within a ±5 joint radius.
-            - A **weighted average** of these neighbors' growth rates is used to impute a realistic growth rate. The weighting is based on engineering principles, prioritizing defects that are closer and more similar in depth and size.
-            - For significant negative growth (exceeding 15% of the pipe's wall thickness), the growth is conservatively set to zero and flagged for manual engineering review.
+        This process matches defects across years and calculates their growth, with automated corrections for measurement anomalies.
+        - **Defect Matching**: Uses axial distance and clock position to identify corresponding defects.
+        - **Negative Growth Correction**: Addresses physically unrealistic "negative growth" readings:
+            - **K-Nearest Neighbors (KNN)**: For minor negative growth, a KNN algorithm identifies similar defects within a local radius (±5 joints) to impute a realistic, weighted-average growth rate.
+            - **Zero-Growth Flagging**: For significant negative growth (exceeding 15% of wall thickness), growth is set to zero and flagged for engineering review.
         """)
 
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("🚀 Start Growth Rate Analysis", type="primary", use_container_width=True):
-            _perform_advanced_comparison_analysis(
-                datasets, earlier_year, later_year, 
-                distance_tolerance, clock_tolerance
-            )
-    
-    # Show analysis status
+    # Execution and status display
+    if st.button("Run Growth Analysis", type="primary", use_container_width=True):
+        _perform_advanced_comparison_analysis(
+            datasets, earlier_year, later_year,
+            distance_tolerance, clock_tolerance
+        )
+
     comparison_years = get_state('comparison_years')
-    comparison_results = get_state('comparison_results')
-    
-    if comparison_years and comparison_results:
+    if comparison_years and get_state('comparison_results'):
         if comparison_years == (earlier_year, later_year):
-            st.success("✅ Growth analysis completed! Check other tabs for results and clustering.")
+            st.success("Growth analysis is complete. View results in the other tabs.")
         else:
-            st.warning(f"⚠️ Results available for {comparison_years[0]} vs {comparison_years[1]}. Run analysis again for current selection.")
+            st.warning(f"Results for {comparison_years[0]}-{comparison_years[1]} are loaded. Run analysis for the current selection if needed.")
 
 
 def render_failure_prediction_section(datasets, comparison_results):
-    """Integrated failure prediction with dynamic clustering"""
-    st.markdown("### 🔮 Failure Prediction with Dynamic Clustering")
-    
+    """
+    Renders the failure prediction section, allowing users to configure and run simulations.
+    """
+    st.header("Failure Prediction with Dynamic Clustering")
+    st.markdown("Simulate future defect growth and predict potential failures over time.")
+
     comparison_years = get_state('comparison_years')
-
-    # Check prerequisites
     if not comparison_results or not comparison_years:
-        st.warning("⚠️ Please complete Growth Analysis first")
+        st.warning("Please complete the Growth Analysis before running a failure prediction.")
         return
-    
-    earlier_year, later_year = comparison_years
+
+    _, later_year = comparison_years
     later_data = datasets[later_year]
-    
-    # Parameter input form
-    with st.expander("⚙️ Simulation Parameters", expanded=True):
+
+    # Group simulation parameters in a bordered container
+    with st.container(border=True):
+        st.subheader("Simulation Parameters")
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            assessment_method = st.selectbox(
-                "Assessment Method",
-                options=['B31G', 'Modified_B31G', 'RSTRENG'],
-                index=2
-            )
-            
-            max_operating_pressure = st.number_input(
-                "Max Operating Pressure (MPa)",
-                min_value=1.0, max_value=20.0, value=8.0, step=0.1
-            )
-            
-            simulation_years = st.number_input(
-                "Simulation Years",
-                min_value=1, max_value=50, value=15, step=1
-            )
-        
+            assessment_method = st.selectbox("Assessment Method", ['B31G', 'Modified_B31G', 'RSTRENG'], index=2)
+            max_operating_pressure = st.number_input("Max Operating Pressure (MPa)", 1.0, 20.0, 8.0, 0.1)
+            simulation_years = st.number_input("Simulation Years", 1, 50, 15, 1)
         with col2:
-            # Clustering configuration
-            use_dynamic_clustering = st.checkbox(
-                "Enable Dynamic Clustering",
-                value=True,
-                help="Re-evaluate defect interactions each year"
-            )
-            
-            if use_dynamic_clustering:
-                clustering_standard = st.selectbox(
-                    "Clustering Standard",
-                    options=["DNV", "ROSEN#15"],
-                    index=0
-                )
-            else:
-                clustering_standard = None
-            
-            safety_factor = st.number_input(
-                "Safety Factor",
-                min_value=1.0, max_value=5.0, value=1.39, step=0.01
-            )
-        
+            use_dynamic_clustering = st.checkbox("Enable Dynamic Clustering", True, help="Re-evaluate defect interactions each year.")
+            clustering_standard = st.selectbox("Clustering Standard", ["DNV", "ROSEN#15"], 0) if use_dynamic_clustering else None
+            safety_factor = st.number_input("Safety Factor", 1.0, 5.0, 1.39, 0.01)
         with col3:
-            erf_threshold = st.number_input(
-                "ERF Failure Threshold",
-                min_value=0.5, max_value=1.0, value=0.90, step=0.01
-            )
-            
-            depth_threshold = st.number_input(
-                "Depth Failure Threshold (%)",
-                min_value=50.0, max_value=95.0, value=80.0, step=1.0
-            )
-            
-            smys = st.number_input(
-                "SMYS (MPa)",
-                min_value=200.0, max_value=800.0, value=415.0, step=5.0
-            )
-    
-    with st.expander("ℹ️ About the Failure Prediction Simulation", expanded=False):
+            erf_threshold = st.number_input("ERF Failure Threshold", 0.5, 1.0, 0.90, 0.01)
+            depth_threshold = st.number_input("Depth Failure Threshold (%)", 50.0, 95.0, 80.0, 1.0)
+            smys = st.number_input("SMYS (MPa)", 200.0, 800.0, 415.0, 5.0)
+
+    # Expander for explaining the simulation methodology
+    with st.expander("About the Failure Prediction Methodology"):
         st.markdown("""
-        This simulation predicts future defect failures based on the calculated growth rates.
-
-        **Key Methodologies & Assumptions:**
-
-        - **Growth Model:** The simulation assumes a **linear growth rate** (constant mm/year) for both defect depth and length. This is a standard industry practice for long-term prediction.
-        - **Depth-Dependent Kinetics:** To improve physical realism, the model incorporates a reduction in growth rate for very deep defects (>50% of wall thickness), simulating the diffusion-limited kinetics of mature corrosion pits.
-        - **Dynamic Clustering:** Unlike simpler models, this simulation re-evaluates which defects are interacting (clustering) at the beginning of *each simulated year*. This is critical because defects can grow into interaction zones over time.
-        - **Failure Criteria:** A defect is predicted to fail if its depth exceeds the specified threshold (e.g., 80%) OR if its Calculated Safe Pressure falls below the Maximum Operating Pressure (i.e., ERF > 1.0).
-        - **Assessment Method:** The failure pressure for clustered defects is calculated using the robust **RSTRENG Effective Area (Level-2)** method, which analyzes the full "river-bottom" profile of the combined defect.
+        This simulation projects future defect failures using the calculated growth rates.
+        - **Growth Model**: Assumes linear growth (constant mm/year) for defect depth and length.
+        - **Dynamic Clustering**: Re-evaluates defect interactions each simulated year, which is crucial as defects can grow into proximity over time.
+        - **Failure Criteria**: A defect fails if its depth exceeds a threshold (e.g., 80%) or if its safe operating pressure falls below the specified maximum.
+        - **Assessment Standard**: Failure pressure for clusters is calculated using the RSTRENG Effective Area method.
         """)
 
-    # Run simulation
-    if st.button("🚀 Run Failure Prediction", type="primary", use_container_width=True):
+    if st.button("Run Failure Prediction", type="primary", use_container_width=True):
         with st.spinner("Running failure prediction with dynamic clustering..."):
-            # Create simulation parameters
             sim_params = SimulationParams(
                 assessment_method=assessment_method.lower().replace('_', '_'),
                 max_operating_pressure=max_operating_pressure,
@@ -709,23 +554,17 @@ def render_failure_prediction_section(datasets, comparison_results):
                 erf_threshold=erf_threshold,
                 depth_threshold=depth_threshold
             )
-            
-            # Create clustering config
             clustering_config = {
                 'enabled': use_dynamic_clustering,
                 'standard': clustering_standard,
                 'pipe_diameter_mm': later_data['pipe_diameter'] * 1000
             } if use_dynamic_clustering else None
 
-            # Run integrated simulation
-            results = run_integrated_simulation(
-                sim_params,
-                later_data,
-                comparison_results,
-                clustering_config,
-                smys,
-                safety_factor
+            run_integrated_simulation(
+                sim_params, later_data, comparison_results,
+                clustering_config, smys, safety_factor
             )
+
     display_prediction_results_simple()
 
 
@@ -783,396 +622,258 @@ def run_integrated_simulation(sim_params, data, growth_results, clustering_confi
 
 
 def display_prediction_results_simple():
-    """Display simulation results with joint AND defect statistics."""
-    
-    if not hasattr(st.session_state, 'prediction_results'):
+    """
+    Displays the results of the failure prediction simulation, including metrics, charts, and risk assessment.
+    """
+    results = get_state('prediction_results')
+    if not results:
         return
-    
-    results = st.session_state.prediction_results
-    
-    st.markdown("---")
-    st.markdown("### 📊 Simulation Results")
-    
-    # Get both defect and joint statistics
-    try:
+
+    with st.container(border=True):
+        st.header("Simulation Results")
+
+        # Display defect and joint-level statistics
         survival_stats = results.get('survival_statistics', {})
         joint_stats = results.get('joint_survival_statistics', {})
-        
-        # Display metrics in two rows: Defects and Joints
-        
-        # DEFECT STATISTICS (existing)
-        st.markdown("#### 🔧 Defect-Level Results")
+
+        st.subheader("Defect-Level Results")
         col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            total_defects = survival_stats.get('total_defects', 0)
-            st.metric("Total Defects", total_defects)
-        
-        with col2:
-            failed_defects = survival_stats.get('failed_defects', 0)
-            failure_rate = survival_stats.get('failure_rate', 0.0)
-            st.metric(
-                "Failed Defects", 
-                failed_defects,
-                f"{failure_rate:.1f}% of total"
-            )
+        col1.metric("Total Defects", survival_stats.get('total_defects', 0))
+        col2.metric("Failed Defects", survival_stats.get('failed_defects', 0), f"{survival_stats.get('failure_rate', 0.0):.1f}% of total")
+        col3.metric("Surviving Defects", survival_stats.get('surviving_defects', 0), f"{survival_stats.get('survival_rate', 100.0):.1f}% survival")
+        first_failure_year = min((f.failure_year for f in results.get('failure_history', [])), default=None)
+        col4.metric("First Defect Failure", f"Year {first_failure_year}" if first_failure_year else "None Predicted")
 
-        with col3:
-            surviving_defects = survival_stats.get('surviving_defects', 0)
-            survival_rate = survival_stats.get('survival_rate', 100.0)
-            st.metric(
-                "Surviving Defects", 
-                surviving_defects,
-                f"{survival_rate:.1f}% survival"
-            )
-        
-        with col4:
-            failure_history = results.get('failure_history', [])
-            if failure_history and len(failure_history) > 0:
-                try:
-                    first_failure_year = min(f.failure_year for f in failure_history)
-                    st.metric("First Defect Failure", f"Year {first_failure_year}")
-                except:
-                    st.metric("First Defect Failure", "Error calculating")
-            else:
-                st.metric("First Defect Failure", "None predicted")
-        
-        # NEW: JOINT STATISTICS
-        st.markdown("#### 🏗️ Joint-Level Results")
+        st.subheader("Joint-Level Results")
         col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            total_joints = joint_stats.get('total_joints', 0)
-            st.metric("Total Joints", total_joints)
-        
-        with col2:
-            failed_joints = joint_stats.get('failed_joints', 0)
-            joint_failure_rate = joint_stats.get('joint_failure_rate', 0.0)
-            st.metric(
-                "Failed Joints", 
-                failed_joints,
-                f"{joint_failure_rate:.1f}% of total"
-            )
+        col1.metric("Total Joints", joint_stats.get('total_joints', 0))
+        col2.metric("Failed Joints", joint_stats.get('failed_joints', 0), f"{joint_stats.get('joint_failure_rate', 0.0):.1f}% of total")
+        col3.metric("Surviving Joints", joint_stats.get('surviving_joints', 0), f"{joint_stats.get('joint_survival_rate', 100.0):.1f}% survival")
+        first_joint_failure = next((year for year, count in sorted(results.get('joint_failure_timeline', {}).items()) if count > 0), None)
+        col4.metric("First Joint Failure", f"Year {first_joint_failure}" if first_joint_failure else "None Predicted")
 
-        with col3:
-            surviving_joints = joint_stats.get('surviving_joints', 0)
-            joint_survival_rate = joint_stats.get('joint_survival_rate', 100.0)
-            st.metric(
-                "Surviving Joints", 
-                surviving_joints,
-                f"{joint_survival_rate:.1f}% survival"
-            )
-        
-        with col4:
-            # Find first joint failure year
-            joint_timeline = results.get('joint_failure_timeline', {})
-            first_joint_failure = None
-            for year in sorted(joint_timeline.keys()):
-                if joint_timeline[year] > 0:
-                    first_joint_failure = year
-                    break
-            
-            if first_joint_failure is not None:
-                st.metric("First Joint Failure", f"Year {first_joint_failure}")
-            else:
-                st.metric("First Joint Failure", "None predicted")
-        
-    except Exception as e:
-        st.error(f"Error displaying summary metrics: {str(e)}")
-        return
-    
-    # Enhanced timeline visualization (now includes joints)
-    try:
-        fig = create_failure_timeline_histogram(results)
-        st.plotly_chart(fig, use_container_width=True)   
+        # Display failure timeline chart
+        st.plotly_chart(create_failure_timeline_histogram(results), use_container_width=True)
 
-    except Exception as e:
-        st.error(f"Error creating timeline chart: {str(e)}")
-    
-    # Risk assessment based on JOINT failures (more critical)
-    try:
-        st.markdown("### 💡 Risk Assessment")
-        
-        joint_stats = results.get('joint_survival_statistics', {})
+    # Risk assessment section
+    with st.container(border=True):
+        st.header("Risk Assessment")
         joint_failure_rate = joint_stats.get('joint_failure_rate', 0.0)
-        
-        # Ensure failure_rate is a number
-        if hasattr(joint_failure_rate, '__iter__') and not isinstance(joint_failure_rate, str):
-            joint_failure_rate = float(joint_failure_rate[0]) if len(joint_failure_rate) > 0 else 0.0
-        else:
-            joint_failure_rate = float(joint_failure_rate)
-        
-        # Risk assessment based on JOINT failures (more critical than defect failures)
         if joint_failure_rate > 15:
-            st.error(f"🚨 **CRITICAL RISK**: {joint_failure_rate:.1f}% joint failure rate predicted")
-            st.error("⚠️ **Immediate Action Required**: Multiple pipeline segments at risk")
+            st.error(f"Critical Risk: {joint_failure_rate:.1f}% joint failure rate predicted. Immediate action is required.")
         elif joint_failure_rate > 5:
-            st.warning(f"⚠️ **HIGH RISK**: {joint_failure_rate:.1f}% joint failure rate predicted")
-            st.warning("🔧 **Targeted Maintenance Required**: Focus on failing joints")
+            st.warning(f"High Risk: {joint_failure_rate:.1f}% joint failure rate predicted. Targeted maintenance should be considered.")
         elif joint_failure_rate > 0:
-            st.info(f"ℹ️ **MODERATE RISK**: {joint_failure_rate:.1f}% joint failure rate predicted")
-            st.info("👀 **Monitor Closely**: Some joints may require attention")
+            st.info(f"Moderate Risk: {joint_failure_rate:.1f}% joint failure rate predicted. Continued monitoring is advised.")
         else:
-            st.success("🎉 **EXCELLENT**: No joint failures predicted!")
-            
-    except Exception as e:
-        st.error(f"Error in risk assessment: {str(e)}")
+            st.success("Excellent: No joint failures are predicted under the simulated conditions.")
 
-    # Joint failure details (if any)
+    # Detailed timeline in an expander
     joint_timeline = results.get('joint_failure_timeline', {})
-    total_joint_failures = sum(joint_timeline.values()) if joint_timeline else 0
-    
-    if total_joint_failures > 0:
-        with st.expander("🏗️ Joint Failure Timeline Details"):
-            timeline_data = []
-            for year in sorted(joint_timeline.keys()):
-                if joint_timeline[year] > 0:
-                    timeline_data.append({
-                        'Year': year,
-                        'Joints Failed': joint_timeline[year],
-                        'Impact': 'High' if joint_timeline[year] > 2 else 'Moderate'
-                    })
-            
-            if timeline_data:
-                timeline_df = pd.DataFrame(timeline_data)
-                st.dataframe(timeline_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("No joint failures predicted during simulation period")
+    if any(joint_timeline.values()):
+        with st.expander("View Joint Failure Timeline Details"):
+            timeline_df = pd.DataFrame([
+                {'Year': year, 'Joints Failed': count}
+                for year, count in sorted(joint_timeline.items()) if count > 0
+            ])
+            st.dataframe(timeline_df, use_container_width=True, hide_index=True)
 
 
 def render_results_visualization_tab(datasets):
     """
-    NEW: Combined results and visualization tab
+    Renders the 'Results & Visualization' tab, which provides a comprehensive display of the analysis outcomes.
     """
-    st.markdown("### 📊 Analysis Results & Visualization")
-    
+    st.header("Analysis Results and Visualization")
+    st.markdown("Explore the detailed outcomes of the growth analysis, including charts and data summaries.")
+
     comparison_results = get_state('comparison_results')
     comparison_years = get_state('comparison_years')
-    
+
     if not comparison_results or not comparison_years:
-        st.info("📊 No analysis results available. Please run Growth Analysis first.")
+        st.info("No analysis results are available. Please run the Growth Analysis to generate results.")
         return
-    
+
     earlier_year, later_year = comparison_years
     earlier_data = datasets[earlier_year]
     later_data = datasets[later_year]
-    
-    # Use the existing results display function
+
     display_data_preview_and_results(earlier_data, later_data)
 
 
 def render_export_tab():
-    st.markdown("### 📥 Data Export & Documentation")
-    
+    """
+    Renders the Data Export tab, providing download links for analysis results and documentation.
+    """
+    st.header("Data Export and Documentation")
+    st.markdown("Download the results of your analysis or generate reports for documentation.")
+
     comparison_results = get_state('comparison_results')
-    correction_results = get_state('correction_results')
-    
     if not comparison_results:
-        st.info("📁 No analysis results available for export.")
+        st.warning("No analysis results are available. Please run the Growth Analysis first.")
         return
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### 📊 Growth Analysis Data")
-        
-        # Export matched defects - Added unique key
-        if not comparison_results['matches_df'].empty:
-            matches_csv = comparison_results['matches_df'].to_csv(index=False)
-            st.download_button(
-                label="📈 Download Matched Defects (CSV)",
-                data=matches_csv,
-                file_name=f"matched_defects_{st.session_state.get('earlier_year_select')}_{st.session_state.get('later_year_select')}.csv",
-                mime="text/csv",
-                key="export_tab_matched_defects_download"  # UNIQUE KEY
-            )
-        
-        # Export new defects - Added unique key
-        if not comparison_results['new_defects'].empty:
-            new_defects_csv = comparison_results['new_defects'].to_csv(index=False)
-            st.download_button(
-                label="🆕 Download New Defects (CSV)",
-                data=new_defects_csv,
-                file_name=f"new_defects_{st.session_state.get('later_year_select')}.csv",
-                mime="text/csv",
-                key="export_tab_new_defects_download"  # UNIQUE KEY
-            )
-    
-    with col2:
-        st.markdown("#### 🔧 Clustering Data")
-        
-        # Export clustering results if available - Added unique key
-        if hasattr(st.session_state, 'enhanced_clusters') and st.session_state.enhanced_clusters:
-            # Combined defects export
-            if hasattr(st.session_state, 'combined_defects'):
-                combined_csv = st.session_state.combined_defects.to_csv(index=False)
+
+    # Section for exporting data files
+    with st.container(border=True):
+        st.subheader("Analysis Data Files")
+        col1, col2 = st.columns(2)
+        with col1:
+            # Matched Defects Export
+            if not comparison_results['matches_df'].empty:
+                matches_csv = comparison_results['matches_df'].to_csv(index=False)
                 st.download_button(
-                    label="🔗 Download Combined Defects (CSV)",
-                    data=combined_csv,
-                    file_name=f"combined_defects_{st.session_state.clustering_config['analysis_timestamp'].strftime('%Y%m%d_%H%M%S')}.csv",
+                    label="Download Matched Defects (CSV)",
+                    data=matches_csv,
+                    file_name=f"matched_defects_{get_state('comparison_years')[0]}_{get_state('comparison_years')[1]}.csv",
                     mime="text/csv",
-                    key="export_tab_combined_defects_download"  # UNIQUE KEY
+                    key="export_matched_defects"
                 )
-        else:
-            st.info("🔧 Run clustering analysis to enable clustering data export.")
-    
-    # Documentation section
-    st.markdown("#### 📋 Documentation & Reports")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Growth correction report - Added unique key
-        if correction_results:
-            report_content = _generate_correction_report(correction_results, comparison_results)
+        with col2:
+            # New Defects Export
+            if not comparison_results['new_defects'].empty:
+                new_defects_csv = comparison_results['new_defects'].to_csv(index=False)
+                st.download_button(
+                    label="Download New Defects (CSV)",
+                    data=new_defects_csv,
+                    file_name=f"new_defects_{get_state('comparison_years')[1]}.csv",
+                    mime="text/csv",
+                    key="export_new_defects"
+                )
+
+    # Section for documentation and reports
+    with st.container(border=True):
+        st.subheader("Reports and Documentation")
+        col1, col2 = st.columns(2)
+        with col1:
+            # Correction Report
+            correction_results = get_state('correction_results')
+            if correction_results:
+                report_content = _generate_correction_report(correction_results, comparison_results)
+                st.download_button(
+                    label="Download Correction Report",
+                    data=report_content,
+                    file_name=f"growth_correction_report_{get_state('comparison_years')[0]}_{get_state('comparison_years')[1]}.txt",
+                    mime="text/plain",
+                    key="export_correction_report"
+                )
+        with col2:
+            # Methodology Document
+            methodology_doc = _generate_methodology_documentation()
             st.download_button(
-                label="📋 Download Correction Report",
-                data=report_content,
-                file_name=f"growth_correction_report_{st.session_state.get('earlier_year_select')}_{st.session_state.get('later_year_select')}.txt",
+                label="Download Methodology Document",
+                data=methodology_doc,
+                file_name="analysis_methodology.txt",
                 mime="text/plain",
-                key="export_tab_correction_report_download"  # UNIQUE KEY
+                key="export_methodology"
             )
-    
-    with col2:
-        # Methodology documentation -  Added unique key
-        methodology_doc = _generate_methodology_documentation()
-        st.download_button(
-            label="📖 Download Methodology Documentation",
-            data=methodology_doc,
-            file_name="analysis_methodology.txt",
-            mime="text/plain",
-            key="export_tab_methodology_download"  # UNIQUE KEY
-        )
 
 
 
 def _render_correction_review_section():
-    """Render detailed correction review and override capabilities."""
-    
+    """
+    Renders the detailed correction review section, showing flagged defects and summaries of auto-corrections.
+    """
     correction_results = get_state('correction_results')
     comparison_results = get_state('comparison_results')
-    
     if not correction_results or not comparison_results:
-        st.info("No correction data available for review.")
+        st.info("No correction data is available for review.")
         return
+
+    st.header("Detailed Correction Review")
     
-    st.markdown("### 🔍 Detailed Correction Review")
-    
-    # Correction methodology summary
-    with st.expander("📋 Correction Methodology Applied", expanded=False):
+    # Expander for methodology details
+    with st.expander("Correction Methodology Summary"):
         st.markdown("""
-        **Automatic Correction Process:**
-        1. **Measurement Uncertainty Check**: Defects with growth changes >15% of wall thickness flagged for review
-        2. **Zero Growth Assignment**: Flagged defects set to zero growth (conservative approach)
-        3. **Weighted Correction**: Remaining negative growth corrected using similar defects within ±5 joints
-        4. **Similarity Weighting**: Based on joint distance, depth similarity, and defect size
+        **Automated Correction Process:**
+        1. **Uncertainty Check**: Flags defects with growth changes exceeding 15% of the wall thickness.
+        2. **Zero-Growth Assignment**: Assigns zero growth to flagged defects as a conservative measure.
+        3. **Weighted KNN Correction**: Corrects remaining negative growth using a weighted average from similar defects within a ±5 joint radius.
         """)
-        
         if 'correction_details' in correction_results:
             details = correction_results['correction_details']
-            st.write(f"**Joint Search Tolerance**: ±{details.get('joint_tolerance_used', 5)} joints")
-            st.write(f"**Correction Success Rate**: {details.get('corrected_count', 0)}/{details.get('total_negative', 0)} negative growth defects corrected")
-    
-    # Flagged defects table
+            st.write(f"**Joint Search Tolerance Used**: ±{details.get('joint_tolerance_used', 5)} joints")
+            st.write(f"**Correction Success Rate**: {details.get('corrected_count', 0)} of {details.get('total_negative', 0)} negative growth defects corrected.")
+
+    # Display table of flagged defects
     if correction_results['flagged_defects']:
-        st.markdown("#### 🔴 Defects Flagged for Engineering Review")
-        
+        st.subheader("Defects Flagged for Engineering Review")
         flagged_df = pd.DataFrame(correction_results['flagged_defects'])
-        flagged_df['Original Rate (mm/year)'] = flagged_df['original_rate'].round(4)
-        flagged_df['Uncertainty Threshold (mm)'] = flagged_df['threshold'].round(2)
-        flagged_df['Location (m)'] = flagged_df['location'].round(2)
-        flagged_df['Joint Number'] = flagged_df['joint'].astype(int)
-        
-        display_flagged = flagged_df[['Location (m)', 'Joint Number', 'Original Rate (mm/year)', 'Uncertainty Threshold (mm)']]
-        st.dataframe(display_flagged, use_container_width=True, hide_index=True)
-        
-        st.warning("⚠️ **Engineering Action Required**: These defects exceed measurement uncertainty and should be reviewed by qualified personnel.")
-    
-    # Show corrected defects summary
+        display_cols = {
+            'Location (m)': flagged_df['location'].round(2),
+            'Joint Number': flagged_df['joint'].astype(int),
+            'Original Rate (mm/year)': flagged_df['original_rate'].round(4),
+            'Uncertainty Threshold (mm)': flagged_df['threshold'].round(2)
+        }
+        st.dataframe(pd.DataFrame(display_cols), use_container_width=True, hide_index=True)
+        st.warning("Action Required: These defects exceeded measurement uncertainty and have been assigned zero growth. A manual review is recommended.")
+
+    # Display summary of auto-corrected defects
     if correction_results['auto_corrected'] > 0:
-        st.markdown("#### 🟡 Auto-Corrected Defects Summary")
-        
+        st.subheader("Auto-Corrected Defects Summary")
         matches_df = comparison_results['matches_df']
         corrected_defects = matches_df[matches_df.get('is_corrected', False)]
-        
         if not corrected_defects.empty:
-            correction_stats = {
-                'Count': len(corrected_defects),
-                'Average Original Rate (mm/year)': corrected_defects['growth_rate_mm_per_year'].mean(),
-                'Average Corrected Rate (mm/year)': corrected_defects.get('corrected_growth_rate_mm_per_year', corrected_defects['growth_rate_mm_per_year']).mean(),
-                'Location Range (m)': f"{corrected_defects['log_dist'].min():.1f} - {corrected_defects['log_dist'].max():.1f}"
-            }
-            
-            for key, value in correction_stats.items():
-                if 'Rate' in key and isinstance(value, (int, float)):
-                    st.write(f"**{key}**: {value:.4f}")
-                else:
-                    st.write(f"**{key}**: {value}")
+            avg_original_rate = corrected_defects['growth_rate_mm_per_year'].mean()
+            avg_corrected_rate = corrected_defects.get('corrected_growth_rate_mm_per_year', avg_original_rate).mean()
+            st.metric("Defects Auto-Corrected", len(corrected_defects))
+            st.metric("Average Original Rate", f"{avg_original_rate:.4f} mm/year")
+            st.metric("Average Corrected Rate", f"{avg_corrected_rate:.4f} mm/year")
 
 def _render_data_export_section():
     """
-    Render data export capabilities with unique keys for download buttons
+    Renders data export capabilities with unique keys for download buttons.
     """
-    
     comparison_results = get_state('comparison_results')
     correction_results = get_state('correction_results')
-    
     if not comparison_results:
-        st.info("No analysis results available for export.")
+        st.info("No analysis results are available for export.")
         return
-    
-    st.markdown("### 📥 Data Export & Documentation")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### Analysis Data")
-        
-        # Export matched defects with corrections - Added unique key
-        if not comparison_results['matches_df'].empty:
-            matches_csv = comparison_results['matches_df'].to_csv(index=False)
+
+    st.header("Data Export and Documentation")
+
+    # Section for data downloads
+    with st.container(border=True):
+        st.subheader("Analysis Data")
+        col1, col2 = st.columns(2)
+        with col1:
+            if not comparison_results['matches_df'].empty:
+                st.download_button(
+                    label="Download Matched Defects (CSV)",
+                    data=comparison_results['matches_df'].to_csv(index=False),
+                    file_name=f"matched_defects_corrected_{get_state('comparison_years')[0]}_{get_state('comparison_years')[1]}.csv",
+                    mime="text/csv",
+                    key="export_matched_defects_corrected"
+                )
+        with col2:
+            if not comparison_results['new_defects'].empty:
+                st.download_button(
+                    label="Download New Defects (CSV)",
+                    data=comparison_results['new_defects'].to_csv(index=False),
+                    file_name=f"new_defects_{get_state('comparison_years')[1]}.csv",
+                    mime="text/csv",
+                    key="export_new_defects_details"
+                )
+
+    # Section for documentation
+    with st.container(border=True):
+        st.subheader("Documentation")
+        col1, col2 = st.columns(2)
+        with col1:
+            if correction_results:
+                st.download_button(
+                    label="Download Correction Report",
+                    data=_generate_correction_report(correction_results, comparison_results),
+                    file_name=f"growth_correction_report_{get_state('comparison_years')[0]}_{get_state('comparison_years')[1]}.txt",
+                    mime="text/plain",
+                    key="export_correction_report_details"
+                )
+        with col2:
             st.download_button(
-                label="📊 Download Matched Defects (CSV)",
-                data=matches_csv,
-                file_name=f"matched_defects_corrected_{st.session_state.get('earlier_year_select')}_{st.session_state.get('later_year_select')}.csv",
-                mime="text/csv",
-                key="results_tab_matched_defects_download"  # UNIQUE KEY
-            )
-        
-        # Export new defects - Added unique key
-        if not comparison_results['new_defects'].empty:
-            new_defects_csv = comparison_results['new_defects'].to_csv(index=False)
-            st.download_button(
-                label="🆕 Download New Defects (CSV)",
-                data=new_defects_csv,
-                file_name=f"new_defects_{st.session_state.get('later_year_select')}.csv",
-                mime="text/csv",
-                key="results_tab_new_defects_download"  # UNIQUE KEY
-            )
-    
-    with col2:
-        st.markdown("#### Documentation")
-        
-        # Generate correction report - Added unique key
-        if correction_results:
-            report_content = _generate_correction_report(correction_results, comparison_results)
-            st.download_button(
-                label="📋 Download Correction Report",
-                data=report_content,
-                file_name=f"growth_correction_report_{st.session_state.get('earlier_year_select')}_{st.session_state.get('later_year_select')}.txt",
+                label="Download Methodology Document",
+                data=_generate_methodology_documentation(),
+                file_name="growth_correction_methodology.txt",
                 mime="text/plain",
-                key="results_tab_correction_report_download"  # UNIQUE KEY
+                key="export_methodology_details"
             )
-        
-        # Export methodology documentation - Added unique key
-        methodology_doc = _generate_methodology_documentation()
-        st.download_button(
-            label="📖 Download Methodology Documentation",
-            data=methodology_doc,
-            file_name="growth_correction_methodology.txt",
-            mime="text/plain",
-            key="results_tab_methodology_download"  # UNIQUE KEY
-        )
         
 def _generate_correction_report(correction_results, comparison_results):
     """Generate a detailed correction report for documentation."""    
