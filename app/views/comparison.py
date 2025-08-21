@@ -199,40 +199,6 @@ def _display_correction_summary(correction_info):
 
 
 
-def display_data_preview_and_results(earlier_data, later_data):
-    """
-    Displays a comprehensive view of the analysis results, including overviews, growth analysis, and correction reviews.
-    """
-    correction_results = get_state('correction_results')
-    if correction_results:
-        _display_correction_summary(correction_results)
-
-    st.subheader("Analysis Results")
-    
-    # Organize results into clear, navigable tabs
-    tabs = st.tabs([
-        "Overview",
-        "Growth Analysis",
-        "Correction Review",
-        "Data Export"
-    ])
-    
-    with tabs[0]:
-        # Overview charts
-        col1, col2 = st.columns(2)
-        with col1:
-            st.plotly_chart(create_defect_status_donut(earlier_data, later_data), use_container_width=True)
-        with col2:
-            st.plotly_chart(create_new_defects_by_type_bar(later_data), use_container_width=True)
-    
-    with tabs[1]:
-        _render_growth_analysis_visualizations()
-    
-    with tabs[2]:
-        _render_correction_review_section()
-    
-    with tabs[3]:
-        _render_data_export_section()
 
 
 def _render_growth_analysis_visualizations():
@@ -403,25 +369,19 @@ def render_comparison_view():
     main_tabs = st.tabs([
         "Growth Analysis",
         "Failure Prediction",
-        "Results & Visualization",
-        "Export Data"
+        "Results"
     ])
-    
+
     with main_tabs[0]:
         render_growth_analysis_tab(datasets, available_years)
-    
+
     with main_tabs[1]:
         # Direct failure prediction - no sub-tabs!
-        render_failure_prediction_section(datasets, get_state('comparison_results'))    
-    
+        render_failure_prediction_section(datasets, get_state('comparison_results'))
 
     with main_tabs[2]:
         # Results and Visualization Tab
         render_results_visualization_tab(datasets)
-    
-    with main_tabs[3]:
-        # Export Tab
-        render_export_tab()
 
 
 def render_growth_analysis_tab(datasets, available_years):
@@ -681,10 +641,11 @@ def display_prediction_results_simple():
 
 def render_results_visualization_tab(datasets):
     """
-    Renders the 'Results & Visualization' tab, which provides a comprehensive display of the analysis outcomes.
+    Renders the 'Results' tab, providing a comprehensive display of the analysis outcomes.
+    This tab includes overviews, growth analysis, correction reviews, and data export functionalities.
     """
-    st.header("Analysis Results and Visualization")
-    st.markdown("Explore the detailed outcomes of the growth analysis, including charts and data summaries.")
+    st.header("Analysis Results")
+    st.markdown("Explore the detailed outcomes of the growth analysis, including charts, data summaries, and export options.")
 
     comparison_results = get_state('comparison_results')
     comparison_years = get_state('comparison_years')
@@ -697,74 +658,33 @@ def render_results_visualization_tab(datasets):
     earlier_data = datasets[earlier_year]
     later_data = datasets[later_year]
 
-    display_data_preview_and_results(earlier_data, later_data)
+    # Correction Summary
+    correction_results = get_state('correction_results')
+    if correction_results:
+        _display_correction_summary(correction_results)
 
-
-def render_export_tab():
-    """
-    Renders the Data Export tab, providing download links for analysis results and documentation.
-    """
-    st.header("Data Export and Documentation")
-    st.markdown("Download the results of your analysis or generate reports for documentation.")
-
-    comparison_results = get_state('comparison_results')
-    if not comparison_results:
-        st.warning("No analysis results are available. Please run the Growth Analysis first.")
-        return
-
-    # Section for exporting data files
+    # Overview Charts
+    st.subheader("Analysis Overview")
     with st.container(border=True):
-        st.subheader("Analysis Data Files")
         col1, col2 = st.columns(2)
         with col1:
-            # Matched Defects Export
-            if not comparison_results['matches_df'].empty:
-                matches_csv = comparison_results['matches_df'].to_csv(index=False)
-                st.download_button(
-                    label="Download Matched Defects (CSV)",
-                    data=matches_csv,
-                    file_name=f"matched_defects_{get_state('comparison_years')[0]}_{get_state('comparison_years')[1]}.csv",
-                    mime="text/csv",
-                    key="export_matched_defects"
-                )
+            st.plotly_chart(create_defect_status_donut(earlier_data, later_data), use_container_width=True)
         with col2:
-            # New Defects Export
-            if not comparison_results['new_defects'].empty:
-                new_defects_csv = comparison_results['new_defects'].to_csv(index=False)
-                st.download_button(
-                    label="Download New Defects (CSV)",
-                    data=new_defects_csv,
-                    file_name=f"new_defects_{get_state('comparison_years')[1]}.csv",
-                    mime="text/csv",
-                    key="export_new_defects"
-                )
+            st.plotly_chart(create_new_defects_by_type_bar(later_data), use_container_width=True)
 
-    # Section for documentation and reports
+    # Detailed Analysis Sections
+    with st.expander("Growth Analysis Details", expanded=True):
+        _render_growth_analysis_visualizations()
+
+    with st.expander("Correction Review Details"):
+        _render_correction_review_section()
+
+    # Data Export Section
     with st.container(border=True):
-        st.subheader("Reports and Documentation")
-        col1, col2 = st.columns(2)
-        with col1:
-            # Correction Report
-            correction_results = get_state('correction_results')
-            if correction_results:
-                report_content = _generate_correction_report(correction_results, comparison_results)
-                st.download_button(
-                    label="Download Correction Report",
-                    data=report_content,
-                    file_name=f"growth_correction_report_{get_state('comparison_years')[0]}_{get_state('comparison_years')[1]}.txt",
-                    mime="text/plain",
-                    key="export_correction_report"
-                )
-        with col2:
-            # Methodology Document
-            methodology_doc = _generate_methodology_documentation()
-            st.download_button(
-                label="Download Methodology Document",
-                data=methodology_doc,
-                file_name="analysis_methodology.txt",
-                mime="text/plain",
-                key="export_methodology"
-            )
+        st.subheader("Data Export and Documentation")
+        _render_data_export_section()
+
+
 
 
 
