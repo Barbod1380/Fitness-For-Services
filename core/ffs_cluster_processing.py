@@ -89,9 +89,9 @@ class EnhancedFFSClusterer:
         
         combined_defects = []
         processed_indices = set()
-        
+    
         # Add combined defects for each cluster
-        for i, cluster in enumerate(clusters):
+        for i, cluster in enumerate(real_clusters):
             combined_defect = {
                 'log dist. [m]': cluster.center_location_m,
                 'length [mm]': cluster.combined_length_mm,

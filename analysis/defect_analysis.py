@@ -1,9 +1,9 @@
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
-from plotly.subplots import make_subplots
 import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 def feature_cat_normalized(length_norm, width_norm):
@@ -18,6 +18,7 @@ def feature_cat_normalized(length_norm, width_norm):
     Returns:
     - Category string
     """
+
     # Handle invalid/zero dimensions
     if length_norm <= 0 or width_norm <= 0:
         return ""
@@ -25,8 +26,7 @@ def feature_cat_normalized(length_norm, width_norm):
     # Calculate L/W ratio for conditions that need it
     l_w_ratio = length_norm / width_norm if width_norm > 0 else float('inf')
     
-    # Apply categorization rules EXACTLY as per ROSEN PDF:
-    
+
     # General: [W ≥ 3A] and [L ≥ 3A]
     if width_norm >= 3 and length_norm >= 3:
         return "General"
@@ -51,8 +51,7 @@ def feature_cat_normalized(length_norm, width_norm):
     elif (width_norm >= 1) and (0 < length_norm < 1):
         return "CircSlot"
     
-    # Pitting: {([1A ≤ W < 6A] and [1A ≤ L < 6A] and [0.5 < L/W < 2]) 
-    #          and not ([W ≥ 3A] and [L ≥ 3A])}
+    # Pitting: {([1A ≤ W < 6A] and [1A ≤ L < 6A] and [0.5 < L/W < 2]) and not ([W ≥ 3A] and [L ≥ 3A])}
     elif ((1 <= width_norm < 6) and 
           (1 <= length_norm < 6) and 
           (0.5 < l_w_ratio < 2) and 
@@ -76,6 +75,7 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
     Returns:
     - Plotly figure object with two clean subplots
     """
+
     # Check required columns
     required_defect_cols = ['length [mm]', 'width [mm]', 'joint number']
     required_joint_cols = ['joint number', 'wt nom [mm]']
@@ -85,8 +85,8 @@ def create_clean_combined_defect_plot(defects_df, joints_df, title_suffix = ""):
     
     if missing_defect_cols or missing_joint_cols:
         # Create subplots with dynamic titles
-        left_title = f"🔍 Defect Categorization Map{title_suffix}"
-        right_title = f"📊 Category Frequency{title_suffix}"
+        left_title = f"Defect Categorization Map{title_suffix}"
+        right_title = f"Category Frequency{title_suffix}"
         
         fig = make_subplots(
             rows=1, cols=2,
@@ -601,6 +601,7 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
         ]
     )
     return {"combined_dimensions": fig} if fig else {}
+
 
 def create_combined_dimensions_plot(defects_df, joints_df):
     """
