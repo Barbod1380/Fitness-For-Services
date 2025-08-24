@@ -1,52 +1,59 @@
-<<<<<<< HEAD
-# Pipeline Inspection Data Visualization
+# Fitness-for-Service Analysis Platform for Pipelines
 
-This is a Streamlit application for visualizing pipeline inspection data. The original code has been refactored into a modular structure for better organization and maintainability.
+This is a comprehensive Streamlit application designed for the Fitness-for-Service (FFS) analysis of pipeline integrity. The platform allows for in-depth analysis of pipeline status, defect analysis, and visualization of inspection data.
 
-## File Structure
+## Key Features
 
-- **main.py**: The entry point of the application. Contains the main Streamlit UI components and application flow.
-- **data_processing.py**: Contains functions for processing and transforming the pipeline data.
-- **utils.py**: Contains utility functions for data conversion, such as clock format parsing.
-- **visualizations.py**: Contains the visualization creation functions for both complete pipeline and joint-specific views.
+*   **Data Upload & Processing**: Upload pipeline inspection data in CSV format. The application processes the data to identify joints and defects.
+*   **Pipeline Visualization**: Visualize the entire pipeline as an unwrapped cylinder, with defects highlighted. Color-code defects by depth, surface location, or area.
+*   **Joint-Specific View**: Isolate and visualize specific joints for a more detailed inspection of defects.
+*   **Defect Analysis**: Perform defect analysis, including clustering of defects based on industry standards (e.g., DNV).
+*   **Multi-Year Comparison**: Compare pipeline data from different years to track defect growth and changes in pipeline integrity.
+*   **FFS Calculations**: Conduct Fitness-for-Service calculations to assess the integrity of the pipeline.
 
-## How to Run
+## Getting Started
 
-1. Make sure all the files are in the same directory
-2. Install required packages:
-   ```
-   pip install streamlit pandas numpy plotly
-   ```
-3. Run the application:
-   ```
-   streamlit run main.py
-   ```
+These instructions will get you a copy of the project up and running on your local machine for development and testing purposes.
 
-## App Features
+### Prerequisites
 
-- Upload pipeline inspection CSV data
-- View processed data tables (joints and defects)
-- Visualize the entire pipeline with defects
-- Visualize specific joints with detailed defect information
+*   Python 3.8+
+*   pip
 
-## Visualization Types
+### Installation
 
-1. **Complete Pipeline View**: An unwrapped cylinder visualization showing all defects with different color modes:
-   - Depth (%)
-   - Surface Location
-   - Area (mm²)
+1.  Clone the repository to your local machine:
+    ```bash
+    git clone <repository-url>
+    ```
+2.  Navigate to the project directory:
+    ```bash
+    cd <project-directory>
+    ```
+3.  Install the required packages using `pip`:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-2. **Joint-by-Joint View**: Detailed visualization of defects within a specific joint
+## How to Run the Application
 
-## Data Processing
+Once the dependencies are installed, you can run the Streamlit application with the following command:
 
-The application processes raw CSV data into two main tables:
-- Joints table: Contains joint information (distance, joint number, length, etc.)
-- Defects table: Contains defect information with references to associated joints
+```bash
+streamlit run main.py
+```
 
-## Notes
+The application will open in your default web browser.
 
-This code reorganization maintains all original functionality while improving maintainability. No functionality has been changed - only the organization of the code into separate files.
-=======
-# Fitness-For-Services
->>>>>>> 2a5f3b9a1b8d5833b152163627342a03f49d85cc
+## Project Structure
+
+The project is organized into a modular structure for better maintainability and scalability:
+
+-   `main.py`: The entry point for the Streamlit application.
+-   `requirements.txt`: A list of the Python packages required to run the project.
+-   `app/`: Contains the main application logic, including the Streamlit UI, styling, and page routing.
+-   `analysis/`: Houses the modules for performing FFS calculations and defect analysis.
+-   `core/`: Contains the core data processing pipeline, including defect matching and clustering algorithms.
+-   `utils/`: A package for utility functions, such as data formatting and validation.
+-   `visualization/`: Contains modules for creating the various data visualizations used in the application.
+-   `assets/`: Contains static assets like images and logos.
