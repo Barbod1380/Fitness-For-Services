@@ -794,13 +794,31 @@ def create_combined_dimensions_plot(defects_df, joints_df):
         xref='paper', yref='paper',
         text=f"Average Aspect Ratio: {avg_aspect:.2f}",
         showarrow=False,
-        font=dict(size=10, color="#2C3E50"),
+        font=dict(size=16, color="#2C3E50"),
         bgcolor="rgba(255,255,255,0.9)",
         bordercolor="rgba(0,0,0,0.1)",
         borderwidth=1,
         align="left"
     )
-    
+
+    fig.update_xaxes(
+        title_text="Aspect Ratio (Length ÷ Width)<br>",
+        title_font=dict(size=20),     # ← axis label size
+        tickfont=dict(size=16),       # ← tick text size (optional)
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(128,128,128,0.2)'
+    )
+
+    fig.update_yaxes(
+        title_text="Volume Loss (mm³)<br><sub>Material removed by corrosion</sub>",
+        title_font=dict(size=20),     # ← axis label size
+        tickfont=dict(size=16),       # ← tick text size (optional)
+        type="log",
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(128,128,128,0.2)'
+    )
     return fig
 
 

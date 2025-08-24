@@ -498,11 +498,20 @@ def render_failure_prediction_section(datasets, comparison_results):
     # Expander for explaining the simulation methodology
     with st.expander("About the Failure Prediction Methodology"):
         st.markdown("""
-        This simulation projects future defect failures using the calculated growth rates.
-        - **Growth Model**: Assumes linear growth (constant mm/year) for defect depth and length.
-        - **Dynamic Clustering**: Re-evaluates defect interactions each simulated year, which is crucial as defects can grow into proximity over time.
-        - **Failure Criteria**: A defect fails if its depth exceeds a threshold (e.g., 80%) or if its safe operating pressure falls below the specified maximum.
-        - **Assessment Standard**: Failure pressure for clusters is calculated using the RSTRENG Effective Area method.
+        This simulation projects future defect failures using the calculated growth rates. The methodology is based on the following principles:
+
+        - **Growth Model**: Assumes a **linear growth model**, where the constant growth rate (in mm/year) calculated from the historical data is applied for each year of the simulation.
+
+        - **Dynamic Clustering**: When enabled, the simulation performs a re-clustering analysis for **every year** of the simulation. This is critical because as defects grow, they may begin to interact. The process works as follows:
+            1.  **Spatial Indexing**: To efficiently find nearby defects without checking every possible pair (which would be very slow), the application uses a **KD-Tree**, a specialized data structure for fast spatial queries. The axial and circumferential position of each active defect is used to build this index.
+            2.  **Candidate Search**: The KD-Tree is queried to find all pairs of defects that are within a conservative interaction radius defined by the selected standard (e.g., DNV or ROSEN).
+            3.  **Refinement**: These candidate pairs are then rigorously checked against the specific interaction rules of the chosen standard to form the final clusters for that year's analysis.
+
+        - **Failure Criteria**: A defect is predicted to fail if it meets one of two conditions:
+            1. Its predicted depth exceeds the user-defined **Depth Failure Threshold** (e.g., 80% of the wall thickness).
+            2. Its calculated **ERF (Effective Repair Factor)**, which is the ratio of its predicted failure pressure to the maximum operating pressure, falls below the user-defined **ERF Failure Threshold** (e.g., 0.90).
+
+        - **Assessment Standard**: The failure pressure for all defects (both individual and clustered) is calculated using the **user-selected assessment method** (e.g., B31G, Modified B31G, or RSTRENG).
         """)
 
     if st.button("Run Failure Prediction", type="primary", use_container_width=True):
