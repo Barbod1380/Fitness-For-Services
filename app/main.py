@@ -14,6 +14,24 @@ from app.services.state_manager import initialize_session_state
 from app.services.router import route_to_current_page
 from app.config import APP_TITLE, APP_SUBTITLE
 
+from app.auth import login, logout
+from app.s3_utils import load_csv_from_s3
+from app.services.navigation_service import set_current_page
+
+def show_login_page():
+    """Displays the login page and handles login logic."""
+    st.title("Welcome to the Pipeline Integrity Assessment Platform")
+    st.header("Please Login")
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")
+        if submitted:
+            if not username or not password:
+                st.warning("Please enter both username and password.")
+            else:
+                login(username, password)
+
 def run_app():
     """Main function to run the Professional Pipeline FFS Streamlit application."""
     
@@ -36,18 +54,38 @@ def run_app():
     # Apply professional CSS styling
     load_css()
     apply_navigation_styles()
-    
-    # Create professional header
-    create_professional_header()
-    
-    # Create professional sidebar and get uploaded file
-    uploaded_file, selected_year = create_professional_sidebar(st.session_state)
-    
-    # Add professional breadcrumb navigation
-    create_professional_breadcrumb()
-    
-    # Route to the current page
-    route_to_current_page(uploaded_file, selected_year)
+
+    if not st.session_state.get('logged_in', False):
+        # If not logged in, show the login page
+        show_login_page()
+    else:
+        # If logged in, show the main application
+        # Create professional header
+        create_professional_header()
+
+        # Create professional sidebar
+        selected_year, selected_file = create_professional_sidebar(st.session_state)
+
+        # This is where the data loading will be triggered.
+        if selected_year and selected_file:
+            current_selection = (selected_year, selected_file)
+            # Load data only if the selection has changed
+            if st.session_state.get('selection_details') != current_selection:
+                with st.spinner(f"Loading {selected_file} from S3..."):
+                    username = st.session_state.get('username')
+                    df = load_csv_from_s3(username, selected_year, selected_file)
+                    if df is not None:
+                        st.session_state.raw_df_to_process = df
+                        st.session_state.selection_details = current_selection
+                        # Navigate to the processing page
+                        set_current_page('upload')
+                        st.rerun()
+
+        # Add professional breadcrumb navigation
+        create_professional_breadcrumb()
+
+        # Route to the current page. The router no longer handles file uploads directly.
+        route_to_current_page(None, selected_year)
 
 if __name__ == "__main__":
     run_app()

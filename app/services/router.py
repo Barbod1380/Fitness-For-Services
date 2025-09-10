@@ -12,24 +12,15 @@ from app.views import (
 def route_to_current_page(uploaded_file=None, selected_year=None):
     """
     Route to the current page based on session state.
-    
-    Parameters:
-    - uploaded_file: Uploaded file from sidebar
-    - selected_year: Selected year from sidebar
     """
     current_page = get_current_page()
     
-    # If a file is uploaded, automatically go to the upload page
-    if uploaded_file is not None:
-        render_upload_view(uploaded_file, selected_year)
-        return
-    
-    # Otherwise, route based on current page
+    # Route based on current page
     if current_page == 'home':
         render_home_view()
     
     elif current_page == 'upload':
-        st.info("Please upload a file to continue.")
+        render_upload_view()
     
     elif current_page == 'single_analysis':
         render_single_analysis_view()

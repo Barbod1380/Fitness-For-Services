@@ -6,6 +6,16 @@ import json
 
 # Define default state values
 DEFAULT_STATE = {
+    # Authentication state
+    'logged_in': False,
+    'username': None,
+    'cognito_tokens': None,
+
+    # Data processing state
+    'raw_df_to_process': None,
+    'selection_details': None,
+
+    # Existing state
     'datasets': {},
     'current_year': None,
     'file_upload_key': 0,
