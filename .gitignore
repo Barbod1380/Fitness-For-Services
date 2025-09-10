@@ -10,6 +10,9 @@ __pycache__/
 venv/
 .venv/
 
+# Secret Info
+.streamlit/
+
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
