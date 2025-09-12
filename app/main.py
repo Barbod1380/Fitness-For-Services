@@ -20,36 +20,51 @@ from app.services.navigation_service import set_current_page
 from app.auth import start_login, complete_new_password
 
 def show_login_page():
-    st.title("Welcome to the Pipeline Integrity Assessment Platform")
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
 
-    # If Cognito returned NEW_PASSWORD_REQUIRED
-    if st.session_state.get("auth_challenge") == "NEW_PASSWORD_REQUIRED":
-        st.info("First login detected. Please set a new password to continue.")
-        with st.form("new_password_form"):
-            new_pw = st.text_input("New password", type="password")
-            confirm_pw = st.text_input("Confirm new password", type="password")
-            submitted = st.form_submit_button("Update password")
-            if submitted:
-                if not new_pw or not confirm_pw:
-                    st.warning("Please fill both fields.")
-                elif new_pw != confirm_pw:
-                    st.error("Passwords do not match.")
-                else:
-                    # Provide required attributes if your pool enforces them at first login
-                    complete_new_password(new_pw, user_attributes=None)
-        return
+    col1, col2, col3 = st.columns([1,1.5,1])
 
-    # Normal login form
-    st.header("Please Login")
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login")
-        if submitted:
-            if not username or not password:
-                st.warning("Please enter both username and password.")
-            else:
-                start_login(username, password)
+    with col2:
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+
+        # Company Logo
+        st.image("assets/logo-pica.png", width=200)
+
+        # If Cognito returned NEW_PASSWORD_REQUIRED
+        if st.session_state.get("auth_challenge") == "NEW_PASSWORD_REQUIRED":
+            st.markdown('<h2 class="login-title">Set Your New Password</h2>', unsafe_allow_html=True)
+            st.markdown('<p class="login-subtitle">A temporary password was provided. Please update it now.</p>', unsafe_allow_html=True)
+
+            with st.form("new_password_form", clear_on_submit=False):
+                new_pw = st.text_input("New password", type="password", placeholder="••••••••••")
+                confirm_pw = st.text_input("Confirm new password", type="password", placeholder="••••••••••")
+                submitted = st.form_submit_button("Update Password", use_container_width=True)
+                if submitted:
+                    if not new_pw or not confirm_pw:
+                        st.warning("Please fill both password fields.")
+                    elif new_pw != confirm_pw:
+                        st.error("Passwords do not match.")
+                    else:
+                        complete_new_password(new_pw, user_attributes=None)
+
+        # Normal login form
+        else:
+            st.markdown('<h2 class="login-title">Welcome Back</h2>', unsafe_allow_html=True)
+            st.markdown('<p class="login-subtitle">Login to access the Pipeline Integrity Platform.</p>', unsafe_allow_html=True)
+
+            with st.form("login_form", clear_on_submit=False):
+                username = st.text_input("Username", placeholder="e.g., engineering@pica.com")
+                password = st.text_input("Password", type="password", placeholder="••••••••••")
+                submitted = st.form_submit_button("Login", use_container_width=True)
+                if submitted:
+                    if not username or not password:
+                        st.warning("Please enter both username and password.")
+                    else:
+                        start_login(username, password)
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def run_app():

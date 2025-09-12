@@ -84,6 +84,50 @@ def load_css():
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+
+    /*---------------------------------------------
+      A) Login Page Specific Styles
+    ---------------------------------------------*/
+    .login-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    .login-box {
+        background: white;
+        padding: var(--space-2xl);
+        border-radius: var(--radius-xl);
+        box-shadow: var(--shadow-xl);
+        width: 100%;
+        max-width: 450px;
+        text-align: center;
+        border-top: 5px solid var(--primary-blue);
+        animation: slideIn 0.5s ease-out;
+    }
+    .login-logo {
+        margin-bottom: var(--space-lg);
+        max-width: 200px;
+    }
+    .login-title {
+        font-family: var(--font-display);
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--primary-navy);
+        margin-bottom: var(--space-xs);
+    }
+    .login-subtitle {
+        color: var(--neutral-600);
+        margin-bottom: var(--space-xl);
+    }
+    .login-form .stTextInput, .login-form .stButton {
+        margin-bottom: var(--space-md) !important;
+    }
+    .login-form .stButton > button {
+        width: 100%;
+    }
     
     /* Custom Scrollbar */
     ::-webkit-scrollbar {
