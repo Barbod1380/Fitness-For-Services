@@ -90,26 +90,29 @@ def load_css():
     ---------------------------------------------*/
     .login-container {
         display: flex;
-        flex-direction: column;
-        align-items: center;
         justify-content: center;
-        padding-top: 2rem;
-        padding-bottom: 2rem;
+        align-items: center;
+        height: 100vh;
+        background: var(--gradient-surface);
+        overflow: hidden;
     }
+
     .login-box {
         background: white;
-        padding: var(--space-2xl);
+        padding: 2.5rem 3rem;
         border-radius: var(--radius-xl);
         box-shadow: var(--shadow-xl);
         width: 100%;
-        max-width: 450px;
+        max-width: 480px; /* Increased width for better spacing */
         text-align: center;
-        border-top: 5px solid var(--primary-blue);
-        animation: slideIn 0.5s ease-out;
+        border-top: 6px solid var(--primary-blue);
+        animation: slideIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        border: 1px solid var(--neutral-200);
     }
+
     .login-logo {
-        margin-bottom: var(--space-lg);
-        max-width: 200px;
+        max-width: 180px; /* Slightly smaller logo */
+        margin-bottom: var(--space-xl);
     }
     .login-title {
         font-family: var(--font-display);

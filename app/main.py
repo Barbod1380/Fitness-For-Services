@@ -20,18 +20,17 @@ from app.services.navigation_service import set_current_page
 from app.auth import start_login, complete_new_password
 
 def show_login_page():
+    """Renders the professional login page."""
     st.markdown('<div class="login-container">', unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1,1.5,1])
+    # The login box is centered by the CSS flex properties of login-container
+    st.markdown('<div class="login-box">', unsafe_allow_html=True)
 
-    with col2:
-        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+    # Company Logo
+    st.image("assets/logo-pica.png", width=180)
 
-        # Company Logo
-        st.image("assets/logo-pica.png", width=200)
-
-        # If Cognito returned NEW_PASSWORD_REQUIRED
-        if st.session_state.get("auth_challenge") == "NEW_PASSWORD_REQUIRED":
+    # If Cognito returned NEW_PASSWORD_REQUIRED
+    if st.session_state.get("auth_challenge") == "NEW_PASSWORD_REQUIRED":
             st.markdown('<h2 class="login-title">Set Your New Password</h2>', unsafe_allow_html=True)
             st.markdown('<p class="login-subtitle">A temporary password was provided. Please update it now.</p>', unsafe_allow_html=True)
 
