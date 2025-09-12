@@ -137,7 +137,29 @@ def show_login_page():
     /* ensure Streamlit inputs fit nicely inside the constrained card */
     .login-card .stTextInput, .login-card .stPasswordInput, .login-card .stCheckbox {
       width: 100% !important;
-      max-width: 420px;
+      max-width: 320px;
+    }
+
+    /* Professional button styling */
+    .stButton>button {
+        width: 100% !important;
+        background: linear-gradient(90deg, var(--orange) 0%, #ff8c3d 100%);
+        color: white;
+        border-radius: 8px;
+        transition: all 0.2s ease-in-out;
+        border: none;
+        box-shadow: 0 4px 10px rgba(255, 122, 24, 0.2);
+        font-weight: 600;
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(255, 122, 24, 0.3);
+    }
+    .stButton>button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 5px rgba(255, 122, 24, 0.2);
     }
 
     .card-footer {
