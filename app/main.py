@@ -12,19 +12,33 @@ from app.ui_components.navigation import (
 )
 from app.services.state_manager import initialize_session_state
 from app.services.router import route_to_current_page
-from app.config import APP_TITLE, APP_SUBTITLE
-
 from app.s3_utils import load_csv_from_s3
 from app.services.navigation_service import set_current_page
-
 from app.auth import start_login, complete_new_password
 
-def show_login_page():
-    st.title("Welcome to the Pipeline Integrity Assessment Platform")
 
-    # If Cognito returned NEW_PASSWORD_REQUIRED
+def show_login_page():
+    """
+    Centered login card with navy/orange decorative accents.
+    - No logo
+    - Constrained card width so inputs don't span full window
+    - Two blurred decorative circles: navy (top-left) and orange (bottom-right)
+    - Smooth navy->orange header band and orange login button with hover glow
+    - Preserves NEW_PASSWORD_REQUIRED flow and calls to start_login / complete_new_password
+    """
+    # Page header
+    st.markdown(
+        "<h2 style='text-align:center; color:var(--navy); margin-bottom:6px'>Pipeline Integrity Assessment</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='text-align:center; color:#6b7280; margin-bottom:18px'>Secure access for pipeline data analysts</div>",
+        unsafe_allow_html=True,
+    )
+
+    # NEW_PASSWORD_REQUIRED flow (unchanged)
     if st.session_state.get("auth_challenge") == "NEW_PASSWORD_REQUIRED":
-        st.info("First login detected. Please set a new password to continue.")
+        st.info("First login: set a new password.")
         with st.form("new_password_form"):
             new_pw = st.text_input("New password", type="password")
             confirm_pw = st.text_input("Confirm new password", type="password")
@@ -35,22 +49,173 @@ def show_login_page():
                 elif new_pw != confirm_pw:
                     st.error("Passwords do not match.")
                 else:
-                    # Provide required attributes if your pool enforces them at first login
                     complete_new_password(new_pw, user_attributes=None)
         return
 
-    # Normal login form
-    st.header("Please Login")
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login")
-        if submitted:
-            if not username or not password:
-                st.warning("Please enter both username and password.")
-            else:
-                start_login(username, password)
+    # CSS: page theme, decorative accents, card styling
+    css = """
+    <style>
+    :root{
+      --navy: #072033;
+      --navy-2: #0b2540;
+      --orange: #ff7a18;
+      --orange-soft: rgba(255,122,24,0.12);
+      --muted: #6b7280;
+      --card-bg: #ffffff;
+      --page-bg: linear-gradient(180deg, #fbfcfd 0%, #fff8f3 100%);
+    }
+    html, body, .stApp {
+      background: var(--page-bg) !important;
+    }
 
+    /* Decorative blurred circles behind the card */
+    .decorative-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: -1;
+      overflow: hidden;
+    }
+
+    /* top-left navy */
+    .decorative-bg .navy-circle {
+      width: 360px;
+      height: 360px;
+      background: linear-gradient(140deg, var(--navy) 0%, var(--navy-2) 100%);
+      top: -140px;
+      left: -120px;
+      opacity: 0.14;
+    }
+
+    /* bottom-right soft orange */
+    .decorative-bg .orange-circle {
+      width: 420px;
+      height: 420px;
+      background: linear-gradient(140deg, rgba(255,122,24,0.96) 0%, rgba(255,152,72,0.85) 100%);
+      bottom: -160px;
+      right: -140px;
+      opacity: 0.10;
+    }
+
+    /* header band */
+    .card-header {
+      background: linear-gradient(90deg, rgba(7,32,51,1) 0%, rgba(11,37,64,1) 28%, rgba(255,122,24,0.85) 100%);
+      border-top-left-radius:14px;
+      border-top-right-radius:14px;
+      padding:14px 18px 12px 18px;
+      color: white;
+      text-align:center;
+      font-weight:700;
+      font-size:15px;
+      letter-spacing:0.3px;
+      position: relative;
+    }
+    /* delicate accent line under header */
+    .card-header::after {
+      content: "";
+      position: absolute;
+      left: 8%;
+      bottom: -8px;
+      width: 84%;
+      height: 6px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 6px;
+      filter: blur(4px);
+    }
+
+    .card-body {
+      padding: 20px 22px 22px 22px;
+    }
+
+    .login-tag {
+      text-align:center;
+      color:var(--muted);
+      font-size:13px;
+      margin-bottom:14px;
+    }
+
+    /* ensure Streamlit inputs fit nicely inside the constrained card */
+    .login-card .stTextInput, .login-card .stPasswordInput, .login-card .stCheckbox {
+      width: 100% !important;
+      max-width: 420px;
+    }
+
+    .card-footer {
+      text-align:center;
+      color:#94a3b8;
+      font-size:12px;
+      margin-top:10px;
+      padding-bottom:12px;
+    }
+
+    /* responsive tweak */
+    @media (max-width: 560px) {
+      .login-card { width: 92% !important; margin: 0 4%; }
+      .decorative-bg .navy-circle { display: none; }
+      .decorative-bg .orange-circle { display: none; }
+    }
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+    # decorative circles: navy top-left, soft orange bottom-right
+    st.markdown(
+        """
+        <div class="decorative-bg" aria-hidden="true">
+          <div class="circle navy-circle"></div>
+          <div class="circle orange-circle"></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Card wrapper and content
+    st.markdown("<div class='login-center'><div class='login-card'>", unsafe_allow_html=True)
+
+    # header band
+    st.markdown("<div class='card-header'>Pipeline Analytics — Secure Login</div>", unsafe_allow_html=True)
+
+    # body
+    st.markdown("<div class='card-body'>", unsafe_allow_html=True)
+    st.markdown("<div class='login-tag'>Calm and modern — access limited to authorized analysts</div>", unsafe_allow_html=True)
+
+    # show auth error if present
+    auth_error = st.session_state.get("auth_error")
+    if auth_error:
+        st.error(auth_error)
+
+    # compact input group to create subtle inner background
+    with st.form("login_form"):
+        username = st.text_input("Username", value=st.session_state.get("username", ""), placeholder="your.company.username")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.session_state["show_password"] = False
+        pw_type = "password"
+        password = st.text_input("Password", type=pw_type, placeholder="Enter your password")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        cols = st.columns([1, 2])
+        with cols[0]:
+            submitted = st.form_submit_button("Log in")
+
+
+    # submission handling (preserve your start_login behavior)
+    if submitted:
+        if not username or not password:
+            st.warning("Please provide both username and password.")
+        else:
+            st.session_state["username"] = username.strip()
+            if "auth_error" in st.session_state:
+                del st.session_state["auth_error"]
+            try:
+                start_login(username.strip(), password)
+            except Exception:
+                st.session_state["auth_error"] = "Authentication service unavailable. Please try again later."
+
+    st.markdown("</div>", unsafe_allow_html=True)  # close card-body
+    st.markdown("<div class='card-footer'>© Pipeline Analytics — secure access</div>", unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)  # close card & wrapper
 
 def run_app():
     """Main function to run the Professional Pipeline FFS Streamlit application."""
