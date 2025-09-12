@@ -62,38 +62,30 @@ def load_csv_with_encoding(file):
     # If all encodings fail
     raise ValueError(f"Failed to load the file with any of the encodings: {', '.join(ENCODING_OPTIONS)}")
 
-def render_upload_view(uploaded_file, selected_year):
+def render_upload_view():
     """
-    Display the data upload and processing view.
-    
-    Parameters:
-    - uploaded_file: Uploaded file from Streamlit
-    - selected_year: Selected year for the data
+    Display the data upload and processing view, using data from session state.
     """
-    # Extract the upload page content from main.py
-    if uploaded_file is None:
+    df = st.session_state.get('raw_df_to_process')
+    selection_details = st.session_state.get('selection_details')
+
+    if df is None or selection_details is None:
+        st.warning("No data selected for processing. Please select a file from the sidebar.")
         return
+
+    selected_year, filename = selection_details
 
     # Create progress indicator for the workflow
     show_step_indicator(st.session_state.active_step)
 
     # Create a container for the column mapping process
     with st.container():
-        # Load the data with robust encoding handling
-        try:
-            df, successful_encoding = load_csv_with_encoding(uploaded_file)
-            if successful_encoding != 'utf-8':
-                info_box(f"File loaded with {successful_encoding} encoding. Some special characters may display differently.", "info")
-        except ValueError as e:
-            info_box(str(e), "warning")
-            st.stop()
-        
         # Display file info in a card-like container
         with st.expander("File Preview", expanded=True):
 
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.markdown(f"**Filename:** {uploaded_file.name}")
+                st.markdown(f"**Filename:** {filename}")
             with col2:
                 st.markdown(f"**Rows:** {df.shape[0]}")
             with col3:

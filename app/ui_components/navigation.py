@@ -6,6 +6,8 @@ from datetime import datetime
 from app.services.state_manager import get_state, clear_datasets
 from app.services.navigation_service import get_navigation_items, set_current_page, get_breadcrumb_items
 from app.config import APP_VERSION
+from app.auth import logout
+from app.s3_utils import list_available_years, list_files_for_year
 
 def get_logo_base64():
     """Get base64 encoded logo or return SVG fallback."""
@@ -62,6 +64,17 @@ def create_professional_sidebar(session_state):
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # User Profile Section
+        username = st.session_state.get('username', 'N/A')
+        st.markdown(f"""
+        <div class="sidebar-section-header">👤 User Profile</div>
+        <div class="user-profile-info">
+            <span>Logged in as: <strong>{username}</strong></span>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button(" Logout", use_container_width=True):
+            logout()
 
         # Navigation Section
         st.markdown('<div class="sidebar-section-header">🧭 Navigation</div>', unsafe_allow_html=True)
@@ -121,25 +134,37 @@ def create_professional_sidebar(session_state):
                 </div>
                 """, unsafe_allow_html=True)
 
-        # File Upload Section
-        st.markdown('<div class="sidebar-section-header">📤 Data Upload</div>', unsafe_allow_html=True)
+        # Data Selection Section
+        st.markdown('<div class="sidebar-section-header">📊 Data Selection</div>', unsafe_allow_html=True)
         
-        current_year = datetime.now().year
-        year_options = list(range(current_year - 30, current_year + 1))
-        selected_year = st.selectbox(
-            "🗓️ Inspection Year",
-            options=year_options,
-            index=len(year_options) - 1,
-            key="year_selector_sidebar",
-            help="Select the year for the inspection data you're uploading"
-        )
+        username = st.session_state.get('username')
+        selected_year = None
+        selected_file = None
 
-        uploaded_file = st.file_uploader(
-            "📁 Upload CSV Data",
-            type="csv",
-            key=f"file_uploader_{get_state('file_upload_key', 0)}",
-            help="Upload pipeline inspection data in CSV format"
-        )
+        if username:
+            available_years = list_available_years(username)
+
+            if not available_years:
+                st.info("No data found for your company.")
+            else:
+                selected_year = st.selectbox(
+                    "🗓️ Select Inspection Year",
+                    options=available_years,
+                    index=0,
+                    key="year_selector_s3"
+                )
+
+                if selected_year:
+                    available_files = list_files_for_year(username, selected_year)
+                    if not available_files:
+                        st.warning(f"No files found for the year {selected_year}.")
+                    else:
+                        selected_file = st.selectbox(
+                            "📁 Select Data File",
+                            options=available_files,
+                            index=0,
+                            key="file_selector_s3"
+                        )
 
         # System Actions
         st.markdown('<div class="sidebar-section-header">⚙️ System Actions</div>', unsafe_allow_html=True)
@@ -175,7 +200,7 @@ def create_professional_sidebar(session_state):
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-        return uploaded_file, selected_year
+        return selected_year, selected_file
 
 
 def create_professional_breadcrumb(items=None):
